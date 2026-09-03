@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/modernist-146dfc48-3fd6-45e8-a480-7999c0d8be97/styles.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; background: var(--color-text); color: var(--color-bg); font-family: var(--font-body); -webkit-font-smoothing: antialiased; font-size: 13px; }
+  a { color: var(--color-accent-500); text-decoration: none; }
+  a:hover { color: var(--color-accent-400); }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+  ::selection { background: var(--color-accent-800); }
+  :focus-visible { outline: 2px solid var(--color-accent-500); outline-offset: 2px; }
+  @keyframes cv-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--color-neutral-700); }
+  ::-webkit-scrollbar-track { background: var(--color-neutral-900); }
+</style>
+</helmet>
+<div style="min-height: 100vh; font-variant-numeric: tabular-nums; min-width: 1180px;">
+  <header style="border-bottom: 2px solid var(--color-neutral-700);">
+    <div style="padding: 0 24px; height: 54px; display: flex; align-items: center; gap: 18px;">
+      <span style="display: flex; align-items: baseline; gap: 7px;"><span style="font-weight: 800; font-size: 17px; letter-spacing: -0.02em;">CORVA</span><span style="width: 7px; height: 7px; background: var(--color-accent); display: block;"></span></span>
+      <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; border: 1px solid var(--color-neutral-600); color: var(--color-neutral-300); padding: 3px 8px;">Platform operator</span>
+      <span style="height: 22px; width: 1px; background: var(--color-neutral-800);"></span>
+      <span style="font-size: 12px; color: var(--color-neutral-500);">Signed in as <b style="color: var(--color-bg);">you@corva.systems</b> · Staff · all actions audited</span>
+      <span style="margin-left: auto; display: flex; align-items: center; gap: 14px; font-size: 11.5px; color: var(--color-neutral-500);">
+        <span style="display: flex; align-items: center; gap: 7px;"><span style="width: 7px; height: 7px; background: var(--color-accent); display: block; animation: cv-pulse 1.8s ease-in-out infinite;"></span><b style="color: var(--color-bg);">1 incident open</b></span>
+        <span>API p95 <b style="color: var(--color-bg);">184ms</b></span>
+        <span>Calls in flight <b style="color: var(--color-bg);">412</b></span>
+      </span>
+    </div>
+    <div style="padding: 0 24px; display: flex; gap: 0; border-top: 1px solid var(--color-neutral-800);">
+      <button onClick="{{ go.fleet }}" style="padding: 11px 16px; font-size: 12.5px; font-weight: 600; border-bottom: 3px solid {{ nav.fleet }};" style-hover="background:var(--color-neutral-900)">Fleet</button>
+      <button onClick="{{ go.tenant }}" style="padding: 11px 16px; font-size: 12.5px; font-weight: 600; border-bottom: 3px solid {{ nav.tenant }};" style-hover="background:var(--color-neutral-900)">Company detail</button>
+      <button onClick="{{ go.quality }}" style="padding: 11px 16px; font-size: 12.5px; font-weight: 600; border-bottom: 3px solid {{ nav.quality }};" style-hover="background:var(--color-neutral-900)">AI quality</button>
+      <button onClick="{{ go.revenue }}" style="padding: 11px 16px; font-size: 12.5px; font-weight: 600; border-bottom: 3px solid {{ nav.revenue }};" style-hover="background:var(--color-neutral-900)">Revenue &amp; plans</button>
+      <button onClick="{{ go.ops }}" style="padding: 11px 16px; font-size: 12.5px; font-weight: 600; border-bottom: 3px solid {{ nav.ops }};" style-hover="background:var(--color-neutral-900)">Reliability</button>
+    </div>
+  </header>
+
+  <sc-if value="{{ at.fleet }}" hint-placeholder-val="{{ true }}">
+  <section data-screen-label="Fleet">
+    <div style="padding: 22px 24px 18px; border-bottom: 2px solid var(--color-neutral-700); display: flex; align-items: flex-end; gap: 24px;">
+      <div>
+        <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-neutral-500);">All companies on Corva</div>
+        <h1 style="margin: 8px 0 0; font-weight: 800; font-size: 30px; letter-spacing: -0.028em; line-height: 1;">Fleet</h1>
+      </div>
+      <p style="margin: 0 0 3px; font-size: 12.5px; color: var(--color-neutral-400); max-width: 46ch;">Every tenant, what they're using, and whether their AI is behaving. Customer data stays inside each workspace — you see health, not transcripts, unless a company grants access.</p>
+      <div style="margin-left: auto; display: flex; gap: 8px;">
+        <button style="font-size: 12px; font-weight: 600; border: 2px solid var(--color-bg); padding: 8px 14px;" style-hover="background:var(--color-bg);color:var(--color-text)">Feature flags</button>
+        <button style="font-size: 12px; font-weight: 700; background: var(--color-accent); color: var(--color-bg); padding: 10px 14px;" style-hover="background:var(--color-accent-500);color:var(--color-text)">Onboard a company</button>
+      </div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(6, 1fr); border-bottom: 2px solid var(--color-neutral-700);">
+      <sc-for list="{{ fleetKpis }}" as="k" hint-placeholder-count="6">
+        <div style="padding: 15px 18px; border-right: 1px solid var(--color-neutral-800);">
+          <div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">{{ k.label }}</div>
+          <div style="margin-top: 7px; font-weight: 800; font-size: 26px; line-height: 1; letter-spacing: -0.025em;">{{ k.value }}</div>
+          <div style="margin-top: 5px; font-size: 11px; color: var(--color-neutral-500);"><b style="color: {{ k.deltaColor }};">{{ k.delta }}</b> {{ k.note }}</div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 348px;">
+      <div style="border-right: 2px solid var(--color-neutral-700);">
+        <div style="padding: 12px 24px; display: flex; align-items: center; gap: 10px; background: var(--color-neutral-900); border-bottom: 1px solid var(--color-neutral-800);">
+          <span style="font-size: 11px; font-weight: 700; background: var(--color-bg); color: var(--color-text); padding: 5px 9px;">Needs attention · 5</span>
+          <button style="font-size: 11px; font-weight: 600; border: 1px solid var(--color-neutral-600); padding: 4px 9px; color: var(--color-neutral-300);" style-hover="border-color:var(--color-bg);color:var(--color-bg)">All 148</button>
+          <button style="font-size: 11px; font-weight: 600; border: 1px solid var(--color-neutral-600); padding: 4px 9px; color: var(--color-neutral-300);" style-hover="border-color:var(--color-bg);color:var(--color-bg)">Trialling</button>
+          <button style="font-size: 11px; font-weight: 600; border: 1px solid var(--color-neutral-600); padding: 4px 9px; color: var(--color-neutral-300);" style-hover="border-color:var(--color-bg);color:var(--color-bg)">Enterprise</button>
+          <button style="font-size: 11px; font-weight: 600; border: 1px solid var(--color-neutral-600); padding: 4px 9px; color: var(--color-neutral-300);" style-hover="border-color:var(--color-bg);color:var(--color-bg)">Churn risk</button>
+          <span style="margin-left: auto; font-size: 11.5px; color: var(--color-neutral-500);">Sorted by health, worst first</span>
+        </div>
+        <table style="width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: fixed;">
+          <thead><tr style="border-bottom: 2px solid var(--color-neutral-700);">
+            <th style="text-align: left; padding: 9px 24px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">Company</th>
+            <th style="text-align: left; padding: 9px 10px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500); width: 12%;">Plan</th>
+            <th style="text-align: left; padding: 9px 10px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500); width: 13%;">Conv. / mo</th>
+            <th style="text-align: left; padding: 9px 10px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500); width: 13%;">Containment</th>
+            <th style="text-align: left; padding: 9px 10px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500); width: 15%;">AI health</th>
+            <th style="text-align: left; padding: 9px 10px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500); width: 12%;">MRR</th>
+            <th style="text-align: left; padding: 9px 24px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500); width: 16%;">Flag</th>
+          </tr></thead>
+          <tbody>
+            <sc-for list="{{ tenants }}" as="tn" hint-placeholder-count="10">
+              <tr style="border-bottom: 1px solid var(--color-neutral-800);" style-hover="background:var(--color-neutral-900)">
+                <td style="padding: 11px 24px;"><button onClick="{{ go.tenant }}" style="text-align: left;"><b style="font-size: 13px;">{{ tn.name }}</b><span style="display: block; font-size: 11px; color: var(--color-neutral-500);">{{ tn.meta }}</span></button></td>
+                <td style="padding: 11px 10px; color: var(--color-neutral-300);">{{ tn.plan }}</td>
+                <td style="padding: 11px 10px;">{{ tn.conv }}</td>
+                <td style="padding: 11px 10px;">{{ tn.containment }}</td>
+                <td style="padding: 11px 10px;"><span style="display: block; height: 6px; background: var(--color-neutral-800);"><span style="display: block; height: 100%; width: {{ tn.healthBar }}; background: {{ tn.healthColor }};"></span></span><span style="font-size: 10.5px; color: var(--color-neutral-500);">{{ tn.health }}</span></td>
+                <td style="padding: 11px 10px; font-weight: 700;">{{ tn.mrr }}</td>
+                <td style="padding: 11px 24px;"><span style="font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; background: {{ tn.tagBg }}; color: {{ tn.tagFg }}; padding: 3px 7px;">{{ tn.flag }}</span></td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <div style="padding: 16px 20px; border-bottom: 2px solid var(--color-neutral-700);">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="width: 7px; height: 7px; background: var(--color-accent); display: block; animation: cv-pulse 1.6s ease-in-out infinite;"></span>
+            <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;">Open incident</span>
+          </div>
+          <div style="margin-top: 12px; border: 2px solid var(--color-accent); padding: 12px 13px;">
+            <b style="font-size: 13px;">Voice latency in eu-west-2</b>
+            <div style="margin-top: 6px; font-size: 12px; color: var(--color-neutral-300); line-height: 1.45;">Median time-to-first-word 2.9s (target 1.5s). 14 companies affected, 3 above their SLA threshold. Failover to eu-west-1 staged.</div>
+            <div style="margin-top: 10px; display: flex; gap: 6px;">
+              <button style="font-size: 11px; font-weight: 700; background: var(--color-accent); color: var(--color-bg); padding: 7px 10px;" style-hover="background:var(--color-accent-500);color:var(--color-text)">Fail over now</button>
+              <button style="font-size: 11px; font-weight: 600; border: 1px solid var(--color-bg); padding: 6px 10px;" style-hover="background:var(--color-bg);color:var(--color-text)">Post status update</button>
+            </div>
+          </div>
+        </div>
+        <div style="padding: 16px 20px; border-bottom: 2px solid var(--color-neutral-700);">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-neutral-500);">Needs a human at Corva</div>
+          <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 11px; font-size: 12px;">
+            <div style="border-left: 3px solid var(--color-accent); padding-left: 10px;"><b>Northmoor Estates</b><div style="color: var(--color-neutral-400); margin-top: 3px;">Containment fell 18 points after they published 40 documents. Suspect contradictions.</div></div>
+            <div style="border-left: 3px solid var(--color-accent); padding-left: 10px;"><b>Halvard Retail AB</b><div style="color: var(--color-neutral-400); margin-top: 3px;">Trial ends in 3 days, has never opened Tuning. No knowledge base connected.</div></div>
+            <div style="border-left: 3px solid var(--color-neutral-600); padding-left: 10px;"><b>Vantage Living</b><div style="color: var(--color-neutral-400); margin-top: 3px;">Asked for data residency in Australia. No region there yet.</div></div>
+            <div style="border-left: 3px solid var(--color-neutral-600); padding-left: 10px;"><b>Kessel &amp; Co</b><div style="color: var(--color-neutral-400); margin-top: 3px;">92% of plan used with 11 days left. Offer an upgrade.</div></div>
+          </div>
+        </div>
+        <div style="padding: 16px 20px;">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-neutral-500);">Platform load · last 24h</div>
+          <div style="margin-top: 14px; display: flex; align-items: flex-end; gap: 3px; height: 76px; border-bottom: 1px solid var(--color-neutral-700);">
+            <sc-for list="{{ load }}" as="l" hint-placeholder-count="24">
+              <span style="flex: 1; display: block; background: {{ l.color }}; height: {{ l.h }};"></span>
+            </sc-for>
+          </div>
+          <div style="margin-top: 7px; display: flex; justify-content: space-between; font-size: 10.5px; color: var(--color-neutral-500);"><span>00:00</span><span>peak 1,842 concurrent</span><span>now</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  </sc-if>
+
+  <sc-if value="{{ at.tenant }}" hint-placeholder-val="{{ false }}">
+  <section data-screen-label="Company detail">
+    <div style="padding: 20px 24px; border-bottom: 2px solid var(--color-neutral-700); display: flex; align-items: flex-start; gap: 20px;">
+      <span style="width: 50px; height: 50px; background: var(--color-bg); color: var(--color-text); font-weight: 800; font-size: 17px; display: flex; align-items: center; justify-content: center;">AG</span>
+      <div style="flex: 1;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <h1 style="margin: 0; font-weight: 800; font-size: 27px; letter-spacing: -0.028em; line-height: 1;">Aurelius Group</h1>
+          <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; background: var(--color-accent); color: var(--color-bg); padding: 4px 8px;">Operator plan</span>
+          <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; border: 1px solid var(--color-neutral-600); padding: 3px 8px; color: var(--color-neutral-300);">Healthy · 91</span>
+        </div>
+        <div style="margin-top: 8px; display: flex; gap: 18px; font-size: 12.5px; color: var(--color-neutral-400); flex-wrap: wrap;">
+          <span>4 brands · 34 seats</span><span>Customer since Feb 2025</span><span>London, UK · EU residency</span><span>Owner: priya@aureliusgroup.com</span><span>Renews 1 Feb 2027</span>
+        </div>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button style="font-size: 12px; font-weight: 700; background: var(--color-accent); color: var(--color-bg); padding: 10px 14px;" style-hover="background:var(--color-accent-500);color:var(--color-text)">Request support access</button>
+        <button style="font-size: 12px; font-weight: 600; border: 2px solid var(--color-bg); padding: 8px 14px;" style-hover="background:var(--color-bg);color:var(--color-text)">Open a ticket</button>
+      </div>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr 340px;">
+      <div style="border-right: 1px solid var(--color-neutral-800);">
+        <div style="padding: 18px 24px; border-bottom: 1px solid var(--color-neutral-800);">
+          <h2 style="margin: 0 0 14px; font-weight: 800; font-size: 16px; letter-spacing: -0.015em;">Usage</h2>
+          <div style="display: flex; flex-direction: column; gap: 12px; font-size: 12.5px;">
+            <div>
+              <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Conversations this month</span><b>18,402 / 25,000</b></div>
+              <span style="display: block; margin-top: 5px; height: 6px; background: var(--color-neutral-800);"><span style="display: block; height: 100%; width: 74%; background: var(--color-accent);"></span></span>
+            </div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Voice minutes</span><b>41,208</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Knowledge documents</span><b>412 across 4 brands</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">API calls / day</span><b>1.2M</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Warehouse streaming</span><b>Snowflake · on</b></div>
+          </div>
+        </div>
+        <div style="padding: 18px 24px;">
+          <h2 style="margin: 0 0 14px; font-weight: 800; font-size: 16px; letter-spacing: -0.015em;">Brands</h2>
+          <sc-for list="{{ tenantBrands }}" as="b" hint-placeholder-count="4">
+            <div style="padding: 11px 0; border-top: 1px solid var(--color-neutral-800); display: flex; align-items: center; gap: 12px; font-size: 12.5px;">
+              <b style="flex: 1;">{{ b.name }}</b>
+              <span style="color: var(--color-neutral-500);">{{ b.conv }}</span>
+              <span style="width: 54px; text-align: right; color: {{ b.color }}; font-weight: 700;">{{ b.containment }}</span>
+              <span style="width: 66px; text-align: right; font-size: 11px; color: var(--color-neutral-500);">{{ b.agent }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="border-right: 2px solid var(--color-neutral-700);">
+        <div style="padding: 18px 24px; border-bottom: 1px solid var(--color-neutral-800);">
+          <h2 style="margin: 0 0 14px; font-weight: 800; font-size: 16px; letter-spacing: -0.015em;">AI health</h2>
+          <div style="display: flex; flex-direction: column; gap: 11px; font-size: 12.5px;">
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Containment</span><b>71.4% <span style="color: var(--color-accent-400);">+3.1</span></b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Answers with a citation</span><b>96.4%</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Unsupported claims flagged</span><b style="color: var(--color-accent-400);">11 this month</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Guardrail breaches blocked</span><b>4</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Documented intent coverage</span><b>41 / 47</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Tuning versions shipped</span><b>11 · avg 12 days apart</b></div>
+          </div>
+          <div style="margin-top: 14px; padding: 11px 13px; background: var(--color-neutral-900); border-left: 3px solid var(--color-accent); font-size: 12px; color: var(--color-neutral-300); line-height: 1.45;">Their draft v12 escalates more on Tier 1 accounts. Worth a call — it will raise their human cost, and they may not have noticed.</div>
+        </div>
+        <div style="padding: 18px 24px;">
+          <h2 style="margin: 0 0 14px; font-weight: 800; font-size: 16px; letter-spacing: -0.015em;">Feature flags</h2>
+          <div style="display: flex; flex-direction: column; gap: 11px; font-size: 12.5px;">
+            <sc-for list="{{ flags }}" as="f" hint-placeholder-count="6">
+              <div style="display: flex; align-items: center; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--color-neutral-800);">
+                <span style="flex: 1;"><b>{{ f.name }}</b><span style="display: block; font-size: 11px; color: var(--color-neutral-500);">{{ f.note }}</span></span>
+                <span style="width: 34px; height: 18px; background: {{ f.trackBg }}; display: block; position: relative;"><span style="position: absolute; top: 2px; left: {{ f.knob }}; width: 14px; height: 14px; background: var(--color-bg); display: block;"></span></span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div style="padding: 16px 20px; border-bottom: 2px solid var(--color-neutral-700);">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-neutral-500);">Support access</div>
+          <div style="margin-top: 12px; font-size: 12px; color: var(--color-neutral-300); line-height: 1.5;">You cannot read a company's transcripts or customer records by default. Access is requested, time-boxed, visible to their Owner, and written to their audit log.</div>
+          <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 9px; font-size: 12px;">
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Current grant</span><b>None</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Last grant</span><b>2h, 14 Aug · R. Vance</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Reason required</span><b>Yes</b></div>
+          </div>
+          <button style="margin-top: 12px; width: 100%; font-size: 11.5px; font-weight: 700; border: 2px solid var(--color-bg); padding: 9px 12px;" style-hover="background:var(--color-bg);color:var(--color-text)">Request 60-minute access</button>
+        </div>
+        <div style="padding: 16px 20px; border-bottom: 2px solid var(--color-neutral-700);">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-neutral-500);">Billing</div>
+          <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 9px; font-size: 12px;">
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">MRR</span><b>£5,704</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Lifetime</span><b>£78,420</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Payment method</span><b>BACS · on file</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Overdue</span><b>None</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Expansion signal</span><b style="color: var(--color-accent-400);">5th brand in setup</b></div>
+          </div>
+        </div>
+        <div style="padding: 16px 20px;">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-neutral-500);">Account notes</div>
+          <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 11px; font-size: 12px; color: var(--color-neutral-400);">
+            <div><b style="color: var(--color-bg);">28 Aug</b> — Priya wants a Slack-first escalation flow. Roadmap.</div>
+            <div><b style="color: var(--color-bg);">14 Aug</b> — Debugged a Drive sync failure with Dania. Auth expires again in Oct.</div>
+            <div><b style="color: var(--color-bg);">2 Jul</b> — Reference call agreed for the furniture vertical.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  </sc-if>
+
+  <sc-if value="{{ at.quality }}" hint-placeholder-val="{{ false }}">
+  <section data-screen-label="AI quality">
+    <div style="padding: 20px 24px; border-bottom: 2px solid var(--color-neutral-700); display: flex; align-items: flex-end; gap: 24px;">
+      <div>
+        <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-neutral-500);">Cross-tenant · anonymised until access is granted</div>
+        <h1 style="margin: 8px 0 0; font-weight: 800; font-size: 30px; letter-spacing: -0.028em; line-height: 1;">AI quality</h1>
+      </div>
+      <p style="margin: 0 0 3px; font-size: 12.5px; color: var(--color-neutral-400); max-width: 48ch;">Model behaviour across the whole fleet — the failures worth fixing once, centrally, instead of 148 times.</p>
+      <div style="margin-left: auto; display: flex; gap: 8px;">
+        <button style="font-size: 12px; font-weight: 600; border: 2px solid var(--color-bg); padding: 8px 14px;" style-hover="background:var(--color-bg);color:var(--color-text)">Export eval set</button>
+        <button style="font-size: 12px; font-weight: 700; background: var(--color-accent); color: var(--color-bg); padding: 10px 14px;" style-hover="background:var(--color-accent-500);color:var(--color-text)">Ship a base-model change</button>
+      </div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(5, 1fr); border-bottom: 2px solid var(--color-neutral-700);">
+      <div style="padding: 15px 18px; border-right: 1px solid var(--color-neutral-800);"><div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">Fleet containment</div><div style="margin-top: 7px; font-weight: 800; font-size: 26px; letter-spacing: -0.025em;">66.8%</div><div style="margin-top: 5px; font-size: 11px; color: var(--color-neutral-500);"><b style="color: var(--color-accent-400);">+1.9</b> this month</div></div>
+      <div style="padding: 15px 18px; border-right: 1px solid var(--color-neutral-800);"><div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">Citation rate</div><div style="margin-top: 7px; font-weight: 800; font-size: 26px; letter-spacing: -0.025em;">94.1%</div><div style="margin-top: 5px; font-size: 11px; color: var(--color-neutral-500);">target 97%</div></div>
+      <div style="padding: 15px 18px; border-right: 1px solid var(--color-neutral-800);"><div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">Unsupported claims</div><div style="margin-top: 7px; font-weight: 800; font-size: 26px; letter-spacing: -0.025em;">0.31%</div><div style="margin-top: 5px; font-size: 11px; color: var(--color-neutral-500);">of all AI turns</div></div>
+      <div style="padding: 15px 18px; border-right: 1px solid var(--color-neutral-800);"><div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">Bad handoffs</div><div style="margin-top: 7px; font-weight: 800; font-size: 26px; letter-spacing: -0.025em;">2.4%</div><div style="margin-top: 5px; font-size: 11px; color: var(--color-neutral-500);">brief judged unusable</div></div>
+      <div style="padding: 15px 18px;"><div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">Voice p95 latency</div><div style="margin-top: 7px; font-weight: 800; font-size: 26px; letter-spacing: -0.025em;">1.9s</div><div style="margin-top: 5px; font-size: 11px; color: var(--color-neutral-500);"><b style="color: var(--color-accent);">+0.4s</b> eu-west-2</div></div>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 380px;">
+      <div style="border-right: 2px solid var(--color-neutral-700);">
+        <div style="padding: 18px 24px;">
+          <div style="display: flex; align-items: baseline; gap: 12px;">
+            <h2 style="margin: 0; font-weight: 800; font-size: 16px; letter-spacing: -0.015em;">Flagged turns awaiting review</h2>
+            <span style="font-size: 11.5px; color: var(--color-neutral-500);">Company names shown; content withheld unless access is granted</span>
+          </div>
+          <table style="width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12.5px;">
+            <thead><tr style="border-top: 2px solid var(--color-neutral-700); border-bottom: 2px solid var(--color-neutral-700);">
+              <th style="text-align: left; padding: 9px 0; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">Company</th>
+              <th style="text-align: left; padding: 9px 10px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500); width: 168px;">Failure class</th>
+              <th style="text-align: left; padding: 9px 10px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500); width: 92px;">Turns</th>
+              <th style="text-align: left; padding: 9px 10px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500); width: 120px;">Root cause</th>
+              <th style="text-align: left; padding: 9px 0; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500); width: 116px;">Owner</th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ flagged }}" as="f" hint-placeholder-count="8">
+                <tr style="border-bottom: 1px solid var(--color-neutral-800);" style-hover="background:var(--color-neutral-900)">
+                  <td style="padding: 10px 0;"><b>{{ f.company }}</b></td>
+                  <td style="padding: 10px 10px; color: {{ f.color }};">{{ f.klass }}</td>
+                  <td style="padding: 10px 10px;">{{ f.turns }}</td>
+                  <td style="padding: 10px 10px; color: var(--color-neutral-400);">{{ f.cause }}</td>
+                  <td style="padding: 10px 0; color: var(--color-neutral-400);">{{ f.owner }}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <div style="padding: 16px 20px; border-bottom: 2px solid var(--color-neutral-700);">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-neutral-500);">Patterns worth fixing centrally</div>
+          <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 12px; font-size: 12px;">
+            <div style="border: 2px solid var(--color-accent); padding: 11px 12px;">
+              <div style="display: flex; gap: 8px;"><b style="flex: 1;">Dates invented from vague documents</b><span style="color: var(--color-accent-400); font-weight: 700;">61 tenants</span></div>
+              <div style="margin-top: 5px; color: var(--color-neutral-300); line-height: 1.45;">When a document says "3–5 working days" the model sometimes states a specific date. Fix: refuse specifics unless a feed confirms them.</div>
+              <button style="margin-top: 9px; font-size: 11px; font-weight: 700; background: var(--color-accent); color: var(--color-bg); padding: 7px 10px;" style-hover="background:var(--color-accent-500);color:var(--color-text)">Open eval &amp; patch</button>
+            </div>
+            <div style="border: 1px solid var(--color-neutral-700); padding: 11px 12px; background: var(--color-neutral-900);"><div style="display: flex; gap: 8px;"><b style="flex: 1;">Over-apologising loops</b><span style="color: var(--color-neutral-400); font-weight: 700;">34 tenants</span></div><div style="margin-top: 5px; color: var(--color-neutral-400);">Three or more apologies in a call correlates with a −0.2 sentiment drop.</div></div>
+            <div style="border: 1px solid var(--color-neutral-700); padding: 11px 12px; background: var(--color-neutral-900);"><div style="display: flex; gap: 8px;"><b style="flex: 1;">Thin handoff briefs on short calls</b><span style="color: var(--color-neutral-400); font-weight: 700;">28 tenants</span></div><div style="margin-top: 5px; color: var(--color-neutral-400);">Calls under 90 seconds produce briefs agents rate 2 / 5.</div></div>
+          </div>
+        </div>
+        <div style="padding: 16px 20px;">
+          <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-neutral-500);">Base model rollout</div>
+          <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 10px; font-size: 12px;">
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">corva-voice-4.2</span><b>92% of fleet</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">corva-voice-4.3 canary</span><b>8% · 12 tenants</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Canary containment</span><b style="color: var(--color-accent-400);">+2.4 pts</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Canary breaches</span><b>0</b></div>
+          </div>
+          <div style="margin-top: 12px; display: flex; gap: 8px;">
+            <button style="font-size: 11.5px; font-weight: 700; background: var(--color-accent); color: var(--color-bg); padding: 9px 12px;" style-hover="background:var(--color-accent-500);color:var(--color-text)">Widen to 25%</button>
+            <button style="font-size: 11.5px; font-weight: 600; border: 1px solid var(--color-bg); padding: 8px 12px;" style-hover="background:var(--color-bg);color:var(--color-text)">Halt canary</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  </sc-if>
+
+  <sc-if value="{{ at.revenue }}" hint-placeholder-val="{{ false }}">
+  <section data-screen-label="Revenue and plans">
+    <div style="padding: 20px 24px; border-bottom: 2px solid var(--color-neutral-700); display: flex; align-items: flex-end; gap: 24px;">
+      <div>
+        <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-neutral-500);">148 companies · 3 plans</div>
+        <h1 style="margin: 8px 0 0; font-weight: 800; font-size: 30px; letter-spacing: -0.028em; line-height: 1;">Revenue &amp; plans</h1>
+      </div>
+      <div style="margin-left: auto; display: flex; gap: 8px;">
+        <button style="font-size: 12px; font-weight: 600; border: 2px solid var(--color-bg); padding: 8px 14px;" style-hover="background:var(--color-bg);color:var(--color-text)">Export to finance</button>
+        <button style="font-size: 12px; font-weight: 700; background: var(--color-accent); color: var(--color-bg); padding: 10px 14px;" style-hover="background:var(--color-accent-500);color:var(--color-text)">Edit plan tiers</button>
+      </div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(5, 1fr); border-bottom: 2px solid var(--color-neutral-700);">
+      <div style="padding: 15px 18px; border-right: 1px solid var(--color-neutral-800);"><div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">MRR</div><div style="margin-top: 7px; font-weight: 800; font-size: 26px; letter-spacing: -0.025em;">£412,880</div><div style="margin-top: 5px; font-size: 11px; color: var(--color-neutral-500);"><b style="color: var(--color-accent-400);">+6.2%</b> MoM</div></div>
+      <div style="padding: 15px 18px; border-right: 1px solid var(--color-neutral-800);"><div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">Net revenue retention</div><div style="margin-top: 7px; font-weight: 800; font-size: 26px; letter-spacing: -0.025em;">118%</div><div style="margin-top: 5px; font-size: 11px; color: var(--color-neutral-500);">expansion led</div></div>
+      <div style="padding: 15px 18px; border-right: 1px solid var(--color-neutral-800);"><div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">Gross margin</div><div style="margin-top: 7px; font-weight: 800; font-size: 26px; letter-spacing: -0.025em;">74%</div><div style="margin-top: 5px; font-size: 11px; color: var(--color-neutral-500);">after inference &amp; telephony</div></div>
+      <div style="padding: 15px 18px; border-right: 1px solid var(--color-neutral-800);"><div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">Trials open</div><div style="margin-top: 7px; font-weight: 800; font-size: 26px; letter-spacing: -0.025em;">22</div><div style="margin-top: 5px; font-size: 11px; color: var(--color-neutral-500);">9 with no knowledge base</div></div>
+      <div style="padding: 15px 18px;"><div style="font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">At-risk MRR</div><div style="margin-top: 7px; font-weight: 800; font-size: 26px; letter-spacing: -0.025em;">£31,400</div><div style="margin-top: 5px; font-size: 11px; color: var(--color-neutral-500);">5 companies</div></div>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr;">
+      <div style="border-right: 2px solid var(--color-neutral-700); padding: 18px 24px;">
+        <h2 style="margin: 0 0 14px; font-weight: 800; font-size: 16px; letter-spacing: -0.015em;">MRR by month</h2>
+        <div style="display: flex; align-items: flex-end; gap: 8px; height: 170px; border-bottom: 2px solid var(--color-neutral-700);">
+          <sc-for list="{{ mrr }}" as="m" hint-placeholder-count="12">
+            <span style="flex: 1; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; gap: 2px;">
+              <span style="display: block; background: var(--color-neutral-700); height: {{ m.expansion }};"></span>
+              <span style="display: block; background: var(--color-accent); height: {{ m.base }};"></span>
+            </span>
+          </sc-for>
+        </div>
+        <div style="margin-top: 7px; display: flex; gap: 18px; font-size: 11px; color: var(--color-neutral-500);">
+          <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; background: var(--color-accent); display: block;"></span>Base subscriptions</span>
+          <span style="display: flex; align-items: center; gap: 6px;"><span style="width: 10px; height: 10px; background: var(--color-neutral-700); display: block;"></span>Usage above plan</span>
+          <span style="margin-left: auto;">Oct 25 → Sep 26</span>
+        </div>
+        <h2 style="margin: 24px 0 14px; font-weight: 800; font-size: 16px; letter-spacing: -0.015em;">Plan mix</h2>
+        <div style="display: flex; flex-direction: column; gap: 12px; font-size: 12.5px;">
+          <div><div style="display: flex; gap: 10px;"><span style="flex: 1;">Studio · £0.42 / conv</span><b>71 companies · £62k</b></div><span style="display: block; margin-top: 5px; height: 6px; background: var(--color-neutral-800);"><span style="display: block; height: 100%; width: 48%; background: var(--color-neutral-700);"></span></span></div>
+          <div><div style="display: flex; gap: 10px;"><span style="flex: 1;">Operator · £0.31 / conv</span><b>62 companies · £198k</b></div><span style="display: block; margin-top: 5px; height: 6px; background: var(--color-neutral-800);"><span style="display: block; height: 100%; width: 42%; background: var(--color-accent);"></span></span></div>
+          <div><div style="display: flex; gap: 10px;"><span style="flex: 1;">Enterprise · negotiated</span><b>15 companies · £152k</b></div><span style="display: block; margin-top: 5px; height: 6px; background: var(--color-neutral-800);"><span style="display: block; height: 100%; width: 10%; background: var(--color-accent-500);"></span></span></div>
+        </div>
+      </div>
+      <div>
+        <div style="padding: 18px 24px; border-bottom: 1px solid var(--color-neutral-800);">
+          <h2 style="margin: 0 0 4px; font-weight: 800; font-size: 16px; letter-spacing: -0.015em;">At risk</h2>
+          <p style="margin: 0 0 12px; font-size: 12px; color: var(--color-neutral-500);">Scored the same way tenants score their own customers — usage, sentiment from support tickets, and champion activity.</p>
+          <sc-for list="{{ atRisk }}" as="r" hint-placeholder-count="5">
+            <div style="padding: 12px 0; border-top: 1px solid var(--color-neutral-800);">
+              <div style="display: flex; align-items: baseline; gap: 10px;">
+                <b style="font-size: 13px; flex: 1;">{{ r.name }}</b>
+                <span style="font-size: 11px; color: var(--color-neutral-500);">{{ r.mrr }}</span>
+                <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; background: {{ r.tagBg }}; color: {{ r.tagFg }}; padding: 3px 7px;">{{ r.risk }}</span>
+              </div>
+              <div style="margin-top: 5px; font-size: 12px; color: var(--color-neutral-400); line-height: 1.45;">{{ r.why }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="padding: 18px 24px;">
+          <h2 style="margin: 0 0 12px; font-weight: 800; font-size: 16px; letter-spacing: -0.015em;">Unit economics</h2>
+          <div style="display: flex; flex-direction: column; gap: 10px; font-size: 12.5px;">
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Revenue per resolved conversation</span><b>£0.34 blended</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Inference + telephony cost</span><b>£0.089</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Contribution per conversation</span><b>£0.251</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">CAC payback</span><b>7.4 months</b></div>
+            <div style="display: flex; gap: 10px;"><span style="flex: 1; color: var(--color-neutral-400);">Cost of the free trial</span><b>£1,840 / mo</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+  </sc-if>
+
+  <sc-if value="{{ at.ops }}" hint-placeholder-val="{{ false }}">
+  <section data-screen-label="Reliability">
+    <div style="padding: 20px 24px; border-bottom: 2px solid var(--color-neutral-700); display: flex; align-items: flex-end; gap: 24px;">
+      <div>
+        <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-neutral-500);">Four regions · 99.96% trailing 90 days</div>
+        <h1 style="margin: 8px 0 0; font-weight: 800; font-size: 30px; letter-spacing: -0.028em; line-height: 1;">Reliability</h1>
+      </div>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr;">
+      <div style="border-right: 2px solid var(--color-neutral-700);">
+        <div style="padding: 18px 24px; border-bottom: 1px solid var(--color-neutral-800);">
+          <h2 style="margin: 0 0 14px; font-weight: 800; font-size: 16px; letter-spacing: -0.015em;">Regions</h2>
+          <table style="width: 100%; border-collapse: collapse; font-size: 12.5px;">
+            <thead><tr style="border-bottom: 1px solid var(--color-neutral-700);">
+              <th style="text-align: left; padding: 8px 0; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">Region</th>
+              <th style="text-align: left; padding: 8px 10px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">Companies</th>
+              <th style="text-align: left; padding: 8px 10px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">Voice p95</th>
+              <th style="text-align: left; padding: 8px 10px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">Uptime 30d</th>
+              <th style="text-align: left; padding: 8px 0; font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-neutral-500);">State</th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ regions }}" as="r" hint-placeholder-count="4">
+                <tr style="border-bottom: 1px solid var(--color-neutral-800);">
+                  <td style="padding: 10px 0;"><b>{{ r.name }}</b></td>
+                  <td style="padding: 10px 10px; color: var(--color-neutral-400);">{{ r.tenants }}</td>
+                  <td style="padding: 10px 10px; color: {{ r.color }}; font-weight: 600;">{{ r.p95 }}</td>
+                  <td style="padding: 10px 10px; color: var(--color-neutral-400);">{{ r.uptime }}</td>
+                  <td style="padding: 10px 0;"><span style="font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; background: {{ r.tagBg }}; color: {{ r.tagFg }}; padding: 3px 7px;">{{ r.state }}</span></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+        <div style="padding: 18px 24px;">
+          <h2 style="margin: 0 0 12px; font-weight: 800; font-size: 16px; letter-spacing: -0.015em;">Dependencies</h2>
+          <div style="display: flex; flex-direction: column; gap: 11px; font-size: 12.5px;">
+            <div style="display: flex; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--color-neutral-800);"><b style="width: 150px;">Voice model</b><span style="flex: 1; color: var(--color-neutral-400);">corva-voice-4.2 · 4.3 canary</span><span style="color: var(--color-neutral-300);">Healthy</span></div>
+            <div style="display: flex; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--color-neutral-800);"><b style="width: 150px;">Telephony</b><span style="flex: 1; color: var(--color-neutral-400);">Twilio · 2 carriers</span><span style="color: var(--color-accent-400);">Degraded UK</span></div>
+            <div style="display: flex; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--color-neutral-800);"><b style="width: 150px;">Retrieval index</b><span style="flex: 1; color: var(--color-neutral-400);">184k documents · 3.1M chunks</span><span style="color: var(--color-neutral-300);">Healthy</span></div>
+            <div style="display: flex; gap: 12px;"><b style="width: 150px;">Warehouse egress</b><span style="flex: 1; color: var(--color-neutral-400);">41 companies streaming</span><span style="color: var(--color-neutral-300);">Healthy</span></div>
+          </div>
+        </div>
+      </div>
+      <div style="padding: 18px 24px;">
+        <h2 style="margin: 0 0 12px; font-weight: 800; font-size: 16px; letter-spacing: -0.015em;">Incident timeline</h2>
+        <div style="display: flex; flex-direction: column; gap: 0;">
+          <sc-for list="{{ incidents }}" as="i" hint-placeholder-count="5">
+            <div style="padding: 13px 0; border-top: 1px solid var(--color-neutral-800); display: grid; grid-template-columns: 92px 1fr; gap: 14px;">
+              <div><div style="font-size: 11.5px; font-weight: 700;">{{ i.when }}</div><div style="font-size: 10.5px; color: var(--color-neutral-500);">{{ i.dur }}</div></div>
+              <div>
+                <div style="display: flex; align-items: baseline; gap: 9px;"><b style="font-size: 13px;">{{ i.title }}</b><span style="font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; background: {{ i.tagBg }}; color: {{ i.tagFg }}; padding: 3px 6px;">{{ i.sev }}</span></div>
+                <div style="margin-top: 5px; font-size: 12px; color: var(--color-neutral-400); line-height: 1.45;">{{ i.note }}</div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="margin-top: 18px; padding: 13px 15px; background: var(--color-neutral-900); border-left: 3px solid var(--color-accent); font-size: 12px; color: var(--color-neutral-300); line-height: 1.5;">Every incident that touched a company's calls is published to their own status page automatically, with the minutes affected and whether their SLA credit applies.</div>
+      </div>
+    </div>
+  </section>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showSupportAccessGuard&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behaviour&quot;},&quot;healthThreshold&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:70,&quot;min&quot;:40,&quot;max&quot;:95,&quot;step&quot;:5,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Behaviour&quot;}}">
+const VIEWS = ["fleet","tenant","quality","revenue","ops"];
+
+class Component extends DCLogic {
+  state = { view: "fleet" };
+
+  renderVals() {
+    const at = {}, go = {}, nav = {};
+    for (const v of VIEWS) {
+      at[v] = this.state.view === v;
+      nav[v] = this.state.view === v ? "var(--color-accent)" : "transparent";
+      go[v] = () => { this.setState({ view: v }); window.scrollTo(0, 0); };
+    }
+
+    const fleetKpis = [
+      { label: "Companies", value: "148", delta: "+9", note: "this month", good: true },
+      { label: "MRR", value: "£412k", delta: "+6.2%", note: "MoM", good: true },
+      { label: "Conversations / mo", value: "1.21M", delta: "+11%", note: "all tenants", good: true },
+      { label: "Fleet containment", value: "66.8%", delta: "+1.9", note: "weighted", good: true },
+      { label: "Companies below SLA", value: "3", delta: "+3", note: "eu-west-2", good: false },
+      { label: "At-risk MRR", value: "£31.4k", delta: "−£4k", note: "vs last month", good: true }
+    ].map(k => ({ ...k, deltaColor: k.good ? "var(--color-accent-400)" : "var(--color-accent)" }));
+
+    const tenants = [
+      { name: "Northmoor Estates", meta: "Property · 3 brands · Leeds", plan: "Operator", conv: "41,200", containment: "48.1%", health: "54 · falling", healthV: 54, mrr: "£12,772", flag: "Health drop", bad: true },
+      { name: "Halvard Retail AB", meta: "Retail · 1 brand · Oslo", plan: "Trial", conv: "1,840", containment: "22.4%", health: "31 · never tuned", healthV: 31, mrr: "£0", flag: "Trial ending", bad: true },
+      { name: "Vantage Living", meta: "Subscription · 2 brands · Sydney", plan: "Enterprise", conv: "88,400", containment: "69.2%", health: "62 · latency", healthV: 62, mrr: "£26,100", flag: "Residency ask", bad: true },
+      { name: "Kessel & Co", meta: "Wholesale · 1 brand · Hamburg", plan: "Studio", conv: "23,900", containment: "74.8%", health: "78 · over plan", healthV: 78, mrr: "£9,980", flag: "Upgrade", bad: true },
+      { name: "Pemberton Interiors", meta: "Trade · 1 brand · Manchester", plan: "Studio", conv: "9,120", containment: "61.0%", health: "71 · steady", healthV: 71, mrr: "£3,830", flag: "Watch", bad: true },
+      { name: "Aurelius Group", meta: "Retail + trade · 4 brands · London", plan: "Operator", conv: "18,402", containment: "71.4%", health: "91 · healthy", healthV: 91, mrr: "£5,704", flag: "Reference", bad: false },
+      { name: "Casa Verde Ltd", meta: "Trade · 1 brand · Lisbon", plan: "Studio", conv: "4,410", containment: "68.7%", health: "84 · healthy", healthV: 84, mrr: "£1,852", flag: "Expanding", bad: false },
+      { name: "Lindqvist Möbler", meta: "Retail · 2 brands · Stockholm", plan: "Operator", conv: "31,600", containment: "76.2%", health: "88 · healthy", healthV: 88, mrr: "£9,796", flag: "Healthy", bad: false },
+      { name: "Marchetti Cucine", meta: "Retail · 1 brand · Lyon", plan: "Studio", conv: "6,240", containment: "70.1%", health: "86 · healthy", healthV: 86, mrr: "£2,620", flag: "Healthy", bad: false },
+      { name: "Bruun Interiør", meta: "Retail · 1 brand · Oslo", plan: "Operator", conv: "27,100", containment: "79.4%", health: "94 · healthy", healthV: 94, mrr: "£8,401", flag: "Advocate", bad: false }
+    ].map(t => ({
+      ...t,
+      healthBar: t.healthV + "%",
+      healthColor: t.healthV < 70 ? "var(--color-accent)" : "var(--color-neutral-500)",
+      tagBg: t.bad ? "var(--color-accent-800)" : "var(--color-neutral-800)",
+      tagFg: t.bad ? "var(--color-accent-200)" : "var(--color-neutral-300)"
+    }));
+
+    const loadH = [22,18,15,12,11,14,24,42,64,78,86,92,88,84,90,94,82,70,58,46,38,32,28,24];
+    const load = loadH.map(h => ({ h: h + "%", color: h > 85 ? "var(--color-accent)" : "var(--color-neutral-600)" }));
+
+    const tenantBrands = [
+      { name: "Aurelius Home", conv: "11,204 conv", containment: "71.4%", agent: "Margot v11", good: true },
+      { name: "Aurelius Trade", conv: "4,980 conv", containment: "64.2%", agent: "Bennett v6", good: true },
+      { name: "Lindholm", conv: "2,102 conv", containment: "78.8%", agent: "Sten v3", good: true },
+      { name: "Casa Verde", conv: "116 conv", containment: "—", agent: "not set up", good: false }
+    ].map(b => ({ ...b, color: b.good ? "var(--color-bg)" : "var(--color-accent-400)" }));
+
+    const flags = [
+      { name: "Multi-brand workspaces", note: "Generally available", on: true },
+      { name: "Custom scoring axes (SQL)", note: "Beta · 24 companies", on: true },
+      { name: "Private fine-tuning", note: "Enterprise only", on: true },
+      { name: "corva-voice-4.3 canary", note: "Rolling out", on: false },
+      { name: "Proactive outbound calls", note: "Alpha · needs legal sign-off", on: false },
+      { name: "Agent copilot in the console", note: "Internal only", on: false }
+    ].map(f => ({ ...f, trackBg: f.on ? "var(--color-accent)" : "var(--color-neutral-700)", knob: f.on ? "18px" : "2px" }));
+
+    const flagged = [
+      { company: "Northmoor Estates", klass: "Unsupported claim", turns: "31", cause: "Doc contradiction", owner: "Fleet eval", bad: true },
+      { company: "Halvard Retail AB", klass: "No citation found", turns: "24", cause: "Empty KB", owner: "Onboarding", bad: true },
+      { company: "Vantage Living", klass: "Invented a date", turns: "19", cause: "Vague document", owner: "Fleet eval", bad: true },
+      { company: "Pemberton Interiors", klass: "Thin handoff brief", turns: "14", cause: "Short call", owner: "Fleet eval", bad: true },
+      { company: "Kessel & Co", klass: "Tone breach", turns: "9", cause: "Persona drift", owner: "Tenant", bad: false },
+      { company: "Aurelius Group", klass: "Unsupported claim", turns: "6", cause: "Fee schedule", owner: "Tenant", bad: false },
+      { company: "Marchetti Cucine", klass: "Language switch failure", turns: "5", cause: "FR → IT", owner: "Fleet eval", bad: true },
+      { company: "Lindqvist Möbler", klass: "Over-apologising", turns: "4", cause: "Persona", owner: "Tenant", bad: false }
+    ].map(f => ({ ...f, color: f.bad ? "var(--color-accent-400)" : "var(--color-neutral-300)" }));
+
+    const mrrData = [[58,6],[62,8],[66,9],[70,11],[74,12],[78,14],[80,16],[84,17],[86,19],[88,21],[90,23],[92,26]];
+    const mrr = mrrData.map(([base, expansion]) => ({ base: base + "%", expansion: expansion + "%" }));
+
+    const atRisk = [
+      { name: "Northmoor Estates", mrr: "£12,772", risk: "High", why: "Containment fell 18 points; champion left in July; two unanswered emails.", high: true },
+      { name: "Vantage Living", mrr: "£26,100", risk: "High", why: "Blocked on Australian residency; contract clause expires in November.", high: true },
+      { name: "Halvard Retail AB", mrr: "£0", risk: "Trial", why: "Trial ends Saturday with no knowledge base and no tuning session booked.", high: true },
+      { name: "Pemberton Interiors", mrr: "£3,830", risk: "Medium", why: "Usage flat for three months; only one seat active.", high: false },
+      { name: "Kessel & Co", mrr: "£9,980", risk: "Medium", why: "Repeatedly over plan and complaining about overage billing.", high: false }
+    ].map(r => ({ ...r, tagBg: r.high ? "var(--color-accent-800)" : "var(--color-neutral-800)", tagFg: r.high ? "var(--color-accent-200)" : "var(--color-neutral-300)" }));
+
+    const regions = [
+      { name: "eu-west-1 · Dublin", tenants: "61", p95: "1.4s", uptime: "99.99%", state: "Healthy", bad: false },
+      { name: "eu-west-2 · London", tenants: "48", p95: "2.9s", uptime: "99.82%", state: "Degraded", bad: true },
+      { name: "us-east-1 · Virginia", tenants: "33", p95: "1.5s", uptime: "99.98%", state: "Healthy", bad: false },
+      { name: "ap-southeast-2 · Sydney", tenants: "6", p95: "1.8s", uptime: "99.97%", state: "Edge only", bad: false }
+    ].map(r => ({ ...r, color: r.bad ? "var(--color-accent)" : "var(--color-bg)", tagBg: r.bad ? "var(--color-accent-800)" : "var(--color-neutral-800)", tagFg: r.bad ? "var(--color-accent-200)" : "var(--color-neutral-300)" }));
+
+    const incidents = [
+      { when: "Now", dur: "42m open", title: "Voice latency in eu-west-2", sev: "Sev 2", note: "Carrier route degraded. Failover staged; 14 companies affected, 3 past their SLA threshold.", bad: true },
+      { when: "29 Aug", dur: "18m", title: "Retrieval index lag", sev: "Sev 3", note: "New documents took up to 9 minutes to become answerable. No wrong answers served.", bad: false },
+      { when: "21 Aug", dur: "6m", title: "Dashboard read timeouts", sev: "Sev 3", note: "Analytics queries only; calls unaffected.", bad: false },
+      { when: "11 Aug", dur: "1h 04m", title: "WhatsApp webhook backlog", sev: "Sev 2", note: "Messages delivered late. 22 companies notified, credits applied automatically.", bad: true },
+      { when: "2 Aug", dur: "12m", title: "Model provider rate limit", sev: "Sev 3", note: "Fell back to the secondary provider; containment dipped 4 points for the window.", bad: false }
+    ].map(i => ({ ...i, tagBg: i.bad ? "var(--color-accent-800)" : "var(--color-neutral-800)", tagFg: i.bad ? "var(--color-accent-200)" : "var(--color-neutral-300)" }));
+
+    return { at, go, nav, fleetKpis, tenants, load, tenantBrands, flags, flagged, mrr, atRisk, regions, incidents };
+  }
+}
+
+</script>
+</body>
+</html>
