@@ -56,6 +56,15 @@ export async function getBrandMetrics(brandId: string) {
   const waiting = rows.filter((r) => r.status === "waiting_human").length;
   const live = rows.filter((r) => r.status === "live").length;
 
+  const CHANNEL_NAME: Record<string, string> = {
+    phone: "Phone",
+    whatsapp: "WhatsApp",
+    web_chat: "Web chat",
+    email: "Email",
+    sms: "SMS",
+    survey: "Survey",
+  };
+
   const channelCounts = new Map<string, number>();
   for (const r of rows) channelCounts.set(r.channel, (channelCounts.get(r.channel) ?? 0) + 1);
 
@@ -73,7 +82,7 @@ export async function getBrandMetrics(brandId: string) {
     channelMix: [...channelCounts.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([name, n]) => ({
-        name: name === "web_chat" ? "Web chat" : name[0].toUpperCase() + name.slice(1),
+        name: CHANNEL_NAME[name] ?? name,
         share: total ? `${Math.round((n / total) * 100)}%` : "0%",
         primary: n === Math.max(...channelCounts.values()),
       })),
@@ -104,7 +113,13 @@ export async function hourlyVolume(brandId: string) {
   }));
 }
 
-/** Weekly containment for the analytics chart. */
+/**
+ * Weekly containment for the analytics chart.
+ *
+ * Returns only the span that has data. Padding a young workspace out to
+ * twelve weeks renders nine empty columns, which reads as a broken chart
+ * rather than as a short history.
+ */
 export async function weeklyContainment(brandId: string, weeks = 12) {
   const since = new Date(Date.now() - weeks * 7 * 864e5);
   const rows = await db
@@ -120,13 +135,20 @@ export async function weeklyContainment(brandId: string, weeks = 12) {
     else buckets[idx].ai++;
   }
 
-  return buckets.map((b) => {
-    const n = b.ai + b.human;
-    return {
-      ai: n ? `${Math.round((b.ai / n) * 80)}%` : "0%",
-      human: n ? `${Math.round((b.human / n) * 80)}%` : "0%",
-    };
-  });
+  const firstWithData = buckets.findIndex((b) => b.ai + b.human > 0);
+  const span = firstWithData === -1 ? [] : buckets.slice(firstWithData);
+
+  return {
+    weeks: span.map((b) => {
+      const n = b.ai + b.human;
+      return {
+        ai: n ? `${Math.round((b.ai / n) * 80)}%` : "0%",
+        human: n ? `${Math.round((b.human / n) * 80)}%` : "0%",
+        total: n,
+      };
+    }),
+    weeksCovered: span.length,
+  };
 }
 
 /**
@@ -232,12 +254,15 @@ export async function agentPerformance(orgId: string) {
     .groupBy(s.memberships.id, s.memberships.name, s.memberships.role)
     .orderBy(desc(sql`count(${s.handoffs.id})`));
 
-  return rows.slice(0, 5).map((r) => ({
-    name: r.name,
-    role: r.role[0].toUpperCase() + r.role.slice(1),
-    handled: String(r.handled),
-    aht: "—",
-    csat: "—",
-    csatColor: N_800,
-  }));
+  // Listing everyone with a row of dashes is noise; the rail is for people who
+  // have actually taken something off the queue.
+  return rows
+    .filter((r) => r.handled > 0)
+    .slice(0, 5)
+    .map((r) => ({
+      name: r.name,
+      role: r.role[0].toUpperCase() + r.role.slice(1),
+      handled: String(r.handled),
+      csatColor: N_800,
+    }));
 }

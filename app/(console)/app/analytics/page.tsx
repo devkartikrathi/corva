@@ -25,7 +25,7 @@ const clock = (secs: number) =>
 
 export default async function AnalyticsPage() {
   const { brand, session } = await getConsoleContext();
-  const [m, weeks, intents, qualityReview, agents] = await Promise.all([
+  const [m, containment, intents, qualityReview, agents] = await Promise.all([
     getBrandMetrics(brand.id),
     weeklyContainment(brand.id),
     unfinishedIntents(brand.id),
@@ -33,6 +33,7 @@ export default async function AnalyticsPage() {
     agentPerformance(session.orgId),
   ]);
 
+  const { weeks, weeksCovered } = containment;
   const channelMix = m.channelMix;
 
   const kpis = [
@@ -131,7 +132,10 @@ export default async function AnalyticsPage() {
             <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
               <SectionTitle size={16}>Containment vs. escalation</SectionTitle>
               <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-                Weekly · every channel
+                Weekly · every channel ·{" "}
+                {weeksCovered === 0
+                  ? "no history yet"
+                  : `${weeksCovered} week${weeksCovered === 1 ? "" : "s"} of history`}
               </span>
               <ChartLegend style={{ marginLeft: "auto" }} />
             </div>
@@ -158,9 +162,8 @@ export default async function AnalyticsPage() {
                 color: "var(--color-neutral-700)",
               }}
             >
-              <span>W23</span>
-              <span>W29</span>
-              <span>W35 · this week</span>
+              <span>{weeksCovered ? `${weeksCovered} weeks ago` : ""}</span>
+              <span>{weeksCovered ? "this week" : ""}</span>
             </div>
           </div>
 
@@ -238,6 +241,11 @@ export default async function AnalyticsPage() {
             <div
               style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10, fontSize: 12 }}
             >
+              {agents.length === 0 && (
+                <div style={{ fontSize: 12, color: "var(--color-neutral-700)", lineHeight: 1.45 }}>
+                  Nobody has taken a handoff yet. Accept one and the person who did appears here.
+                </div>
+              )}
               {agents.map((a) => (
                 <div
                   key={a.name}
@@ -255,9 +263,9 @@ export default async function AnalyticsPage() {
                       color: "var(--color-neutral-800)",
                     }}
                   >
-                    <span>{a.handled} handoffs</span>
-                    <span>{a.aht} avg</span>
-                    <span style={{ color: a.csatColor }}>CSAT {a.csat}</span>
+                    <span>
+                      {a.handled} handoff{a.handled === "1" ? "" : "s"}
+                    </span>
                   </div>
                 </div>
               ))}
