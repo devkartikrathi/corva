@@ -77,9 +77,18 @@ export default async function AnalyticsPage({
     {
       label: "Cost per contact",
       value: money(m.costPerContactPence),
-      delta: "£4.90",
-      note: "human baseline",
+      delta: money(m.costTotalPence),
+      note: "spent in this window",
       deltaColor: "var(--color-neutral-800)",
+    },
+    {
+      label: "Cost of escalation",
+      value: m.escalated
+        ? money(Math.round(m.costEscalatedPence / m.escalated))
+        : "—",
+      delta: m.contained ? money(Math.round(m.costContainedPence / m.contained)) : "—",
+      note: "each, against contained",
+      deltaColor: "var(--color-accent-700)",
     },
     {
       label: "Avg handle time",
@@ -126,7 +135,7 @@ export default async function AnalyticsPage({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(6, 1fr)",
+          gridTemplateColumns: "repeat(7, 1fr)",
           borderBottom: "2px solid var(--color-divider)",
         }}
       >

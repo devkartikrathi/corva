@@ -36,7 +36,8 @@ import {
   setupMessage,
 } from "../lib/voice/session";
 import { classifyAndStore } from "../lib/pipelines/classify";
-import { customerContext } from "../lib/agent/respond";
+import { billConversation, customerContext } from "../lib/agent/respond";
+import { INPUT_RATE_BYTES_PER_SEC, OUTPUT_RATE_BYTES_PER_SEC } from "../lib/voice/config";
 
 const KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 if (!KEY) throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is not set.");
@@ -53,6 +54,11 @@ wss.on("connection", (client) => {
   let conversationId: string | null = null;
   let brandId = "";
   let isTest = true;
+  // Audio is billed per second in both directions, so the bytes are counted as
+  // they pass rather than inferred from how long the session was open —
+  // silence on an open line is not the same as speech.
+  let audioInBytes = 0;
+  let audioOutBytes = 0;
   let config: Awaited<ReturnType<typeof openVoiceConversation>>["config"] | null = null;
   let startedAt = new Date();
   let closed = false;
@@ -81,6 +87,10 @@ wss.on("connection", (client) => {
         if (heard.trim()) await persistTurn(conversationId, "customer", heard, startedAt);
         if (said.trim()) await persistTurn(conversationId, "ai", said, startedAt);
         await persistTurn(conversationId, "system", `Playground session ended: ${reason}.`, startedAt);
+        await billConversation(conversationId, {
+          audioInSeconds: audioInBytes / INPUT_RATE_BYTES_PER_SEC,
+          audioOutSeconds: audioOutBytes / OUTPUT_RATE_BYTES_PER_SEC,
+        });
         await closeVoiceConversation(conversationId, seconds);
 
         // Name the call from its transcript, the way the nightly job does for
@@ -118,6 +128,7 @@ wss.on("connection", (client) => {
     // Binary frames are microphone audio, forwarded as-is.
     if (isBinary) {
       touch();
+      audioInBytes += (raw as Buffer).length;
       if (live?.readyState === WebSocket.OPEN) {
         live.send(
           JSON.stringify({
@@ -155,11 +166,14 @@ wss.on("connection", (client) => {
         config = opened.config;
         startedAt = new Date();
 
-        live = new WebSocket(LIVE_URL(KEY));
-
-        // The agent gets the same caller record the text path assembles. Without
-        // it, it was inventing names for people whose record was right there.
+        // Fetched *before* the socket exists, not after. Awaiting anything
+        // between `new WebSocket` and `.on("open")` is a race the fast path
+        // loses: the socket opens during the await, the handler is attached
+        // too late, setup is never sent, and the session hangs until the
+        // client gives up.
         const { text: caller } = await customerContext(opened.customer?.id ?? null);
+
+        live = new WebSocket(LIVE_URL(KEY));
 
         live.on("open", () => {
           live!.send(
@@ -230,7 +244,9 @@ wss.on("connection", (client) => {
               // Audio goes back as a binary frame; JSON-wrapping base64 audio
               // triples the bytes on a path that is already the latency budget.
               if (client.readyState === WebSocket.OPEN) {
-                client.send(Buffer.from(part.inlineData.data, "base64"), { binary: true });
+                const audio = Buffer.from(part.inlineData.data, "base64");
+                audioOutBytes += audio.length;
+                client.send(audio, { binary: true });
               }
             }
           }

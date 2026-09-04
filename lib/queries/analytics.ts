@@ -13,9 +13,15 @@ import { realTraffic } from "./live-data";
 const ACCENT_700 = "var(--color-accent-700)";
 const N_800 = "var(--color-neutral-800)";
 
-/** Human cost of one escalated contact, used to price documentation gaps. */
-const HUMAN_COST_PENCE = 490;
-const AI_COST_PENCE = 68;
+/**
+ * What an unanswered intent is worth fixing.
+ *
+ * Pricing a documentation gap needs the *difference* between a contact a
+ * person had to take and one the AI finished, and that difference is now
+ * measured: `costOfContact` reads it back off the conversations themselves
+ * rather than assuming a flat rate. The constants that used to live here
+ * disagreed with the ones in the rollup.
+ */
 
 /**
  * @param window Restrict to a time span. The command centre asks for the last
@@ -34,6 +40,7 @@ export async function getBrandMetrics(brandId: string, window?: { from: Date; to
       sentimentEnd: s.conversations.sentimentEnd,
       startedAt: s.conversations.startedAt,
       reviewScore: s.conversations.reviewScore,
+      costPence: s.conversations.costPence,
     })
     .from(s.conversations)
     .where(
@@ -63,9 +70,9 @@ export async function getBrandMetrics(brandId: string, window?: { from: Date; to
   const reviews = rows.map((r) => r.reviewScore).filter((x): x is number => x !== null);
   const avgReview = reviews.length ? reviews.reduce((a, b) => a + b, 0) / reviews.length : null;
 
-  // Blended cost: contained contacts cost the AI rate, escalations the human one.
-  const costPer =
-    total > 0 ? (contained * AI_COST_PENCE + escalated * HUMAN_COST_PENCE) / total : 0;
+  // What these conversations actually cost, not what a rate card guessed.
+  const costTotal = rows.reduce((a, r) => a + (r.costPence ?? 0), 0);
+  const costPer = total > 0 ? costTotal / total : 0;
 
   const waiting = rows.filter((r) => r.status === "waiting_human").length;
   const live = rows.filter((r) => r.status === "live").length;
@@ -91,6 +98,15 @@ export async function getBrandMetrics(brandId: string, window?: { from: Date; to
     avgSentiment,
     avgReview,
     costPerContactPence: Math.round(costPer),
+    /** Everything these conversations cost, for the spend line. */
+    costTotalPence: Math.round(costTotal),
+    /** Split by whether a person was needed — the case for containment. */
+    costContainedPence: Math.round(
+      rows.filter((r) => r.contained === true).reduce((a, r) => a + (r.costPence ?? 0), 0),
+    ),
+    costEscalatedPence: Math.round(
+      rows.filter((r) => r.contained === false).reduce((a, r) => a + (r.costPence ?? 0), 0),
+    ),
     waiting,
     live,
     channelMix: [...channelCounts.entries()]
@@ -190,6 +206,28 @@ export async function unfinishedIntents(brandId: string) {
     )
     .groupBy(s.conversations.intent);
 
+  /**
+   * What one of these contacts costs over what it would cost contained.
+   *
+   * Measured from this brand's own conversations rather than a flat rate, so a
+   * tenant whose escalations are short and cheap is not told a gap is worth
+   * more than it is. Falls back to a plain difference of averages when there
+   * is not enough of either kind to compare.
+   */
+  const [averages] = await db
+    .select({
+      contained: sql<number>`coalesce(avg(${s.conversations.costPence}) filter (where ${s.conversations.contained}), 0)`,
+      escalated: sql<number>`coalesce(avg(${s.conversations.costPence}) filter (where ${s.conversations.contained} is false), 0)`,
+    })
+    .from(s.conversations)
+    .where(and(eq(s.conversations.brandId, brandId), realTraffic()));
+
+  // A gap that costs nothing extra is not worth pricing; show it as unpriced
+  // rather than as £0, which reads as "we measured it and it is free".
+  const perContact = Math.max(0, Number(averages.escalated) - Number(averages.contained));
+  const monthly = (hits: number) =>
+    perContact > 0 ? `£${((hits * perContact * 4) / 100).toFixed(0)} / mo` : "not yet priced";
+
   const REASON_LABEL: Record<string, string> = {
     no_document: "No document",
     contradiction: "Contradictory docs",
@@ -201,7 +239,7 @@ export async function unfinishedIntents(brandId: string) {
     name: g.intent,
     calls: String(g.hits),
     reason: REASON_LABEL[g.reason] ?? g.reason,
-    cost: `£${(((g.hits * (HUMAN_COST_PENCE - AI_COST_PENCE)) / 100) * 4).toFixed(0)} / mo`,
+    cost: monthly(g.hits),
     fix: g.reason === "no_document" ? "Draft policy" : "Resolve conflict",
     bad: true,
     to: "/app/knowledge",
@@ -214,7 +252,7 @@ export async function unfinishedIntents(brandId: string) {
       name: e.intent!,
       calls: String(e.n),
       reason: "Beyond authority",
-      cost: `£${(((e.n * (HUMAN_COST_PENCE - AI_COST_PENCE)) / 100) * 4).toFixed(0)} / mo`,
+      cost: monthly(e.n),
       fix: "Raise ceiling",
       bad: false,
       to: "/app/tuning",

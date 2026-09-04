@@ -14,6 +14,7 @@ import {
 import { TURN_MODEL, TURN_OPTIONS } from "./model";
 import { grounded, hasGrounding, recordGap, retrieve, type RetrievedChunk } from "./retrieval";
 import { runningSentiment, scoreUtterance } from "@/lib/pipelines/sentiment";
+import { addUsage, priceUsage, type Usage } from "@/lib/pricing";
 import { writeBrief } from "./brief";
 
 /**
@@ -313,6 +314,15 @@ export async function* respondStream(opts: {
 
     if (fired.length === 0) {
       const text = spoken.trim() || (await result.text);
+      // The model reports what it actually consumed; nothing here is inferred
+      // from the length of the reply.
+      const consumed = await result.usage;
+      await billConversation(conversationId, {
+        inputTokens: consumed?.inputTokens ?? undefined,
+        outputTokens: consumed?.outputTokens ?? undefined,
+        // Retrieval embedded the customer's message before any of this ran.
+        embeddingTokens: Math.ceil(message.length / 4),
+      });
       const [aiTurn] = await db
         .insert(s.turns)
         .values({ conversationId, ordinal: nextOrdinal + 1, speaker: "ai", body: text })
@@ -400,6 +410,8 @@ export async function* respondStream(opts: {
     .set({ status: "waiting_human", outcome: "escalated", contained: false })
     .where(eq(s.conversations.id, conversationId));
 
+  await billConversation(conversationId, { embeddingTokens: Math.ceil(message.length / 4) });
+
   yield { type: "escalation", reason, handoffId: handoff.id };
   yield {
     type: "done",
@@ -429,4 +441,33 @@ export async function respond(opts: {
   }
   if (!reply) throw new Error("The agent produced no reply.");
   return reply;
+}
+
+
+/**
+ * Add what a turn consumed to the conversation's running cost.
+ *
+ * Read-modify-write rather than an atomic increment because the breakdown is a
+ * document, not a counter — and a conversation is a serial thing, one turn at
+ * a time, so there is no second writer to race.
+ */
+export async function billConversation(conversationId: string, usage: Usage) {
+  const [row] = await db
+    .select({ breakdown: s.conversations.costBreakdown })
+    .from(s.conversations)
+    .where(eq(s.conversations.id, conversationId))
+    .limit(1);
+  if (!row) return;
+
+  const previous = ((row.breakdown ?? {}) as { usage?: Usage }).usage ?? {};
+  const total = addUsage(previous, usage);
+  const cost = priceUsage(total);
+
+  await db
+    .update(s.conversations)
+    .set({
+      costPence: cost.pence,
+      costBreakdown: { usage: total, lines: cost.lines },
+    })
+    .where(eq(s.conversations.id, conversationId));
 }

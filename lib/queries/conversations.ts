@@ -589,9 +589,17 @@ export async function getConversation(brandId: string, conversationId: string) {
     byTurn.set(c.citation.turnId, list);
   }
 
+  const cost = (row.conversation.costBreakdown ?? {}) as {
+    lines?: { label: string; units: number; unit: string; pence: number }[];
+  };
+
   return {
     conversation: row.conversation,
     customer: row.customer,
+    cost: {
+      pence: row.conversation.costPence,
+      lines: cost.lines ?? [],
+    },
     turns: turnRows.map((t) => ({
       id: t.id,
       speaker: t.speaker,

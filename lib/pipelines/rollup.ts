@@ -1,4 +1,5 @@
 import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { priceUsage, type Usage } from "@/lib/pricing";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 
@@ -18,9 +19,11 @@ import * as s from "@/lib/db/schema";
 
 const midnight = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 
-/** Roughly what a contact costs Corva to serve, in pence. */
-const AI_MINUTE_COST_PENCE = 11;
-const HUMAN_MINUTE_COST_PENCE = 42;
+/**
+ * Cost is summed from the conversations themselves rather than re-derived
+ * from their duration. Two guesses at a rate card used to live here and in
+ * `analytics.ts`, and they disagreed; now both read what was measured.
+ */
 
 /**
  * Recompute `usage_daily` for a span of days.
@@ -49,6 +52,7 @@ export async function rollUpUsage(days = 2): Promise<{ rows: number; days: numbe
       handoffs: sql<number>`count(*) filter (where ${s.conversations.contained} is false)::int`,
       aiSeconds: sql<number>`coalesce(sum(${s.conversations.durationSeconds}) filter (where ${s.conversations.contained}), 0)::int`,
       humanSeconds: sql<number>`coalesce(sum(${s.conversations.durationSeconds}) filter (where ${s.conversations.contained} is false), 0)::int`,
+      costPence: sql<number>`coalesce(sum(${s.conversations.costPence}), 0)`,
     })
     .from(s.conversations)
     .innerJoin(s.brands, eq(s.brands.id, s.conversations.brandId))
@@ -70,7 +74,7 @@ export async function rollUpUsage(days = 2): Promise<{ rows: number; days: numbe
       handoffs: g.handoffs,
       aiMinutes,
       humanMinutes,
-      costPence: aiMinutes * AI_MINUTE_COST_PENCE + humanMinutes * HUMAN_MINUTE_COST_PENCE,
+      costPence: Math.round(Number(g.costPence)),
     };
   });
 
@@ -237,9 +241,107 @@ export async function enforceRetention(): Promise<{ orgs: number; conversations:
 
 /** Everything, in the order the later jobs depend on the earlier ones. */
 export async function runAllRollups() {
+  // Costs are priced before usage, because usage sums them.
+  const costs = await backfillCosts();
   const usage = await rollUpUsage();
   const health = await recomputeHealth();
   const docs = await recomputeDocumentStats();
   const retention = await enforceRetention();
-  return { usage, health, docs, retention };
+  return { costs, usage, health, docs, retention };
+}
+
+/**
+ * Price conversations that were never metered.
+ *
+ * Everything recorded before the meter existed, and anything seeded, carries a
+ * cost of zero — which would make the spend figures read as free rather than
+ * as unknown. This reconstructs a defensible figure from what the row does
+ * hold: transcript length as a token proxy, duration as audio time on voice,
+ * and the gap between a handover and the end of the call as a person's time.
+ *
+ * The breakdown is marked `estimated` so nobody later mistakes a reconstruction
+ * for a measurement. Live traffic is metered properly and never comes here.
+ */
+export async function backfillCosts(limit = 2000): Promise<{ priced: number }> {
+  const pending = await db
+    .select({
+      id: s.conversations.id,
+      channel: s.conversations.channel,
+      duration: s.conversations.durationSeconds,
+      contained: s.conversations.contained,
+    })
+    .from(s.conversations)
+    .where(eq(s.conversations.costPence, 0))
+    .limit(limit);
+
+  if (pending.length === 0) return { priced: 0 };
+
+  const turns = await db
+    .select({
+      conversationId: s.turns.conversationId,
+      speaker: s.turns.speaker,
+      body: s.turns.body,
+    })
+    .from(s.turns)
+    .where(inArray(s.turns.conversationId, pending.map((p) => p.id)));
+
+  const byConversation = new Map<string, typeof turns>();
+  for (const t of turns) {
+    const list = byConversation.get(t.conversationId) ?? [];
+    list.push(t);
+    byConversation.set(t.conversationId, list);
+  }
+
+  const values: { id: string; pence: number; breakdown: unknown }[] = [];
+  for (const c of pending) {
+    const rows = byConversation.get(c.id) ?? [];
+    if (rows.length === 0) continue;
+
+    // Four characters to a token is the usual rough conversion, and the
+    // prompt is far larger than the reply — persona, ceilings and retrieved
+    // documents all ride along on every turn.
+    const promptChars = rows.reduce((a, t) => a + t.body.length, 0);
+    const aiTurns = rows.filter((t) => t.speaker === "ai");
+    const outputChars = aiTurns.reduce((a, t) => a + t.body.length, 0);
+
+    const usage: Usage = {
+      inputTokens: Math.ceil((promptChars + aiTurns.length * 2000) / 4),
+      outputTokens: Math.ceil(outputChars / 4),
+      embeddingTokens: Math.ceil(promptChars / 4),
+    };
+
+    if (c.channel === "phone" && c.duration) {
+      // Roughly half the call is each party speaking.
+      usage.audioInSeconds = c.duration * 0.45;
+      usage.audioOutSeconds = c.duration * 0.45;
+    }
+    if (c.contained === false && c.duration) {
+      // A conversation a person had to take cost some of their time; without
+      // turn timestamps to bound it, a third of the call is the honest guess.
+      usage.humanSeconds = Math.round(c.duration / 3);
+    }
+
+    const cost = priceUsage(usage);
+    values.push({
+      id: c.id,
+      pence: cost.pence,
+      breakdown: { usage, lines: cost.lines, estimated: true },
+    });
+  }
+
+  for (let i = 0; i < values.length; i += 400) {
+    const batch = values.slice(i, i + 400);
+    const rows = sql.join(
+      batch.map((v) => sql`(${v.id}::uuid, ${v.pence}::real, ${JSON.stringify(v.breakdown)}::jsonb)`),
+      sql`, `,
+    );
+    await db.execute(sql`
+      UPDATE ${s.conversations} AS c
+      SET cost_pence = v.pence, cost_breakdown = v.breakdown
+      FROM (VALUES ${rows}) AS v(id, pence, breakdown)
+      WHERE c.id = v.id
+    `);
+  }
+
+  return { priced: values.length };
 }

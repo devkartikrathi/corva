@@ -10,6 +10,7 @@
  */
 import "../lib/db/script-env";
 import {
+  backfillCosts,
   enforceRetention,
   recomputeDocumentStats,
   recomputeHealth,
@@ -50,6 +51,8 @@ async function classifyPending(limit = 25) {
 }
 
 const JOBS: Record<string, () => Promise<unknown>> = {
+  // Before usage, which sums what this writes.
+  costs: backfillCosts,
   usage: rollUpUsage,
   health: recomputeHealth,
   documents: recomputeDocumentStats,

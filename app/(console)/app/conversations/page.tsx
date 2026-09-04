@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Kicker, LinkAction, OutlineButton, PrimaryButton, ScreenTitle, Tag } from "@/components/ui";
 import { ActiveFilters, Chip, Pager, SearchBox, Tab, TabStrip } from "@/components/filters";
 import { ReviewForm } from "@/components/ReviewForm";
+import { formatCost } from "@/lib/pricing";
 import { ExportButton } from "@/components/ExportButton";
 import { SaveViewButton } from "@/components/SaveViewButton";
 import { saveView } from "@/lib/actions/workspace";
@@ -340,7 +341,7 @@ export default async function ConversationsPage({
               style={{
                 marginTop: 14,
                 display: "grid",
-                gridTemplateColumns: "repeat(4, 1fr)",
+                gridTemplateColumns: "repeat(5, 1fr)",
                 borderTop: "1px solid var(--color-neutral-400)",
                 paddingTop: 12,
               }}
@@ -387,6 +388,27 @@ export default async function ConversationsPage({
                   </div>
                 </div>
               ))}
+              <div>
+                <Kicker size={9.5} style={{ letterSpacing: "0.12em" }}>
+                  Cost to serve
+                </Kicker>
+                <div style={{ marginTop: 4, fontSize: 13, fontWeight: 700 }}>
+                  {detail!.cost.pence > 0 ? formatCost(detail!.cost.pence) : "—"}
+                </div>
+                {detail!.cost.lines.length > 0 && (
+                  <div style={{ marginTop: 4, fontSize: 10.5, color: "var(--color-neutral-700)", lineHeight: 1.5 }}>
+                    {detail!.cost.lines.map((l) => (
+                      <span key={l.label} style={{ display: "block" }}>
+                        {l.label} {formatCost(l.pence)}
+                        <span style={{ color: "var(--color-neutral-500)" }}>
+                          {" "}
+                          · {l.units.toLocaleString("en-GB")} {l.unit}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div>
                 <Kicker size={9.5} style={{ letterSpacing: "0.12em" }}>
                   Quality review

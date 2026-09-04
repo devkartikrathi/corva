@@ -510,6 +510,21 @@ export const conversations = pgTable(
      */
     isTest: boolean("is_test").notNull().default(false),
     /**
+     * What this conversation cost to serve, in pence.
+     *
+     * Measured rather than estimated — real tokens, real audio seconds, real
+     * human handling time — and accumulated as the conversation happens rather
+     * than inferred from its duration afterwards. Denormalised onto the row
+     * because every spending question starts by summing it.
+     */
+    costPence: real("cost_pence").notNull().default(0),
+    /**
+     * The components behind that number, in the same shape `customerScores`
+     * keeps its breakdown: a cost nobody can open up is one people stop
+     * believing the first time it surprises them.
+     */
+    costBreakdown: jsonb("cost_breakdown").notNull().default({}),
+    /**
      * One sentence a colleague could read instead of the transcript. Written
      * by the classification job when a conversation closes, not by a person.
      */

@@ -29,6 +29,13 @@ export const LIVE_MODEL = process.env.VOICE_LIVE_MODEL ?? "gemini-3.1-flash-live
 
 
 
+/**
+ * Bytes per second on the wire, for turning a byte count into billable audio.
+ * Both directions are 16-bit mono, so two bytes a sample.
+ */
+export const INPUT_RATE_BYTES_PER_SEC = 16000 * 2;
+export const OUTPUT_RATE_BYTES_PER_SEC = 24000 * 2;
+
 export const LIVE_URL = (key: string) =>
   "wss://generativelanguage.googleapis.com/ws/" +
   "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=" +

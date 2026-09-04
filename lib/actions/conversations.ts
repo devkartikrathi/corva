@@ -8,6 +8,7 @@ import { assertCan } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { audit } from "./audit";
+import { billConversation } from "@/lib/agent/respond";
 
 /**
  * Everything a person can do to a conversation.
@@ -276,6 +277,30 @@ export async function stopAgent(conversationId: string, reason: string) {
 
 /* ─── Ending and reviewing ─────────────────────────────────────────────── */
 
+/**
+ * How long a person actually spent on this, in seconds.
+ *
+ * Measured from the turn where someone took the line to the last thing they
+ * said, rather than from the call's own duration — a colleague who joins for
+ * the last ninety seconds of a twenty-minute call cost ninety seconds, and
+ * billing the whole call to them would make every handover look ruinous.
+ */
+async function humanSecondsOn(conversationId: string): Promise<number> {
+  const rows = await db
+    .select({ speaker: s.turns.speaker, at: s.turns.createdAt, body: s.turns.body })
+    .from(s.turns)
+    .where(eq(s.turns.conversationId, conversationId))
+    .orderBy(asc(s.turns.ordinal));
+
+  const joined = rows.findIndex(
+    (t) => t.speaker === "human" || (t.speaker === "system" && /took the line/i.test(t.body)),
+  );
+  if (joined === -1) return 0;
+
+  const last = rows[rows.length - 1];
+  return Math.max(0, Math.round((last.at.getTime() - rows[joined].at.getTime()) / 1000));
+}
+
 export async function resolveConversation(conversationId: string, outcome: "human_resolved" | "ai_resolved") {
   const { session, brand } = await getConsoleContext();
   assertCan(session.actor, "calls.handle", { brandId: brand.id });
@@ -297,6 +322,10 @@ export async function resolveConversation(conversationId: string, outcome: "huma
     .update(s.handoffs)
     .set({ status: "resolved", resolution: outcome })
     .where(and(eq(s.handoffs.conversationId, conversationId), eq(s.handoffs.status, "accepted")));
+
+  // A person's time is the largest line on any conversation that had one.
+  const humanSeconds = await humanSecondsOn(conversationId);
+  if (humanSeconds > 0) await billConversation(conversationId, { humanSeconds });
 
   await audit({
     orgId: session.orgId,
