@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Bar, Kicker, LinkAction, LiveDot, PrimaryButton } from "@/components/ui";
 import { ActionButton } from "@/components/ActionButton";
 import { CallComposer } from "@/components/CallComposer";
+import { LiveRefresh } from "@/components/LiveRefresh";
 import { getConsoleContext } from "@/lib/auth/context";
 import { loadAgentConfig } from "@/lib/agent/config";
 import { formatPence } from "@/lib/agent/authority";
@@ -95,6 +96,7 @@ export default async function LiveCallPage({
           On call
         </span>
         <span style={{ fontWeight: 800, fontSize: 22, letterSpacing: "-0.02em" }}>{call.elapsed}</span>
+        <LiveRefresh active={!call.ended} label="Following" />
         <span style={{ height: 26, width: 2, background: "var(--color-neutral-400)" }} />
         <Link
           href={call.customer ? `/app/customers/${call.customer.id}` : "/app/customers"}

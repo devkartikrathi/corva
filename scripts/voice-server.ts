@@ -35,6 +35,8 @@ import {
   persistTurn,
   setupMessage,
 } from "../lib/voice/session";
+import { classifyAndStore } from "../lib/pipelines/classify";
+import { customerContext } from "../lib/agent/respond";
 
 const KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 if (!KEY) throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is not set.");
@@ -79,6 +81,17 @@ wss.on("connection", (client) => {
         if (said.trim()) await persistTurn(conversationId, "ai", said, startedAt);
         await persistTurn(conversationId, "system", `Playground session ended: ${reason}.`, startedAt);
         await closeVoiceConversation(conversationId, seconds);
+
+        // Name the call from its transcript, the way the nightly job does for
+        // every other conversation. Deliberately not awaited: it takes tens of
+        // seconds on the analysis model, and the caller has already hung up.
+        // The console picks it up on its next refresh.
+        const id = conversationId;
+        void classifyAndStore(id)
+          .then((result) => {
+            if (result) console.log(`  classified ${id.slice(0, 8)}: ${result.intent}`);
+          })
+          .catch((e) => console.error(`  classify ${id.slice(0, 8)} failed:`, (e as Error).message));
       }
     } catch (e) {
       console.error("shutdown persistence failed:", e);
@@ -130,7 +143,10 @@ wss.on("connection", (client) => {
       open++;
 
       try {
-        const opened = await openVoiceConversation(msg.brandSlug ?? "aurelius-home");
+        const opened = await openVoiceConversation(
+          msg.brandSlug ?? "aurelius-home",
+          msg.customerId ?? null,
+        );
         conversationId = opened.conversation.id;
         brandId = opened.brand.id;
         config = opened.config;
@@ -138,8 +154,21 @@ wss.on("connection", (client) => {
 
         live = new WebSocket(LIVE_URL(KEY));
 
+        // The agent gets the same caller record the text path assembles. Without
+        // it, it was inventing names for people whose record was right there.
+        const { text: caller } = await customerContext(opened.customer?.id ?? null);
+
         live.on("open", () => {
-          live!.send(JSON.stringify(setupMessage(config!, opened.brand.name, LIVE_MODEL)));
+          live!.send(
+            JSON.stringify(
+              setupMessage(
+                config!,
+                opened.brand.name,
+                LIVE_MODEL,
+                caller || "The number is not recognised. You do not know who this is.",
+              ),
+            ),
+          );
         });
 
         live.on("message", async (data) => {
@@ -153,6 +182,7 @@ wss.on("connection", (client) => {
               version: config!.version,
               customer: opened.customer?.name ?? null,
               conversationId,
+              brandSlug: msg.brandSlug ?? "aurelius-home",
               capSeconds: SESSION_CAP_SECONDS,
             });
             capTimer = setTimeout(() => void shutdown("session cap reached"), SESSION_CAP_SECONDS * 1000);

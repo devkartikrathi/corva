@@ -7,6 +7,7 @@ import { acceptHandoff, approveHandoffDecision, reassignHandoff } from "@/lib/ac
 import { getTeam } from "@/lib/queries/workspace";
 import { href, normalise, type RawParams } from "@/lib/params";
 import { ActionButton } from "@/components/ActionButton";
+import { LiveRefresh } from "@/components/LiveRefresh";
 import { ReassignPicker } from "@/components/ReassignPicker";
 
 const PATH = "/app/handoffs";
@@ -92,6 +93,7 @@ export default async function HandoffsPage({
         lede="Every handoff arrives with a written brief. No customer is asked to explain themselves twice."
         border={false}
       >
+        <LiveRefresh active={counts.waiting > 0} label="Watching queue" />
         {counts.waiting > 0 && (
           <ActionButton
             variant="primary"

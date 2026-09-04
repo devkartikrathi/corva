@@ -6,6 +6,7 @@ import { grounded, retrieve, recordGap } from "@/lib/agent/retrieval";
 import { writeBrief } from "@/lib/agent/brief";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
+import { runningSentiment, scoreUtterance } from "@/lib/pipelines/sentiment";
 
 /**
  * A Corva agent, expressed as a Gemini Live session.
@@ -103,11 +104,16 @@ export const TOOLS = [
  * The one addition is conversational: a caller cannot see a spinner, so silence
  * while a tool runs reads as a dropped line.
  */
-export function liveInstruction(config: AgentConfig, brandName: string): string {
+export function liveInstruction(config: AgentConfig, brandName: string, caller: string): string {
   return [
     config.persona,
     "",
     `You are on a live phone call for ${brandName}. You are speaking out loud, not writing.`,
+    "",
+    "WHO YOU ARE TALKING TO",
+    caller,
+    "Use their name once, at the start. Never invent a name, a date, or a detail that is not",
+    "written above — if the caller is not recognised, ask rather than guess.",
     "",
     "HOW TO TALK",
     "- One or two sentences at a time. Never deliver a paragraph.",
@@ -147,7 +153,12 @@ export function liveInstruction(config: AgentConfig, brandName: string): string 
 }
 
 /** The setup frame that opens a Live session. */
-export function setupMessage(config: AgentConfig, brandName: string, model: string) {
+export function setupMessage(
+  config: AgentConfig,
+  brandName: string,
+  model: string,
+  caller: string,
+) {
   return {
     setup: {
       model: `models/${model}`,
@@ -158,7 +169,7 @@ export function setupMessage(config: AgentConfig, brandName: string, model: stri
         maxOutputTokens: 400,
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } },
       },
-      systemInstruction: { parts: [{ text: liveInstruction(config, brandName) }] },
+      systemInstruction: { parts: [{ text: liveInstruction(config, brandName, caller) }] },
       tools: TOOLS,
       // Both sides as text, so turns persist without a second STT pass.
       inputAudioTranscription: {},
@@ -288,7 +299,14 @@ export async function handleToolCall(
 
 /* ─── Persistence ──────────────────────────────────────────────────────── */
 
-/** Append a turn, so a playground call reads like any other conversation. */
+/**
+ * Append a turn, so a call reads like any other conversation.
+ *
+ * Customer turns are scored on the way in. The text path does this inside
+ * `respondStream`, and without it here a voice call would carry no sentiment
+ * at all — which would leave the "sentiment below −0.40" guardrail blind on
+ * precisely the channel where a caller's tone is most of the signal.
+ */
 export async function persistTurn(
   conversationId: string,
   speaker: "customer" | "ai" | "system",
@@ -308,30 +326,81 @@ export async function persistTurn(
     .from(s.turns)
     .where(eq(s.turns.conversationId, conversationId));
 
+  const sentiment = speaker === "customer" ? scoreUtterance(text) : null;
+
   await db.insert(s.turns).values({
     conversationId,
     ordinal: Number(next),
     speaker,
     body: text,
+    sentiment,
     atSeconds: Math.max(0, Math.round((Date.now() - startedAt.getTime()) / 1000)),
   });
+
+  if (speaker !== "customer") return;
+
+  // Keep the conversation's running figure current, so the live console and
+  // the archive read the same number the guardrail is checking.
+  const said = await db
+    .select({ body: s.turns.body })
+    .from(s.turns)
+    .where(and(eq(s.turns.conversationId, conversationId), eq(s.turns.speaker, "customer")))
+    .orderBy(asc(s.turns.ordinal));
+
+  await db
+    .update(s.conversations)
+    .set({
+      sentimentEnd: runningSentiment(said.map((t) => t.body)),
+      ...(said.length === 1 ? { sentimentStart: sentiment } : {}),
+    })
+    .where(eq(s.conversations.id, conversationId));
 }
 
-/** Open a conversation for a playground call. */
-export async function openVoiceConversation(brandSlug: string) {
+/** Who could be on the other end, for the caller picker. */
+export async function callersFor(brandSlug: string) {
+  const [brand] = await db.select().from(s.brands).where(eq(s.brands.slug, brandSlug)).limit(1);
+  if (!brand) return [];
+  const rows = await db
+    .select()
+    .from(s.customers)
+    .where(eq(s.customers.brandId, brand.id))
+    .orderBy(s.customers.name);
+  return rows.map((c) => ({
+    id: c.id,
+    name: c.name,
+    detail: [c.tier, c.phone].filter(Boolean).join(" · "),
+  }));
+}
+
+/**
+ * Open a conversation for a call.
+ *
+ * Nothing here marks it as a test. It is a real row on a real brand, and it
+ * appears on the live console, the handoff queue and the archive exactly as an
+ * inbound call would — which is the point: a rehearsal that writes to a
+ * different table rehearses nothing.
+ *
+ * The caller is chosen rather than assumed. Ringing in as Marguerite Okonkwo,
+ * whose record shows three reschedules and a priority of 99, is a different
+ * call from ringing in as a number nobody recognises, and the difference is
+ * most of what the agent is reasoning about.
+ */
+export async function openVoiceConversation(brandSlug: string, customerId?: string | null) {
   const [brand] = await db.select().from(s.brands).where(eq(s.brands.slug, brandSlug)).limit(1);
   if (!brand) throw new Error(`No brand ${brandSlug}`);
 
   const config = await loadAgentConfig(brand.id);
   if (!config) throw new Error(`${brand.name} has no live agent version.`);
 
-  // Attach the call to a real customer when the brand has one, so the agent has
-  // a record to reason about rather than an empty context.
-  const [customer] = await db
-    .select()
-    .from(s.customers)
-    .where(eq(s.customers.brandId, brand.id))
-    .limit(1);
+  // An explicit caller, or none — an unrecognised number is a real case, and
+  // the agent should be exercised against it too.
+  const [customer] = customerId
+    ? await db
+        .select()
+        .from(s.customers)
+        .where(and(eq(s.customers.id, customerId), eq(s.customers.brandId, brand.id)))
+        .limit(1)
+    : [null];
 
   const [conversation] = await db
     .insert(s.conversations)
@@ -340,7 +409,10 @@ export async function openVoiceConversation(brandSlug: string) {
       customerId: customer?.id ?? null,
       channel: "phone",
       status: "live",
-      intent: "Voice playground",
+      // Left unset: the classifier names it from the transcript when the call
+      // ends, the same way it does for every other conversation. A hardcoded
+      // label here would be the one thing marking this as not a real call.
+      intent: null,
       agentVersionId: config.versionId,
       startedAt: new Date(),
     })
@@ -349,17 +421,72 @@ export async function openVoiceConversation(brandSlug: string) {
   return { brand, config, customer: customer ?? null, conversation };
 }
 
-/** Close it, and record what it cost in wall-clock terms. */
+/**
+ * Close the call.
+ *
+ * Containment is read off the transcript rather than assumed: if no human
+ * spoke and the agent never escalated, the AI did in fact handle it, and
+ * recording otherwise would understate the only number the product is sold on.
+ * Intent and outcome are left for the classifier.
+ */
 export async function closeVoiceConversation(conversationId: string, seconds: number) {
+  const turns = await db
+    .select({ speaker: s.turns.speaker })
+    .from(s.turns)
+    .where(eq(s.turns.conversationId, conversationId));
+
+
+  const [current] = await db
+    .select({ status: s.conversations.status })
+    .from(s.conversations)
+    .where(eq(s.conversations.id, conversationId))
+    .limit(1);
+
+  // A call already queued for a person stays that way — hanging up does not
+  // resolve the thing that needed someone.
+  if (current?.status === "waiting_human") {
+    await db
+      .update(s.conversations)
+      .set({ endedAt: new Date(), durationSeconds: seconds })
+      .where(eq(s.conversations.id, conversationId));
+    return;
+  }
+
+  const humanSpoke = turns.some((t) => t.speaker === "human");
+  const exchanged = turns.some((t) => t.speaker === "customer");
+
+  // A refused action or a queued handoff means the agent hit a limit, whatever
+  // the transcript sounds like.
+  const [refused] = await db
+    .select({ id: s.conversationActions.id })
+    .from(s.conversationActions)
+    .where(
+      and(
+        eq(s.conversationActions.conversationId, conversationId),
+        eq(s.conversationActions.allowed, false),
+      ),
+    )
+    .limit(1);
+
+  // Nobody spoke: that is what `abandoned` is for, and the outcome stays null
+  // because there genuinely was not one.
   await db
     .update(s.conversations)
     .set({
-      status: "resolved",
+      status: exchanged ? "resolved" : "abandoned",
       endedAt: new Date(),
       durationSeconds: seconds,
-      // A playground call is never "contained" — nobody was actually helped.
-      contained: false,
-      outcome: "no_follow_up",
+      /**
+       * Never claimed, only denied.
+       *
+       * "No human spoke" is not evidence the customer was helped — an agent
+       * that refused everything and was hung up on scores the same. Anything
+       * that went visibly wrong is recorded as uncontained now; everything
+       * else waits for the classifier, which reads the transcript. Guessing
+       * generously here would inflate the one number the product is sold on.
+       */
+      contained: humanSpoke || refused ? false : null,
+      outcome: humanSpoke ? "human_resolved" : null,
     })
-    .where(and(eq(s.conversations.id, conversationId), eq(s.conversations.status, "live")));
+    .where(eq(s.conversations.id, conversationId));
 }

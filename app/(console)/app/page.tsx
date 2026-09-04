@@ -13,6 +13,7 @@ import {
   Th,
 } from "@/components/ui";
 import { ActionButton } from "@/components/ActionButton";
+import { LiveRefresh } from "@/components/LiveRefresh";
 import { takeOverCall } from "@/lib/actions/conversations";
 import { getConsoleContext } from "@/lib/auth/context";
 import { hourlyVolume } from "@/lib/queries/analytics";
@@ -47,6 +48,7 @@ export default async function CommandCenterPage() {
       >
         <ScreenTitle kicker={brand.name} title="Command center" />
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <LiveRefresh active={live.length > 0 || waiting.length > 0} />
           <span style={{ fontSize: 11, color: "var(--color-neutral-700)" }}>Saved views</span>
           {views
             .filter((v) => !v.isDefault)

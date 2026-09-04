@@ -4,6 +4,7 @@ import { VoicePlayground } from "@/components/VoicePlayground";
 import { requireStaff } from "@/lib/auth/context";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
+import { callersFor } from "@/lib/voice/session";
 import { BRIDGE_PORT, COST_PER_MINUTE_PENCE, LIVE_MODEL, SESSION_CAP_SECONDS } from "@/lib/voice/config";
 
 /**
@@ -36,12 +37,18 @@ export default async function VoiceTestingPage() {
     agentName: r.brand.agentName,
   }));
 
+  // Who you can ring in as, per brand. The agent reasons about this record —
+  // tier, lifetime value, priority, open orders — so it changes the call.
+  const callers = Object.fromEntries(
+    await Promise.all(brands.map(async (b) => [b.slug, await callersFor(b.slug)] as const)),
+  );
+
   return (
     <section>
       <OperatorHeader
         kicker={`${LIVE_MODEL} · speech to speech · capped at ${SESSION_CAP_SECONDS}s`}
         title="Voice testing"
-        lede="Talk to a tenant's agent the way a customer would. Retrieval, authority ceilings and escalation are the same code the console runs — the difference is that you hear the refusals instead of reading them."
+        lede="Ring a tenant's helpline as one of their customers. It writes a real conversation on a real brand — it appears on the live console, the handoff queue and the archive as any inbound call would, and a colleague watching those screens sees it happen."
       />
 
       {brands.length === 0 ? (
@@ -53,6 +60,7 @@ export default async function VoiceTestingPage() {
         <VoicePlayground
           bridgeUrl={`ws://localhost:${BRIDGE_PORT}`}
           brands={brands}
+          callers={callers}
           costPerMinutePence={COST_PER_MINUTE_PENCE}
         />
       )}

@@ -30,16 +30,27 @@ type Status = "idle" | "connecting" | "ready" | "listening" | "thinking" | "spea
 export function VoicePlayground({
   bridgeUrl,
   brands,
+  callers,
   costPerMinutePence,
 }: {
   bridgeUrl: string;
   brands: { slug: string; name: string; agentName: string | null }[];
+  /** Who you can ring in as, per brand. An empty choice is an unknown number. */
+  callers: Record<string, { id: string; name: string; detail: string }[]>;
   costPerMinutePence: number;
 }) {
   const [status, setStatus] = useState<Status>("idle");
   const [brandSlug, setBrandSlug] = useState(brands[0]?.slug ?? "");
+  const [callerId, setCallerId] = useState("");
   const [events, setEvents] = useState<Event[]>([]);
-  const [session, setSession] = useState<{ brand: string; agent: string; version: number; customer: string | null; capSeconds: number } | null>(null);
+  const [session, setSession] = useState<{
+    brand: string;
+    agent: string;
+    version: number;
+    customer: string | null;
+    capSeconds: number;
+    conversationId?: string;
+  } | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [talking, setTalking] = useState(false);
@@ -125,7 +136,8 @@ export function VoicePlayground({
     socket.binaryType = "arraybuffer";
     ws.current = socket;
 
-    socket.onopen = () => socket.send(JSON.stringify({ type: "start", brandSlug }));
+    socket.onopen = () =>
+      socket.send(JSON.stringify({ type: "start", brandSlug, customerId: callerId || null }));
 
     socket.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) {
@@ -136,7 +148,14 @@ export function VoicePlayground({
       if (m.type === "ready") {
         setSession(m);
         setStatus("ready");
-        push({ kind: "system", text: `Connected to ${m.agent} on ${m.brand}, agent v${m.version}${m.customer ? ` · caller record: ${m.customer}` : ""}.` });
+        push({
+          kind: "system",
+          text:
+            `Connected to ${m.agent} on ${m.brand}, agent v${m.version}. ` +
+            (m.customer
+              ? `Ringing in as ${m.customer}.`
+              : "Ringing in from a number the brand does not recognise."),
+        });
       } else if (m.type === "heard") {
         setEvents((prev) => {
           const rest = prev.filter((x, i) => !(x.kind === "heard" && i === prev.length - 1));
@@ -410,6 +429,42 @@ export function VoicePlayground({
           </select>
         </div>
 
+        <div>
+          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--color-neutral-500)" }}>
+            Calling as
+          </div>
+          <select
+            value={callerId}
+            onChange={(e) => setCallerId(e.target.value)}
+            disabled={live}
+            style={{
+              marginTop: 8,
+              width: "100%",
+              border: "1px solid var(--color-neutral-600)",
+              background: "transparent",
+              color: "var(--color-bg)",
+              padding: "7px 9px",
+              fontSize: 12.5,
+              fontFamily: "inherit",
+              borderRadius: 0,
+            }}
+          >
+            <option value="" style={{ color: "var(--color-text)" }}>
+              An unrecognised number
+            </option>
+            {(callers[brandSlug] ?? []).map((c) => (
+              <option key={c.id} value={c.id} style={{ color: "var(--color-text)" }}>
+                {c.name}
+                {c.detail ? ` · ${c.detail}` : ""}
+              </option>
+            ))}
+          </select>
+          <p style={{ margin: "8px 0 0", fontSize: 11, color: "var(--color-neutral-500)", lineHeight: 1.5 }}>
+            The agent sees this caller&rsquo;s record — their tier, lifetime value, priority and
+            open orders. Ringing in unrecognised is a different call, and worth trying too.
+          </p>
+        </div>
+
         {!live ? (
           <button
             type="button"
@@ -448,6 +503,22 @@ export function VoicePlayground({
             <div>Agent <b style={{ color: "var(--color-bg)" }}>{session.agent} v{session.version}</b></div>
             {session.customer && <div>Caller record <b style={{ color: "var(--color-bg)" }}>{session.customer}</b></div>}
             <div>Persona, ceilings and guardrails come from the Tuning screen.</div>
+            {session.conversationId && (
+              <a
+                href={`/app/live?call=${session.conversationId}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: "inline-block",
+                  marginTop: 10,
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  color: "var(--color-accent-400)",
+                }}
+              >
+                Watch this call in the console →
+              </a>
+            )}
           </div>
         )}
 

@@ -79,7 +79,8 @@ ${sources || "(nothing matched — say you do not know and that you are getting 
 }
 
 /** Everything the agent is allowed to know about who it is talking to. */
-async function customerContext(customerId: string | null): Promise<{ text: string; priority: number | null }> {
+/** Exported so the voice bridge gives its agent the same record the text path has. */
+export async function customerContext(customerId: string | null): Promise<{ text: string; priority: number | null }> {
   if (!customerId) return { text: "Unidentified caller.", priority: null };
 
   const [row] = await db
