@@ -291,6 +291,7 @@ export async function getTenantDetail(slug: string) {
       contained: sql<number>`count(*) FILTER (WHERE ${s.conversations.contained})::int`,
     })
     .from(s.conversations)
+    .where(eq(s.conversations.isTest, false))
     .groupBy(s.conversations.brandId);
   const statsBy = new Map(perBrand.map((b) => [b.brandId, b]));
 
@@ -463,7 +464,8 @@ export async function getFleetQuality(filters: { status?: string; owner?: string
   const [aiTurns] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(s.turns)
-    .where(eq(s.turns.speaker, "ai"));
+    .innerJoin(s.conversations, eq(s.conversations.id, s.turns.conversationId))
+    .where(and(eq(s.turns.speaker, "ai"), eq(s.conversations.isTest, false)));
 
   const [cited] = await db
     .select({ n: sql<number>`count(DISTINCT ${s.turnCitations.turnId})::int` })
@@ -788,7 +790,12 @@ export async function getPlatformPulse() {
     db
       .select({ n: sql<number>`count(*)::int` })
       .from(s.conversations)
-      .where(inArray(s.conversations.status, ["live", "waiting_human"])),
+      .where(
+        and(
+          inArray(s.conversations.status, ["live", "waiting_human"]),
+          eq(s.conversations.isTest, false),
+        ),
+      ),
   ]);
 
   return {
@@ -811,7 +818,12 @@ export async function platformLoad() {
   const rows = await db
     .select({ startedAt: s.conversations.startedAt })
     .from(s.conversations)
-    .where(sql`${s.conversations.startedAt} > now() - interval '24 hours'`);
+    .where(
+      and(
+        sql`${s.conversations.startedAt} > now() - interval '24 hours'`,
+        eq(s.conversations.isTest, false),
+      ),
+    );
 
   const buckets = Array.from({ length: 24 }, () => 0);
   for (const r of rows) {

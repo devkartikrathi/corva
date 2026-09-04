@@ -499,6 +499,17 @@ export const conversations = pgTable(
     /** True when no human was needed — the containment metric. */
     contained: boolean("contained"),
     /**
+     * A rehearsal rather than a customer.
+     *
+     * Test calls are written to these tables like any other conversation —
+     * that is what makes the playground worth having — but they must not reach
+     * containment, cost, health or a customer's priority score, because those
+     * are numbers people make decisions on. Kept as a column rather than a
+     * separate table so a test call is visibly the same shape as a real one,
+     * and so forgetting to exclude it is a bug someone can find.
+     */
+    isTest: boolean("is_test").notNull().default(false),
+    /**
      * One sentence a colleague could read instead of the transcript. Written
      * by the classification job when a conversation closes, not by a person.
      */
@@ -512,6 +523,8 @@ export const conversations = pgTable(
     index("conversations_brand_started_idx").on(t.brandId, t.startedAt),
     index("conversations_customer_idx").on(t.customerId, t.startedAt),
     index("conversations_status_idx").on(t.brandId, t.status),
+    // Every metric filters on this, so it earns its own index.
+    index("conversations_is_test_idx").on(t.brandId, t.isTest),
   ],
 );
 

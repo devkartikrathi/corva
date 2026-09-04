@@ -411,6 +411,8 @@ export type ArchiveFilters = {
   since?: string;
   /** Only conversations a person reviewed, or only those nobody has. */
   reviewed?: "yes" | "no";
+  /** "only" for rehearsals alone, "exclude" to hide them. Default shows both. */
+  test?: "only" | "exclude";
   sort?: string;
   page?: number;
   pageSize?: number;
@@ -445,6 +447,8 @@ export async function listConversations(brandId: string, filters: ArchiveFilters
       where.push(gte(s.conversations.startedAt, new Date(Date.now() - days * 864e5)));
     }
   }
+  if (filters.test === "only") where.push(eq(s.conversations.isTest, true));
+  if (filters.test === "exclude") where.push(eq(s.conversations.isTest, false));
   if (filters.reviewed === "yes") where.push(isNotNull(s.conversations.reviewScore));
   if (filters.reviewed === "no") where.push(isNull(s.conversations.reviewScore));
   if (filters.q?.trim()) {
@@ -497,6 +501,7 @@ export async function listConversations(brandId: string, filters: ArchiveFilters
         name: customer?.name ?? "Unidentified",
         customerId: customer?.id ?? null,
         summary: c.summary,
+        isTest: c.isTest,
         when: c.startedAt.toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
         intent: c.intent ?? "Conversation",
         outcome: outcomeLabel(c.outcome, c.status),
@@ -534,6 +539,7 @@ export async function archiveFacets(brandId: string) {
       .select({
         yes: sql<number>`count(*) filter (where ${s.conversations.reviewScore} is not null)::int`,
         no: sql<number>`count(*) filter (where ${s.conversations.reviewScore} is null)::int`,
+        tests: sql<number>`count(*) filter (where ${s.conversations.isTest})::int`,
       })
       .from(s.conversations)
       .where(eq(s.conversations.brandId, brandId)),
@@ -545,6 +551,7 @@ export async function archiveFacets(brandId: string) {
       .filter((o) => o.key !== null)
       .map((o) => ({ key: o.key!, label: outcomeLabel(o.key, "resolved"), count: o.n })),
     reviewed: reviewed[0],
+    tests: reviewed[0].tests,
   };
 }
 
@@ -599,17 +606,25 @@ export async function getConversation(brandId: string, conversationId: string) {
 /** The counts the archive's filter bar prints. */
 export async function conversationStats(brandId: string) {
   const rows = await db
-    .select({ status: s.conversations.status, outcome: s.conversations.outcome, contained: s.conversations.contained })
+    .select({
+      status: s.conversations.status,
+      outcome: s.conversations.outcome,
+      contained: s.conversations.contained,
+      isTest: s.conversations.isTest,
+    })
     .from(s.conversations)
     .where(eq(s.conversations.brandId, brandId));
 
-  const total = rows.length;
-  const contained = rows.filter((r) => r.contained === true).length;
-  const unresolved = rows.filter((r) => isBad(r.outcome)).length;
+  // Containment is a metric, so rehearsals are excluded. Live and waiting are
+  // operational — a test call ringing right now genuinely is ringing right
+  // now, and hiding it from the badge you are about to click would be a lie.
+  const real = rows.filter((r) => !r.isTest);
+  const total = real.length;
+  const contained = real.filter((r) => r.contained === true).length;
 
   return {
     total,
-    unresolved,
+    unresolved: real.filter((r) => isBad(r.outcome)).length,
     containment: total > 0 ? (contained / total) * 100 : 0,
     waiting: rows.filter((r) => r.status === "waiting_human").length,
     live: rows.filter((r) => r.status === "live").length,

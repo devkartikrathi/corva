@@ -28,6 +28,14 @@ const HUMAN_MINUTE_COST_PENCE = 42;
  * Grouped in SQL rather than in memory: this is the one job whose input grows
  * without bound, and pulling a fleet-week of conversations into Node to count
  * them is the version that works until it does not.
+ *
+ * The double `at time zone 'utc'` is load-bearing and easy to lose. The first
+ * makes the day boundary UTC; the second converts the result back to a
+ * timestamptz, because Postgres otherwise re-reads that bare timestamp in the
+ * session's timezone on insert. On a machine in Asia/Kolkata that wrote every
+ * key at 18:30Z rather than midnight, so the upsert never matched and each day
+ * silently gained a second row — doubling every operator chart summing this
+ * table.
  */
 export async function rollUpUsage(days = 2): Promise<{ rows: number; days: number }> {
   const from = midnight(new Date(Date.now() - days * 864e5));
@@ -35,7 +43,7 @@ export async function rollUpUsage(days = 2): Promise<{ rows: number; days: numbe
   const grouped = await db
     .select({
       orgId: s.brands.orgId,
-      day: sql<string>`date_trunc('day', ${s.conversations.startedAt} at time zone 'utc')`,
+      day: sql<string>`(date_trunc('day', ${s.conversations.startedAt} at time zone 'utc') at time zone 'utc')`,
       conversations: sql<number>`count(*)::int`,
       contained: sql<number>`count(*) filter (where ${s.conversations.contained})::int`,
       handoffs: sql<number>`count(*) filter (where ${s.conversations.contained} is false)::int`,
@@ -44,8 +52,10 @@ export async function rollUpUsage(days = 2): Promise<{ rows: number; days: numbe
     })
     .from(s.conversations)
     .innerJoin(s.brands, eq(s.brands.id, s.conversations.brandId))
-    .where(gte(s.conversations.startedAt, from))
-    .groupBy(s.brands.orgId, sql`date_trunc('day', ${s.conversations.startedAt} at time zone 'utc')`);
+    // Rehearsals never reach usage, and therefore never reach fleet health,
+    // revenue or unit economics, all of which read this table.
+    .where(and(gte(s.conversations.startedAt, from), eq(s.conversations.isTest, false)))
+    .groupBy(s.brands.orgId, sql`(date_trunc('day', ${s.conversations.startedAt} at time zone 'utc') at time zone 'utc')`);
 
   if (grouped.length === 0) return { rows: 0, days };
 
@@ -148,6 +158,7 @@ export async function recomputeDocumentStats(): Promise<{ documents: number }> {
     .from(s.turnCitations)
     .innerJoin(s.turns, eq(s.turns.id, s.turnCitations.turnId))
     .innerJoin(s.conversations, eq(s.conversations.id, s.turns.conversationId))
+    .where(eq(s.conversations.isTest, false))
     .groupBy(s.turnCitations.documentId);
 
   const scored = rows.filter((r) => r.documentId !== null);

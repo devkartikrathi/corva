@@ -184,7 +184,10 @@ export async function rescoreBrand(brandId: string): Promise<number> {
       intent: s.conversations.intent,
     })
     .from(s.conversations)
-    .where(eq(s.conversations.brandId, brandId));
+    // Rehearsals are excluded here above all: they feed service_failures_90d
+    // and contacts_30d, so a test call could otherwise push a real customer up
+    // the priority queue and change who a person rings tomorrow.
+    .where(and(eq(s.conversations.brandId, brandId), eq(s.conversations.isTest, false)));
 
   const historyByCustomer = new Map<string, typeof convRows>();
   for (const row of convRows) {

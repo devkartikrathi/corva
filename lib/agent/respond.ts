@@ -229,7 +229,10 @@ export async function* respondStream(opts: {
     })
     .where(eq(s.conversations.id, conversationId));
 
-  if (!hasGrounding(chunks)) {
+  // A rehearsal that hits a coverage gap has still found one, but counting it
+  // would inflate "asked 14 times" with traffic no customer generated. The
+  // tester sees the miss on screen either way.
+  if (!hasGrounding(chunks) && !conversation.isTest) {
     await recordGap(conversation.brandId, conversation.intent ?? message.slice(0, 120));
   }
 
@@ -329,8 +332,9 @@ export async function* respondStream(opts: {
           .update(s.documents)
           .set({ citationCount: sql`${s.documents.citationCount} + 1` })
           .where(eq(s.documents.id, cited[0].documentId));
-      } else {
-        // A turn with no citation is the failure the quality screens count.
+      } else if (!conversation.isTest) {
+        // A turn with no citation is the failure the quality screens count —
+        // and staff should not be triaging a rehearsal.
         await db.insert(s.qualityFlags).values({
           orgId: (
             await db

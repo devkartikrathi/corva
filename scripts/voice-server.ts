@@ -52,6 +52,7 @@ wss.on("connection", (client) => {
   let live: WebSocket | null = null;
   let conversationId: string | null = null;
   let brandId = "";
+  let isTest = true;
   let config: Awaited<ReturnType<typeof openVoiceConversation>>["config"] | null = null;
   let startedAt = new Date();
   let closed = false;
@@ -146,9 +147,11 @@ wss.on("connection", (client) => {
         const opened = await openVoiceConversation(
           msg.brandSlug ?? "aurelius-home",
           msg.customerId ?? null,
+          msg.countsInMetrics !== true,
         );
         conversationId = opened.conversation.id;
         brandId = opened.brand.id;
+        isTest = opened.conversation.isTest;
         config = opened.config;
         startedAt = new Date();
 
@@ -182,6 +185,7 @@ wss.on("connection", (client) => {
               version: config!.version,
               customer: opened.customer?.name ?? null,
               conversationId,
+              isTest,
               brandSlug: msg.brandSlug ?? "aurelius-home",
               capSeconds: SESSION_CAP_SECONDS,
             });
@@ -195,7 +199,7 @@ wss.on("connection", (client) => {
               const { response, outcome } = await handleToolCall(
                 call.name,
                 call.args ?? {},
-                { conversationId: conversationId!, brandId, config: config! },
+                { conversationId: conversationId!, brandId, config: config!, isTest },
               );
               send({ type: "tool", ...outcome });
               live!.send(

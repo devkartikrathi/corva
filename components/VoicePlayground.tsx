@@ -42,6 +42,7 @@ export function VoicePlayground({
   const [status, setStatus] = useState<Status>("idle");
   const [brandSlug, setBrandSlug] = useState(brands[0]?.slug ?? "");
   const [callerId, setCallerId] = useState("");
+  const [countsInMetrics, setCountsInMetrics] = useState(false);
   const [events, setEvents] = useState<Event[]>([]);
   const [session, setSession] = useState<{
     brand: string;
@@ -137,7 +138,9 @@ export function VoicePlayground({
     ws.current = socket;
 
     socket.onopen = () =>
-      socket.send(JSON.stringify({ type: "start", brandSlug, customerId: callerId || null }));
+      socket.send(
+        JSON.stringify({ type: "start", brandSlug, customerId: callerId || null, countsInMetrics }),
+      );
 
     socket.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) {
@@ -464,6 +467,33 @@ export function VoicePlayground({
             open orders. Ringing in unrecognised is a different call, and worth trying too.
           </p>
         </div>
+
+        <label
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 9,
+            fontSize: 12,
+            cursor: live ? "default" : "pointer",
+            opacity: live ? 0.6 : 1,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={countsInMetrics}
+            disabled={live}
+            onChange={(e) => setCountsInMetrics(e.target.checked)}
+            style={{ accentColor: "var(--color-accent)", marginTop: 2 }}
+          />
+          <span>
+            Count this call in the numbers
+            <span style={{ display: "block", fontSize: 11, color: "var(--color-neutral-500)", lineHeight: 1.5, marginTop: 3 }}>
+              Off by default. A rehearsal still appears on the live console and in the archive —
+              it just stays out of containment, cost, fleet health and the caller&rsquo;s priority
+              score.
+            </span>
+          </span>
+        </label>
 
         {!live ? (
           <button

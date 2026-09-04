@@ -189,7 +189,7 @@ export function setupMessage(
 export async function handleToolCall(
   name: string,
   args: Record<string, unknown>,
-  ctx: { conversationId: string; brandId: string; config: AgentConfig },
+  ctx: { conversationId: string; brandId: string; config: AgentConfig; isTest: boolean },
 ): Promise<{ response: Record<string, unknown>; outcome: ToolOutcome }> {
   if (name === "search_knowledge") {
     const query = String(args.query ?? "");
@@ -197,8 +197,9 @@ export async function handleToolCall(
     const useful = grounded(chunks);
 
     if (useful.length === 0) {
-      // A question with nothing behind it is the gap the Knowledge screen counts.
-      await recordGap(ctx.brandId, query.slice(0, 120));
+      // The gap the Knowledge screen counts — but not for a rehearsal, which
+      // would inflate the hit count with traffic no customer generated.
+      if (!ctx.isTest) await recordGap(ctx.brandId, query.slice(0, 120));
       return {
         response: {
           found: false,
@@ -385,7 +386,11 @@ export async function callersFor(brandSlug: string) {
  * call from ringing in as a number nobody recognises, and the difference is
  * most of what the agent is reasoning about.
  */
-export async function openVoiceConversation(brandSlug: string, customerId?: string | null) {
+export async function openVoiceConversation(
+  brandSlug: string,
+  customerId?: string | null,
+  isTest = true,
+) {
   const [brand] = await db.select().from(s.brands).where(eq(s.brands.slug, brandSlug)).limit(1);
   if (!brand) throw new Error(`No brand ${brandSlug}`);
 
@@ -413,6 +418,9 @@ export async function openVoiceConversation(brandSlug: string, customerId?: stri
       // ends, the same way it does for every other conversation. A hardcoded
       // label here would be the one thing marking this as not a real call.
       intent: null,
+      // A rehearsal by default. Every metric excludes it, and the archive
+      // marks it, so nobody reads a practice call as a customer.
+      isTest,
       agentVersionId: config.versionId,
       startedAt: new Date(),
     })

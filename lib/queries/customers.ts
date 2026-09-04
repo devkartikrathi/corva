@@ -120,6 +120,7 @@ export async function listCustomers(brandId: string, filters: CustomerFilters = 
     db
       .select({ customerId: s.conversations.customerId })
       .from(s.conversations)
+      // "On call" is operational, so a rehearsal in progress still counts.
       .where(and(eq(s.conversations.brandId, brandId), eq(s.conversations.status, "live"))),
     // The last time anyone actually spoke to them. Previously this column
     // showed how long they had been a customer, which is a different number
@@ -130,7 +131,7 @@ export async function listCustomers(brandId: string, filters: CustomerFilters = 
         at: sql<Date>`max(${s.conversations.startedAt})`,
       })
       .from(s.conversations)
-      .where(inArray(s.conversations.customerId, ids))
+      .where(and(inArray(s.conversations.customerId, ids), eq(s.conversations.isTest, false)))
       .groupBy(s.conversations.customerId),
   ]);
 

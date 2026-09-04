@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
+import { realTraffic } from "./live-data";
 
 /**
  * Metrics for the analytics screen and the command centre's headline strip.
@@ -38,6 +39,7 @@ export async function getBrandMetrics(brandId: string, window?: { from: Date; to
     .where(
       and(
         eq(s.conversations.brandId, brandId),
+        realTraffic(),
         ...(window ? [gte(s.conversations.startedAt, window.from)] : []),
         ...(window?.to ? [lt(s.conversations.startedAt, window.to)] : []),
       ),
@@ -106,7 +108,7 @@ export async function hourlyVolume(brandId: string) {
   const rows = await db
     .select({ startedAt: s.conversations.startedAt, contained: s.conversations.contained })
     .from(s.conversations)
-    .where(eq(s.conversations.brandId, brandId));
+    .where(and(eq(s.conversations.brandId, brandId), realTraffic()));
 
   const buckets = Array.from({ length: 14 }, () => ({ ai: 0, human: 0 }));
   for (const r of rows) {
@@ -137,7 +139,9 @@ export async function weeklyContainment(brandId: string, weeks = 12) {
   const rows = await db
     .select({ startedAt: s.conversations.startedAt, contained: s.conversations.contained })
     .from(s.conversations)
-    .where(and(eq(s.conversations.brandId, brandId), gte(s.conversations.startedAt, since)));
+    .where(
+      and(eq(s.conversations.brandId, brandId), realTraffic(), gte(s.conversations.startedAt, since)),
+    );
 
   const buckets = Array.from({ length: weeks }, () => ({ ai: 0, human: 0 }));
   for (const r of rows) {
@@ -181,7 +185,9 @@ export async function unfinishedIntents(brandId: string) {
   const escalations = await db
     .select({ intent: s.conversations.intent, n: sql<number>`count(*)::int` })
     .from(s.conversations)
-    .where(and(eq(s.conversations.brandId, brandId), eq(s.conversations.contained, false)))
+    .where(
+      and(eq(s.conversations.brandId, brandId), realTraffic(), eq(s.conversations.contained, false)),
+    )
     .groupBy(s.conversations.intent);
 
   const REASON_LABEL: Record<string, string> = {
@@ -224,25 +230,29 @@ export async function qualityMetrics(brandId: string) {
     .select({ n: sql<number>`count(*)::int` })
     .from(s.turns)
     .innerJoin(s.conversations, eq(s.conversations.id, s.turns.conversationId))
-    .where(and(eq(s.conversations.brandId, brandId), eq(s.turns.speaker, "ai")));
+    .where(and(eq(s.conversations.brandId, brandId), realTraffic(), eq(s.turns.speaker, "ai")));
 
   const [cited] = await db
     .select({ n: sql<number>`count(DISTINCT ${s.turnCitations.turnId})::int` })
     .from(s.turnCitations)
     .innerJoin(s.turns, eq(s.turns.id, s.turnCitations.turnId))
     .innerJoin(s.conversations, eq(s.conversations.id, s.turns.conversationId))
-    .where(eq(s.conversations.brandId, brandId));
+    .where(and(eq(s.conversations.brandId, brandId), realTraffic()));
 
   const [refused] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(s.conversationActions)
     .innerJoin(s.conversations, eq(s.conversations.id, s.conversationActions.conversationId))
-    .where(and(eq(s.conversations.brandId, brandId), eq(s.conversationActions.allowed, false)));
+    .where(
+      and(eq(s.conversations.brandId, brandId), realTraffic(), eq(s.conversationActions.allowed, false)),
+    );
 
   const [reviewed] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(s.conversations)
-    .where(and(eq(s.conversations.brandId, brandId), sql`${s.conversations.reviewScore} IS NOT NULL`));
+    .where(
+      and(eq(s.conversations.brandId, brandId), realTraffic(), sql`${s.conversations.reviewScore} IS NOT NULL`),
+    );
 
   const rate = aiTurns.n ? (cited.n / aiTurns.n) * 100 : 0;
 

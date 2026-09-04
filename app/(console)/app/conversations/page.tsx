@@ -81,6 +81,7 @@ export default async function ConversationsPage({
       status: params.status,
       since: params.since,
       reviewed: params.reviewed === "yes" || params.reviewed === "no" ? params.reviewed : undefined,
+      test: params.test === "only" || params.test === "exclude" ? params.test : undefined,
       sort: params.sort,
       page: intOf(params, "page", 1, 1),
     }),
@@ -173,6 +174,9 @@ export default async function ConversationsPage({
 
         <span style={{ width: 1, height: 18, background: "var(--color-neutral-400)" }} />
         <Chip ctx={ctx} paramKey="reviewed" value="no" label={`Unreviewed ${facets.reviewed.no}`} />
+        {facets.tests > 0 && (
+          <Chip ctx={ctx} paramKey="test" value="only" label={`Tests ${facets.tests}`} />
+        )}
         {WINDOWS.map((w) => (
           <Chip key={w.value} ctx={ctx} paramKey="since" value={w.value} label={w.label} />
         ))}
@@ -211,6 +215,20 @@ export default async function ConversationsPage({
             >
               <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                 <b style={{ fontSize: 12.5 }}>{c.name}</b>
+                {c.isTest && (
+                  <span
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 700,
+                      letterSpacing: "0.1em",
+                      border: "1px solid var(--color-neutral-400)",
+                      color: "var(--color-neutral-700)",
+                      padding: "1px 4px",
+                    }}
+                  >
+                    TEST
+                  </span>
+                )}
                 <span
                   style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--color-neutral-700)" }}
                 >

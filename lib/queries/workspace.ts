@@ -1,4 +1,4 @@
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 
@@ -432,7 +432,8 @@ export async function getSetup(orgId: string, brandId?: string) {
     .select({ n: sql<number>`count(*)::int` })
     .from(s.conversations)
     .innerJoin(s.brands, eq(s.brands.id, s.conversations.brandId))
-    .where(eq(s.brands.orgId, orgId));
+    // Rehearsals do not eat a tenant's plan allowance.
+    .where(and(eq(s.brands.orgId, orgId), eq(s.conversations.isTest, false)));
 
   const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const hhmm = (minutes: number) =>
