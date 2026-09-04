@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 
 /** Section eyebrow on the dark ground. */
@@ -75,39 +76,59 @@ export function OperatorHeader({
 }
 
 /** Outlined button on the dark ground. */
-export function DarkOutlineButton({ children, style }: { children: ReactNode; style?: CSSProperties }) {
-  return (
-    <button
-      type="button"
-      className="hov-invert-dark"
-      style={{
-        fontSize: 12,
-        fontWeight: 600,
-        border: "2px solid var(--color-bg)",
-        padding: "8px 14px",
-        ...style,
-      }}
-    >
+export function DarkOutlineButton({
+  children,
+  href,
+  style,
+}: {
+  children: ReactNode;
+  href?: string;
+  style?: CSSProperties;
+}) {
+  const merged: CSSProperties = {
+    display: "inline-block",
+    fontSize: 12,
+    fontWeight: 600,
+    border: "2px solid var(--color-bg)",
+    padding: "8px 14px",
+    ...style,
+  };
+  return href ? (
+    <Link href={href} className="hov-invert-dark" style={merged}>
+      {children}
+    </Link>
+  ) : (
+    <button type="button" className="hov-invert-dark" style={merged}>
       {children}
     </button>
   );
 }
 
 /** Solid accent button on the dark ground. */
-export function DarkAccentButton({ children, style }: { children: ReactNode; style?: CSSProperties }) {
-  return (
-    <button
-      type="button"
-      className="hov-accent-dark"
-      style={{
-        fontSize: 12,
-        fontWeight: 700,
-        background: "var(--color-accent)",
-        color: "var(--color-bg)",
-        padding: "10px 14px",
-        ...style,
-      }}
-    >
+export function DarkAccentButton({
+  children,
+  href,
+  style,
+}: {
+  children: ReactNode;
+  href?: string;
+  style?: CSSProperties;
+}) {
+  const merged: CSSProperties = {
+    display: "inline-block",
+    fontSize: 12,
+    fontWeight: 700,
+    background: "var(--color-accent)",
+    color: "var(--color-bg)",
+    padding: "10px 14px",
+    ...style,
+  };
+  return href ? (
+    <Link href={href} className="hov-accent-dark" style={merged}>
+      {children}
+    </Link>
+  ) : (
+    <button type="button" className="hov-accent-dark" style={merged}>
       {children}
     </button>
   );
@@ -258,33 +279,6 @@ export function DarkBar({
   );
 }
 
-/** A titled block in one of the 340–380px dark rails. */
-export function DarkPanel({
-  title,
-  children,
-  last = false,
-  lead,
-}: {
-  title: string;
-  children: ReactNode;
-  last?: boolean;
-  lead?: ReactNode;
-}) {
-  return (
-    <div
-      style={{
-        padding: "16px 20px",
-        borderBottom: last ? undefined : "2px solid var(--color-neutral-700)",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        {lead}
-        <DarkKicker color={lead ? "var(--color-bg)" : undefined}>{title}</DarkKicker>
-      </div>
-      <div style={{ marginTop: 12 }}>{children}</div>
-    </div>
-  );
-}
 
 /** A 16px section heading inside an operator screen. */
 export function DarkSectionTitle({ children, style }: { children: ReactNode; style?: CSSProperties }) {

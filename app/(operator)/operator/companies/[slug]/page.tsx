@@ -7,7 +7,11 @@ import {
   DarkSectionTitle,
   DarkStatRow,
 } from "@/components/operator-ui";
+import { ActionButton, ActionToggle } from "@/components/ActionButton";
+import { AccountNoteForm, SupportAccessRequest } from "@/components/OperatorForms";
 import { operatorConfig } from "@/lib/config";
+import { addAccountNote } from "@/lib/actions/operator";
+import { requestSupportAccess, revokeSupportAccess, setOrgFeatureFlag } from "@/lib/actions/workspace";
 import { getTenantDetail } from "@/lib/queries/operator";
 
 export default async function CompanyDetailPage({
@@ -28,6 +32,7 @@ export default async function CompanyDetailPage({
     support,
     billing: tenantBilling,
     notes: accountNotes,
+    staffActivity,
   } = detail;
 
   const identity = [
@@ -238,7 +243,7 @@ export default async function CompanyDetailPage({
             <div style={{ display: "flex", flexDirection: "column", gap: 11, fontSize: 12.5 }}>
               {featureFlags.map((f) => (
                 <div
-                  key={f.name}
+                  key={f.key}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -253,23 +258,15 @@ export default async function CompanyDetailPage({
                       {f.note}
                     </span>
                   </span>
-                  <span
-                    role="img"
-                    aria-label={`${f.name}: ${f.on ? "on" : "off"}`}
-                    style={{ width: 34, height: 18, background: f.trackBg, display: "block", position: "relative" }}
-                  >
-                    <span
-                      style={{
-                        position: "absolute",
-                        top: 2,
-                        left: f.knob,
-                        width: 14,
-                        height: 14,
-                        background: "var(--color-bg)",
-                        display: "block",
-                      }}
-                    />
-                  </span>
+                  <ActionToggle
+                    dark
+                    on={f.on}
+                    label={f.name}
+                    action={async (next) => {
+                      "use server";
+                      await setOrgFeatureFlag(org.slug, f.key, next);
+                    }}
+                  />
                 </div>
               ))}
             </div>
@@ -299,20 +296,23 @@ export default async function CompanyDetailPage({
                   <DarkStatRow key={s.label} label={s.label} value={s.value} />
                 ))}
               </div>
-              <button
-                type="button"
-                className="hov-invert-dark"
-                style={{
-                  marginTop: 12,
-                  width: "100%",
-                  fontSize: 11.5,
-                  fontWeight: 700,
-                  border: "2px solid var(--color-bg)",
-                  padding: "9px 12px",
-                }}
-              >
-                Request 60-minute access
-              </button>
+              <div style={{ marginTop: 12 }}>
+                {support.current ? (
+                  <ActionButton
+                    variant="dark-outline"
+                    pendingLabel="Revoking…"
+                    style={{ width: "100%", fontSize: 11.5 }}
+                    action={async () => {
+                      "use server";
+                      await revokeSupportAccess(support.current!.id);
+                    }}
+                  >
+                    Revoke access now
+                  </ActionButton>
+                ) : (
+                  <SupportAccessRequest orgSlug={org.slug} onRequest={requestSupportAccess} />
+                )}
+              </div>
             </div>
           )}
 
@@ -342,9 +342,71 @@ export default async function CompanyDetailPage({
                 color: "var(--color-neutral-400)",
               }}
             >
+              {accountNotes.length === 0 && <span>Nothing written about this account yet.</span>}
               {accountNotes.map((n) => (
-                <div key={`${n.when}-${n.note}`}>
-                  <b style={{ color: "var(--color-bg)" }}>{n.when}</b> — {n.note}
+                <div
+                  key={n.id}
+                  style={{
+                    borderLeft: `3px solid ${n.urgent ? "var(--color-accent)" : "var(--color-neutral-700)"}`,
+                    paddingLeft: 10,
+                  }}
+                >
+                  <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                    <b style={{ color: "var(--color-bg)" }}>{n.author}</b>
+                    <span style={{ fontSize: 10.5 }}>{n.when}</span>
+                    <span
+                      style={{
+                        marginLeft: "auto",
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: n.urgent ? "var(--color-accent-400)" : "var(--color-neutral-500)",
+                      }}
+                    >
+                      {n.kind}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: 4, lineHeight: 1.5, color: "var(--color-neutral-300)" }}>
+                    {n.body}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <AccountNoteForm orgSlug={org.slug} onAdd={addAccountNote} />
+            </div>
+            <p
+              style={{
+                marginTop: 12,
+                fontSize: 11,
+                color: "var(--color-neutral-500)",
+                lineHeight: 1.45,
+              }}
+            >
+              Internal to Corva. Nothing here is written to the tenant&rsquo;s audit log — an entry
+              saying &ldquo;Corva wrote a note about you&rdquo; with no content is worse than silence.
+            </p>
+          </div>
+
+          <div style={{ padding: "16px 20px", borderTop: "2px solid var(--color-neutral-700)" }}>
+            <DarkKicker>What this tenant can see us doing</DarkKicker>
+            <div
+              style={{
+                marginTop: 12,
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                fontSize: 12,
+                color: "var(--color-neutral-400)",
+              }}
+            >
+              {staffActivity.length === 0 && (
+                <span>Nothing. No Corva staff action has touched this workspace.</span>
+              )}
+              {staffActivity.map((a) => (
+                <div key={a.id}>
+                  <b style={{ color: "var(--color-bg)" }}>{a.when}</b> — {a.who} · {a.what}
                 </div>
               ))}
             </div>

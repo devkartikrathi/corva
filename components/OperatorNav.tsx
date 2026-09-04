@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation";
 
 const TABS = [
   { href: "/operator", label: "Fleet" },
+  { href: "/operator/onboarding", label: "Onboarding" },
   { href: "/operator/companies/aurelius-group", label: "Company detail" },
   { href: "/operator/quality", label: "AI quality" },
   { href: "/operator/revenue", label: "Revenue & plans" },
   { href: "/operator/reliability", label: "Reliability" },
+  { href: "/operator/testing", label: "Voice testing" },
 ];
 
 export function OperatorNav() {

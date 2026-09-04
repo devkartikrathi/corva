@@ -1,9 +1,10 @@
 import { DarkSectionTitle, DarkTag, DarkTh, OperatorHeader } from "@/components/operator-ui";
-import { dependencies } from "@/lib/operator-data";
+import { IncidentUpdateForm } from "@/components/IncidentUpdateForm";
+import { postIncidentUpdate } from "@/lib/actions/operator";
 import { getReliability } from "@/lib/queries/operator";
 
 export default async function ReliabilityPage() {
-  const { regions, incidents } = await getReliability();
+  const { regions, incidents, dependencies } = await getReliability();
 
   return (
     <section>
@@ -62,8 +63,25 @@ export default async function ReliabilityPage() {
                   }}
                 >
                   <b style={{ width: 150 }}>{d.name}</b>
-                  <span style={{ flex: 1, color: "var(--color-neutral-400)" }}>{d.detail}</span>
-                  <span style={{ color: d.bad ? "var(--color-accent-400)" : "var(--color-neutral-300)" }}>
+                  <span style={{ flex: 1, color: "var(--color-neutral-400)" }}>
+                    {d.provider}
+                    {d.note && (
+                      <span style={{ display: "block", fontSize: 11, color: "var(--color-neutral-500)" }}>
+                        {d.note}
+                      </span>
+                    )}
+                  </span>
+                  <span style={{ width: 56, textAlign: "right", color: "var(--color-neutral-400)" }}>
+                    {d.latency}
+                  </span>
+                  <span
+                    style={{
+                      width: 74,
+                      textAlign: "right",
+                      color: d.bad ? "var(--color-accent-400)" : "var(--color-neutral-300)",
+                      fontWeight: d.bad ? 700 : 400,
+                    }}
+                  >
                     {d.state}
                   </span>
                 </div>
@@ -78,7 +96,7 @@ export default async function ReliabilityPage() {
           <div style={{ display: "flex", flexDirection: "column" }}>
             {incidents.map((i) => (
               <div
-                key={`${i.title}-${i.when}`}
+                key={i.id}
                 style={{
                   padding: "13px 0",
                   borderTop: "1px solid var(--color-neutral-800)",
@@ -107,7 +125,58 @@ export default async function ReliabilityPage() {
                     }}
                   >
                     {i.note}
+                    {i.affected > 0 && (
+                      <span style={{ color: "var(--color-neutral-500)" }}>
+                        {" "}
+                        · {i.affected} compan{i.affected === 1 ? "y" : "ies"} affected
+                      </span>
+                    )}
                   </div>
+
+                  {i.updates.length > 0 && (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        borderLeft: "2px solid var(--color-neutral-800)",
+                        paddingLeft: 12,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 8,
+                      }}
+                    >
+                      {i.updates.map((u) => (
+                        <div key={u.id} style={{ fontSize: 11.5 }}>
+                          <span
+                            style={{
+                              fontWeight: 700,
+                              letterSpacing: "0.06em",
+                              textTransform: "uppercase",
+                              fontSize: 9.5,
+                              color:
+                                u.stage === "resolved"
+                                  ? "var(--color-neutral-400)"
+                                  : "var(--color-accent-400)",
+                            }}
+                          >
+                            {u.stage}
+                          </span>
+                          <span style={{ color: "var(--color-neutral-500)" }}> · {u.when}</span>
+                          {u.author && (
+                            <span style={{ color: "var(--color-neutral-500)" }}> · {u.author}</span>
+                          )}
+                          <div style={{ marginTop: 3, color: "var(--color-neutral-300)", lineHeight: 1.45 }}>
+                            {u.body}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {i.open && (
+                    <div style={{ marginTop: 12 }}>
+                      <IncidentUpdateForm incidentId={i.id} onPost={postIncidentUpdate} />
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

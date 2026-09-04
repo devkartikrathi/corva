@@ -8,11 +8,16 @@ import {
   KpiCell,
   OperatorHeader,
 } from "@/components/operator-ui";
-import { mrrByMonth, unitEconomics } from "@/lib/operator-data";
 import { getFleetRevenue } from "@/lib/queries/operator";
 
 export default async function RevenuePage() {
-  const { kpis: revenueKpis, planMix, atRisk } = await getFleetRevenue();
+  const {
+    kpis: revenueKpis,
+    planMix,
+    atRisk,
+    mrrByMonth,
+    unitEconomics,
+  } = await getFleetRevenue();
 
   return (
     <section>
@@ -59,17 +64,16 @@ export default async function RevenuePage() {
             {mrrByMonth.map((m, i) => (
               <span
                 key={i}
+                title={`${m.label} · ${m.mrr}`}
                 style={{
                   flex: 1,
                   display: "flex",
                   flexDirection: "column",
                   justifyContent: "flex-end",
                   height: "100%",
-                  gap: 2,
                 }}
               >
-                <span style={{ display: "block", background: "var(--color-neutral-700)", height: m.expansion }} />
-                <span style={{ display: "block", background: "var(--color-accent)", height: m.base }} />
+                <span style={{ display: "block", background: m.color, height: m.h }} />
               </span>
             ))}
           </div>
@@ -84,13 +88,12 @@ export default async function RevenuePage() {
           >
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ width: 10, height: 10, background: "var(--color-accent)", display: "block" }} />
-              Base subscriptions
+              Best month so far
             </span>
-            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 10, height: 10, background: "var(--color-neutral-700)", display: "block" }} />
-              Usage above plan
+            <span>Recorded monthly, not projected</span>
+            <span style={{ marginLeft: "auto" }}>
+              {mrrByMonth[0]?.label} → {mrrByMonth[mrrByMonth.length - 1]?.label}
             </span>
-            <span style={{ marginLeft: "auto" }}>Oct 25 → Sep 26</span>
           </div>
 
           <DarkSectionTitle style={{ margin: "24px 0 14px" }}>Plan mix</DarkSectionTitle>

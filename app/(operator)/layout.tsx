@@ -1,9 +1,21 @@
 import { requireStaff } from "@/lib/auth/context";
 import { OperatorNav } from "@/components/OperatorNav";
+import { getPlatformPulse } from "@/lib/queries/operator";
 
 export const metadata = {
   title: "Corva · Platform operator",
 };
+
+/**
+ * The operator console is never prerendered.
+ *
+ * In demo mode the staff session comes from the database rather than from a
+ * cookie, so nothing in this tree touches a request-time API and Next will
+ * happily bake it at build time — leaving staff looking at a fleet snapshot
+ * from whenever the deployment happened. The whole console is a live view of
+ * an unbounded number of tenants, so it is dynamic by declaration.
+ */
+export const dynamic = "force-dynamic";
 
 /**
  * The platform operator console. Corva staff, not tenants — hence the dark
@@ -11,6 +23,7 @@ export const metadata = {
  */
 export default async function OperatorLayout({ children }: { children: React.ReactNode }) {
   const { staff } = await requireStaff();
+  const pulse = await getPlatformPulse();
 
   return (
     <div className="operator-root">
@@ -53,18 +66,20 @@ export default async function OperatorLayout({ children }: { children: React.Rea
                 style={{
                   width: 7,
                   height: 7,
-                  background: "var(--color-accent)",
+                  background: pulse.openIncidents > 0 ? "var(--color-accent)" : "var(--color-neutral-600)",
                   display: "block",
-                  animation: "cv-pulse 1.8s ease-in-out infinite",
+                  animation: pulse.openIncidents > 0 ? "cv-pulse 1.8s ease-in-out infinite" : undefined,
                 }}
               />
-              <b style={{ color: "var(--color-bg)" }}>1 incident open</b>
+              <b style={{ color: "var(--color-bg)" }}>
+                {pulse.openIncidents} incident{pulse.openIncidents === 1 ? "" : "s"} open
+              </b>
             </span>
             <span>
-              API p95 <b style={{ color: "var(--color-bg)" }}>184ms</b>
+              Voice p95 <b style={{ color: "var(--color-bg)" }}>{pulse.voiceP95Ms}ms</b>
             </span>
             <span>
-              Calls in flight <b style={{ color: "var(--color-bg)" }}>412</b>
+              Conversations in flight <b style={{ color: "var(--color-bg)" }}>{pulse.inFlight}</b>
             </span>
           </span>
         </div>

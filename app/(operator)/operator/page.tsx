@@ -9,14 +9,41 @@ import {
   KpiCell,
   OperatorHeader,
 } from "@/components/operator-ui";
-import { fleetFilters, load } from "@/lib/operator-data";
-import { getFleet, getReliability } from "@/lib/queries/operator";
+import { DarkChip, DarkPager, DarkSearchBox, DarkSortTh } from "@/components/operator-filters";
+import { getFleet, getReliability, platformLoad } from "@/lib/queries/operator";
+import { href, intOf, listOf, normalise, type RawParams } from "@/lib/params";
 
-export default async function FleetPage() {
-  const [{ tenants, kpis: fleetKpis, needsAttention: needsCorva }, ops] = await Promise.all([
-    getFleet(),
+const PATH = "/operator";
+/** The four cuts of the fleet an operator actually works from. */
+const SEGMENTS = [
+  { value: "at_risk", label: "At risk" },
+  { value: "trialling", label: "Trialling" },
+  { value: "enterprise", label: "Enterprise" },
+  { value: "healthy", label: "Healthy" },
+];
+
+export default async function FleetPage({
+  searchParams,
+}: {
+  searchParams: Promise<RawParams>;
+}) {
+  const params = normalise(await searchParams);
+  const ctx = { pathname: PATH, params };
+
+  const [fleet, ops, load] = await Promise.all([
+    getFleet({
+      q: params.q,
+      plan: listOf(params, "plan"),
+      region: listOf(params, "region"),
+      segment: params.segment,
+      sort: params.sort,
+      page: intOf(params, "page", 1, 1),
+    }),
     getReliability(),
+    platformLoad(),
   ]);
+
+  const { tenants, kpis: fleetKpis, needsAttention: needsCorva, facets } = fleet;
 
   return (
     <section>
@@ -25,8 +52,9 @@ export default async function FleetPage() {
         title="Fleet"
         lede="Every tenant, what they're using, and whether their AI is behaving. Customer data stays inside each workspace — you see health, not transcripts, unless a company grants access."
       >
-        <DarkOutlineButton>Feature flags</DarkOutlineButton>
-        <DarkAccentButton>Onboard a company</DarkAccentButton>
+        <DarkSearchBox ctx={ctx} placeholder="Find a company" width={200} />
+        <DarkOutlineButton href="/operator/quality">Quality</DarkOutlineButton>
+        <DarkAccentButton href="/operator/onboarding">Onboard a company</DarkAccentButton>
       </OperatorHeader>
 
       <div
@@ -60,35 +88,42 @@ export default async function FleetPage() {
               borderBottom: "1px solid var(--color-neutral-800)",
             }}
           >
-            <span
+            <Link
+              href={href(PATH, {}, {})}
               style={{
                 fontSize: 11,
                 fontWeight: 700,
-                background: "var(--color-bg)",
-                color: "var(--color-text)",
-                padding: "5px 9px",
+                background: params.segment || params.q ? "transparent" : "var(--color-bg)",
+                color: params.segment || params.q ? "var(--color-neutral-300)" : "var(--color-text)",
+                border: "1px solid var(--color-bg)",
+                padding: "4px 9px",
               }}
             >
-              Needs attention · {tenants.filter((t) => t.bad).length}
-            </span>
-            {fleetFilters.map((f) => (
-              <button
-                key={f}
-                type="button"
-                className="hov-border-dark"
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  border: "1px solid var(--color-neutral-600)",
-                  padding: "4px 9px",
-                  color: "var(--color-neutral-300)",
-                }}
-              >
-                {f}
-              </button>
+              All {fleet.fleetSize}
+            </Link>
+            {SEGMENTS.map((seg) => (
+              <DarkChip
+                key={seg.value}
+                ctx={ctx}
+                paramKey="segment"
+                value={seg.value}
+                label={seg.value === "at_risk" ? `At risk ${facets.atRisk}` : seg.label}
+              />
+            ))}
+            <span style={{ width: 1, height: 16, background: "var(--color-neutral-700)" }} />
+            {facets.plans.map((f) => (
+              <DarkChip
+                key={f.value}
+                ctx={ctx}
+                paramKey="plan"
+                value={f.value}
+                label={`${f.value} ${f.count}`}
+                multi
+              />
             ))}
             <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--color-neutral-500)" }}>
-              Sorted by health, worst first
+              {fleet.total} compan{fleet.total === 1 ? "y" : "ies"} ·{" "}
+              {params.sort ? params.sort.replace(":", " ") : "health, worst first"}
             </span>
           </div>
 
@@ -97,12 +132,12 @@ export default async function FleetPage() {
           >
             <thead>
               <tr style={{ borderBottom: "2px solid var(--color-neutral-700)" }}>
-                <DarkTh padding="9px 24px">Company</DarkTh>
+                <DarkSortTh ctx={ctx} field="name" padding="9px 24px">Company</DarkSortTh>
                 <DarkTh width="12%">Plan</DarkTh>
-                <DarkTh width="13%">Conv. / mo</DarkTh>
+                <DarkTh width="13%">Conv. / 30d</DarkTh>
                 <DarkTh width="13%">Containment</DarkTh>
-                <DarkTh width="15%">AI health</DarkTh>
-                <DarkTh width="12%">MRR</DarkTh>
+                <DarkSortTh ctx={ctx} field="health" width="15%">AI health</DarkSortTh>
+                <DarkSortTh ctx={ctx} field="mrr" width="12%">MRR</DarkSortTh>
                 <DarkTh width="16%" padding="9px 24px">Flag</DarkTh>
               </tr>
             </thead>
@@ -141,6 +176,16 @@ export default async function FleetPage() {
               ))}
             </tbody>
           </table>
+          {tenants.length === 0 && (
+            <p style={{ padding: "28px 24px", fontSize: 12.5, color: "var(--color-neutral-400)" }}>
+              No company matches.{" "}
+              <Link href={PATH} style={{ fontWeight: 700, color: "var(--color-accent-400)" }}>
+                Clear the filters
+              </Link>
+              .
+            </p>
+          )}
+          <DarkPager ctx={ctx} page={fleet.page} pageSize={fleet.pageSize} total={fleet.total} />
         </div>
 
         {/* Right rail */}
@@ -205,17 +250,25 @@ export default async function FleetPage() {
             <div
               style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 11, fontSize: 12 }}
             >
+              {needsCorva.length === 0 && (
+                <span style={{ color: "var(--color-neutral-400)" }}>
+                  Every tenant is above the health threshold.
+                </span>
+              )}
               {needsCorva.map((n) => (
-                <div
-                  key={n.name}
+                <Link
+                  key={n.slug}
+                  href={`/operator/companies/${n.slug}`}
                   style={{
                     borderLeft: `3px solid ${n.urgent ? "var(--color-accent)" : "var(--color-neutral-600)"}`,
                     paddingLeft: 10,
                   }}
                 >
-                  <b>{n.name}</b>
-                  <div style={{ color: "var(--color-neutral-400)", marginTop: 3 }}>{n.note}</div>
-                </div>
+                  <b style={{ color: "var(--color-bg)" }}>{n.name}</b>
+                  <div style={{ color: "var(--color-neutral-400)", marginTop: 3, lineHeight: 1.45 }}>
+                    {n.note}
+                  </div>
+                </Link>
               ))}
             </div>
           </div>
@@ -233,7 +286,11 @@ export default async function FleetPage() {
               }}
             >
               {load.map((l, i) => (
-                <span key={i} style={{ flex: 1, display: "block", background: l.color, height: l.h }} />
+                <span
+                  key={i}
+                  title={`${l.n} conversation${l.n === 1 ? "" : "s"}`}
+                  style={{ flex: 1, display: "block", background: l.color, height: l.h }}
+                />
               ))}
             </div>
             <div
