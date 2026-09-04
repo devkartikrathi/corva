@@ -1,0 +1,234 @@
+import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { db } from "@/lib/db";
+import * as s from "@/lib/db/schema";
+
+/**
+ * The nightly rollups.
+ *
+ * Three tables the console reads constantly and nothing was writing outside the
+ * seed: `usage_daily` (every operator chart), `organizations.health_score` (the
+ * fleet sorts by it), and `documents.success_rate` (the knowledge screen ranks
+ * by it). Denormalised on purpose — the alternative is scanning the whole
+ * conversation graph on the operator console's front page — which is exactly
+ * why they need a job that keeps them true.
+ *
+ * All three are idempotent. Re-running a day recomputes it rather than adding
+ * to it, so a failed run is fixed by running it again.
+ */
+
+const midnight = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+
+/** Roughly what a contact costs Corva to serve, in pence. */
+const AI_MINUTE_COST_PENCE = 11;
+const HUMAN_MINUTE_COST_PENCE = 42;
+
+/**
+ * Recompute `usage_daily` for a span of days.
+ *
+ * Grouped in SQL rather than in memory: this is the one job whose input grows
+ * without bound, and pulling a fleet-week of conversations into Node to count
+ * them is the version that works until it does not.
+ */
+export async function rollUpUsage(days = 2): Promise<{ rows: number; days: number }> {
+  const from = midnight(new Date(Date.now() - days * 864e5));
+
+  const grouped = await db
+    .select({
+      orgId: s.brands.orgId,
+      day: sql<string>`date_trunc('day', ${s.conversations.startedAt} at time zone 'utc')`,
+      conversations: sql<number>`count(*)::int`,
+      contained: sql<number>`count(*) filter (where ${s.conversations.contained})::int`,
+      handoffs: sql<number>`count(*) filter (where ${s.conversations.contained} is false)::int`,
+      aiSeconds: sql<number>`coalesce(sum(${s.conversations.durationSeconds}) filter (where ${s.conversations.contained}), 0)::int`,
+      humanSeconds: sql<number>`coalesce(sum(${s.conversations.durationSeconds}) filter (where ${s.conversations.contained} is false), 0)::int`,
+    })
+    .from(s.conversations)
+    .innerJoin(s.brands, eq(s.brands.id, s.conversations.brandId))
+    .where(gte(s.conversations.startedAt, from))
+    .groupBy(s.brands.orgId, sql`date_trunc('day', ${s.conversations.startedAt} at time zone 'utc')`);
+
+  if (grouped.length === 0) return { rows: 0, days };
+
+  const values = grouped.map((g) => {
+    const aiMinutes = Math.round(g.aiSeconds / 60);
+    const humanMinutes = Math.round(g.humanSeconds / 60);
+    return {
+      orgId: g.orgId,
+      day: new Date(g.day),
+      conversations: g.conversations,
+      contained: g.contained,
+      handoffs: g.handoffs,
+      aiMinutes,
+      humanMinutes,
+      costPence: aiMinutes * AI_MINUTE_COST_PENCE + humanMinutes * HUMAN_MINUTE_COST_PENCE,
+    };
+  });
+
+  for (let i = 0; i < values.length; i += 500) {
+    await db
+      .insert(s.usageDaily)
+      .values(values.slice(i, i + 500))
+      .onConflictDoUpdate({
+        target: [s.usageDaily.orgId, s.usageDaily.day],
+        set: {
+          conversations: sql`excluded.conversations`,
+          contained: sql`excluded.contained`,
+          handoffs: sql`excluded.handoffs`,
+          aiMinutes: sql`excluded.ai_minutes`,
+          humanMinutes: sql`excluded.human_minutes`,
+          costPence: sql`excluded.cost_pence`,
+        },
+      });
+  }
+
+  return { rows: values.length, days };
+}
+
+/**
+ * Recompute every tenant's health score.
+ *
+ * Health is containment over the last 30 days, bounded away from 0 and 100 —
+ * a tenant with three conversations should not read as perfect, and one with a
+ * bad week should not read as dead. Tenants with no traffic keep whatever they
+ * had rather than being scored on nothing.
+ */
+export async function recomputeHealth(): Promise<{ updated: number; skipped: number }> {
+  const rows = await db
+    .select({
+      orgId: s.usageDaily.orgId,
+      total: sql<number>`coalesce(sum(${s.usageDaily.conversations}), 0)::int`,
+      contained: sql<number>`coalesce(sum(${s.usageDaily.contained}), 0)::int`,
+    })
+    .from(s.usageDaily)
+    .where(gte(s.usageDaily.day, new Date(Date.now() - 30 * 864e5)))
+    .groupBy(s.usageDaily.orgId);
+
+  // Fewer than ten conversations is not evidence of anything.
+  const scored = rows
+    .filter((r) => r.total >= 10)
+    .map((r) => ({
+      orgId: r.orgId,
+      health: Math.max(5, Math.min(99, Math.round((r.contained / r.total) * 100))),
+    }));
+
+  if (scored.length === 0) return { updated: 0, skipped: rows.length };
+
+  // One statement, not one per tenant. The fleet is 148 rows today and the
+  // round trips to a remote database cost 47s; as a single UPDATE ... FROM it
+  // is one.
+  const values = sql.join(
+    scored.map((r) => sql`(${r.orgId}::uuid, ${r.health}::int)`),
+    sql`, `,
+  );
+  await db.execute(sql`
+    UPDATE ${s.organizations} AS o
+    SET health_score = v.health
+    FROM (VALUES ${values}) AS v(org_id, health)
+    WHERE o.id = v.org_id
+  `);
+
+  return { updated: scored.length, skipped: rows.length - scored.length };
+}
+
+/**
+ * Recompute how often each document is cited and how well it does.
+ *
+ * "Success" is the share of conversations citing a document that the AI then
+ * finished alone. It is the number the knowledge screen sorts by, and it is the
+ * only signal that separates a document that gets read from one that works.
+ */
+export async function recomputeDocumentStats(): Promise<{ documents: number }> {
+  const rows = await db
+    .select({
+      documentId: s.turnCitations.documentId,
+      citations: sql<number>`count(*)::int`,
+      conversations: sql<number>`count(distinct ${s.turns.conversationId})::int`,
+      contained: sql<number>`count(distinct ${s.turns.conversationId}) filter (where ${s.conversations.contained})::int`,
+    })
+    .from(s.turnCitations)
+    .innerJoin(s.turns, eq(s.turns.id, s.turnCitations.turnId))
+    .innerJoin(s.conversations, eq(s.conversations.id, s.turns.conversationId))
+    .groupBy(s.turnCitations.documentId);
+
+  const scored = rows.filter((r) => r.documentId !== null);
+  if (scored.length === 0) return { documents: 0 };
+
+  // A document nobody has finished a conversation with has no rate yet, which
+  // is different from a rate of zero — hence the null rather than 0.
+  const values = sql.join(
+    scored.map(
+      (r) =>
+        sql`(${r.documentId}::uuid, ${r.citations}::int, ${
+          r.conversations > 0 ? r.contained / r.conversations : null
+        }::real)`,
+    ),
+    sql`, `,
+  );
+  await db.execute(sql`
+    UPDATE ${s.documents} AS d
+    SET citation_count = v.citations, success_rate = v.rate
+    FROM (VALUES ${values}) AS v(doc_id, citations, rate)
+    WHERE d.id = v.doc_id
+  `);
+
+  return { documents: scored.length };
+}
+
+/**
+ * Delete transcripts past each tenant's stated retention.
+ *
+ * The Setup screen promises "transcripts are deleted after N days" and, until
+ * this ran, nothing deleted anything — the setting was a label. Turns go and
+ * the conversation row stays, so the counts the tenant has already been shown
+ * do not silently change; what is removed is the content, which is what the
+ * promise was about.
+ */
+export async function enforceRetention(): Promise<{ orgs: number; conversations: number }> {
+  const settings = await db
+    .select({ orgId: s.privacySettings.orgId, retentionDays: s.privacySettings.retentionDays })
+    .from(s.privacySettings);
+
+  let orgs = 0;
+  let conversations = 0;
+
+  for (const setting of settings) {
+    const cutoff = new Date(Date.now() - setting.retentionDays * 864e5);
+
+    const stale = await db
+      .select({ id: s.conversations.id })
+      .from(s.conversations)
+      .innerJoin(s.brands, eq(s.brands.id, s.conversations.brandId))
+      .where(and(eq(s.brands.orgId, setting.orgId), lt(s.conversations.startedAt, cutoff)));
+
+    if (stale.length === 0) continue;
+
+    for (let i = 0; i < stale.length; i += 200) {
+      const batch = stale.slice(i, i + 200).map((c) => c.id);
+      await db.delete(s.turns).where(inArray(s.turns.conversationId, batch));
+    }
+
+    await db.insert(s.auditLog).values({
+      orgId: setting.orgId,
+      actorType: "system",
+      actorId: "retention",
+      actorName: "Retention policy",
+      action: "transcripts.deleted",
+      target: `${stale.length} conversations`,
+      meta: { retentionDays: setting.retentionDays, before: cutoff.toISOString() },
+    });
+
+    orgs++;
+    conversations += stale.length;
+  }
+
+  return { orgs, conversations };
+}
+
+/** Everything, in the order the later jobs depend on the earlier ones. */
+export async function runAllRollups() {
+  const usage = await rollUpUsage();
+  const health = await recomputeHealth();
+  const docs = await recomputeDocumentStats();
+  const retention = await enforceRetention();
+  return { usage, health, docs, retention };
+}
