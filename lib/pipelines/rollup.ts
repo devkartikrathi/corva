@@ -242,12 +242,13 @@ export async function enforceRetention(): Promise<{ orgs: number; conversations:
 /** Everything, in the order the later jobs depend on the earlier ones. */
 export async function runAllRollups() {
   // Costs are priced before usage, because usage sums them.
+  const stale = await reapStaleCalls();
   const costs = await backfillCosts();
   const usage = await rollUpUsage();
   const health = await recomputeHealth();
   const docs = await recomputeDocumentStats();
   const retention = await enforceRetention();
-  return { costs, usage, health, docs, retention };
+  return { stale, costs, usage, health, docs, retention };
 }
 
 /**
@@ -344,4 +345,40 @@ export async function backfillCosts(limit = 2000): Promise<{ priced: number }> {
   }
 
   return { priced: values.length };
+}
+
+/**
+ * Close calls that stopped happening.
+ *
+ * A conversation is only live while someone is on it. Nothing guaranteed that
+ * before: a bridge that crashed, a browser that closed without a clean
+ * disconnect, or a seeded fixture would leave a row marked `live` for ever —
+ * and the live console shows the newest live conversation, so one stale row
+ * hides every real call placed afterwards.
+ *
+ * Staleness is measured from the last turn rather than from the start, because
+ * a long call with someone still talking is not stale.
+ */
+export async function reapStaleCalls(idleMinutes = 15): Promise<{ closed: number }> {
+  const rows = await db
+    .select({ id: s.conversations.id })
+    .from(s.conversations)
+    .where(
+      and(
+        inArray(s.conversations.status, ["live"]),
+        sql`coalesce(
+              (select max(created_at) from ${s.turns} where conversation_id = ${s.conversations.id}),
+              ${s.conversations.startedAt}
+            ) < now() - (${idleMinutes} || ' minutes')::interval`,
+      ),
+    );
+
+  if (rows.length === 0) return { closed: 0 };
+
+  await db
+    .update(s.conversations)
+    .set({ status: "abandoned", endedAt: new Date() })
+    .where(inArray(s.conversations.id, rows.map((r) => r.id)));
+
+  return { closed: rows.length };
 }

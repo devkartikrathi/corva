@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, or, sql } f
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { latestScores } from "./scoring";
+import { stillLive } from "./live-data";
 
 /**
  * Read models for the three conversation screens: the live console, the
@@ -86,6 +87,7 @@ export async function getLiveCall(brandId: string, conversationId?: string) {
           and(
             eq(s.conversations.brandId, brandId),
             inArray(s.conversations.status, ["live", "waiting_human"]),
+            stillLive(),
           ),
         )
         .orderBy(desc(s.conversations.startedAt))
@@ -180,6 +182,7 @@ export async function getLiveCall(brandId: string, conversationId?: string) {
       and(
         eq(s.conversations.brandId, brandId),
         inArray(s.conversations.status, ["live", "waiting_human"]),
+        stillLive(),
       ),
     )
     .orderBy(asc(s.conversations.startedAt))
@@ -619,6 +622,9 @@ export async function conversationStats(brandId: string) {
       outcome: s.conversations.outcome,
       contained: s.conversations.contained,
       isTest: s.conversations.isTest,
+      // The badge in the top bar has to agree with the screen it points at,
+      // so it applies the same staleness rule the live console does.
+      active: stillLive(),
     })
     .from(s.conversations)
     .where(eq(s.conversations.brandId, brandId));
@@ -635,6 +641,6 @@ export async function conversationStats(brandId: string) {
     unresolved: real.filter((r) => isBad(r.outcome)).length,
     containment: total > 0 ? (contained / total) * 100 : 0,
     waiting: rows.filter((r) => r.status === "waiting_human").length,
-    live: rows.filter((r) => r.status === "live").length,
+    live: rows.filter((r) => r.status === "live" && r.active).length,
   };
 }

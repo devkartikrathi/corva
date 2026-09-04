@@ -149,6 +149,16 @@ export function liveInstruction(config: AgentConfig, brandName: string, caller: 
     "If it comes back refused, tell the caller plainly that it is not your decision,",
     "and offer to bring in a colleague. Do not offer it another way, and do not",
     "apologise more than once for the same thing — fix it instead.",
+    "",
+    "NEVER SAY A TOOL'S NAME OUT LOUD",
+    "The caller is on a phone. They cannot see tools and must never hear one named.",
+    "Do not say 'search_knowledge', 'take_action', 'calls take_action', or narrate",
+    "that you are calling anything. Invoke it silently and speak only the result.",
+    "",
+    "And never tell the caller you have done something you have not. Saying you have",
+    "'requested' or 'applied' something without take_action returning allowed is the",
+    "worst thing you can do on this call — it is a promise the company then has to",
+    "break. If you did not call the tool, you did not do the thing.",
   ].join("\n");
 }
 
@@ -322,21 +332,32 @@ export async function persistTurn(
     .trim();
   if (!text) return;
 
-  const [{ next }] = await db
-    .select({ next: sql<number>`coalesce(max(${s.turns.ordinal}), -1) + 1` })
-    .from(s.turns)
-    .where(eq(s.turns.conversationId, conversationId));
-
   const sentiment = speaker === "customer" ? scoreUtterance(text) : null;
+  const atSeconds = Math.max(0, Math.round((Date.now() - startedAt.getTime()) / 1000));
 
-  await db.insert(s.turns).values({
-    conversationId,
-    ordinal: Number(next),
-    speaker,
-    body: text,
-    sentiment,
-    atSeconds: Math.max(0, Math.round((Date.now() - startedAt.getTime()) / 1000)),
-  });
+  /**
+   * The ordinal is chosen inside the insert, not before it.
+   *
+   * Reading `max(ordinal) + 1` and then inserting is two statements with a gap
+   * in the middle, and `(conversation_id, ordinal)` is unique — so two turns
+   * persisted close together both read the same maximum and the second one
+   * dies on the constraint. That is not hypothetical: it took the bridge down
+   * mid-call, on the very first turn of a conversation.
+   *
+   * As a single statement the subquery and the insert see the same snapshot,
+   * so concurrent callers get consecutive ordinals instead of a collision.
+   */
+  await db.execute(sql`
+    INSERT INTO ${s.turns} (conversation_id, ordinal, speaker, body, sentiment, at_seconds)
+    SELECT ${conversationId}::uuid,
+           coalesce(max(t.ordinal), -1) + 1,
+           ${speaker}::speaker,
+           ${text},
+           ${sentiment}::real,
+           ${atSeconds}::int
+    FROM ${s.turns} t
+    WHERE t.conversation_id = ${conversationId}::uuid
+  `);
 
   if (speaker !== "customer") return;
 
@@ -497,4 +518,47 @@ export async function closeVoiceConversation(conversationId: string, seconds: nu
       outcome: humanSpoke ? "human_resolved" : null,
     })
     .where(eq(s.conversations.id, conversationId));
+}
+
+/**
+ * Did the agent talk about a tool instead of using one?
+ *
+ * A live model occasionally narrates — "calls take_action, I have requested
+ * the fee be waived" — rather than emitting the function call. The caller
+ * hears a promise, the ceiling is never consulted, and nothing is recorded.
+ * The instruction above tells it not to; this catches the times that is not
+ * enough, because a guardrail that depends on the model choosing to cooperate
+ * is not a guardrail.
+ *
+ * Detection only. It cannot un-say what the caller heard, but it puts the turn
+ * in front of whoever reviews quality instead of letting it pass silently.
+ */
+const TOOL_NAMES = ["search_knowledge", "take_action", "escalate_to_human"];
+
+export function narratedATool(said: string): string | null {
+  const lower = said.toLowerCase();
+  const named = TOOL_NAMES.find((t) => lower.includes(t));
+  if (named) return named;
+  // The shapes it uses when it paraphrases rather than names.
+  if (/\b(calling|calls|invoking|using) (the )?(tool|function)\b/.test(lower)) return "a tool";
+  return null;
+}
+
+/** Record a narrated tool call as the quality failure it is. */
+export async function flagNarration(brandId: string, turnBody: string, tool: string) {
+  const [brand] = await db
+    .select({ orgId: s.brands.orgId })
+    .from(s.brands)
+    .where(eq(s.brands.id, brandId))
+    .limit(1);
+  if (!brand) return;
+
+  await db.insert(s.qualityFlags).values({
+    orgId: brand.orgId,
+    failureClass: "narrated_tool_call",
+    summary: `Said "${tool}" aloud instead of invoking it: "${turnBody.slice(0, 140)}"`,
+    rootCause: "The model described the call rather than emitting it, so no ceiling was checked",
+    owner: "corva",
+    status: "open",
+  });
 }

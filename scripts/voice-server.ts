@@ -34,6 +34,8 @@ import {
   openVoiceConversation,
   persistTurn,
   setupMessage,
+  flagNarration,
+  narratedATool,
 } from "../lib/voice/session";
 import { classifyAndStore } from "../lib/pipelines/classify";
 import { billConversation, customerContext } from "../lib/agent/respond";
@@ -70,6 +72,21 @@ wss.on("connection", (client) => {
 
   let capTimer: NodeJS.Timeout | null = null;
   let idleTimer: NodeJS.Timeout | null = null;
+
+  /**
+   * Server messages are handled one at a time.
+   *
+   * `ws` delivers events in order but does not wait for an async handler
+   * before firing the next, so two frames arriving together used to run their
+   * handlers concurrently — and both would try to write a turn. Chaining them
+   * keeps the transcript in the order the call actually happened.
+   */
+  let queue: Promise<void> = Promise.resolve();
+  const serialise = (work: () => Promise<void>) => {
+    queue = queue.then(work).catch((e) => {
+      console.error("  message handling failed:", (e as Error).message);
+    });
+  };
 
   const send = (msg: unknown) => {
     if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(msg));
@@ -188,7 +205,8 @@ wss.on("connection", (client) => {
           );
         });
 
-        live.on("message", async (data) => {
+        live.on("message", (data) =>
+          serialise(async () => {
           const m = JSON.parse(data.toString());
 
           if (m.setupComplete) {
@@ -255,13 +273,25 @@ wss.on("connection", (client) => {
           if (sc.turnComplete) {
             if (heard.trim()) await persistTurn(conversationId!, "customer", heard, startedAt);
             if (said.trim()) await persistTurn(conversationId!, "ai", said, startedAt);
+
+            // The model sometimes describes a tool call rather than making
+            // one. The caller hears a promise, no ceiling is consulted, and
+            // nothing is recorded — so it is surfaced as a quality failure
+            // rather than passing silently.
+            const narrated = said.trim() ? narratedATool(said) : null;
+            if (narrated && !isTest) await flagNarration(brandId, said, narrated);
+            if (narrated) {
+              console.log(`  ⚠ narrated "${narrated}" instead of calling it`);
+              send({ type: "tool", name: "narration", summary: `said "${narrated}" aloud instead of calling it`, allowed: false });
+            }
             send({ type: "turn_complete", heard: heard.trim(), said: said.trim() });
             heard = "";
             said = "";
           }
 
           if (sc.interrupted) send({ type: "interrupted" });
-        });
+          }),
+        );
 
         live.on("error", (e) => {
           console.error("live socket error:", e.message);

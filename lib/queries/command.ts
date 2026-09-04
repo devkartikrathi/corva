@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { config } from "@/lib/config";
 import { getBrandMetrics } from "./analytics";
+import { stillLive } from "./live-data";
 
 /**
  * The command centre's read model.
@@ -138,7 +139,7 @@ export async function liveCalls(brandId: string, limit = 3) {
     })
     .from(s.conversations)
     .leftJoin(s.customers, eq(s.customers.id, s.conversations.customerId))
-    .where(and(eq(s.conversations.brandId, brandId), eq(s.conversations.status, "live")))
+    .where(and(eq(s.conversations.brandId, brandId), eq(s.conversations.status, "live"), stillLive()))
     .orderBy(asc(s.conversations.startedAt))
     .limit(12);
 

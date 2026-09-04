@@ -54,7 +54,10 @@ const CONVERSATIONS: Seed[] = [
     customerRef: "AH-CU-40912",
     channel: "phone",
     intent: "Third delivery reschedule → cancellation threat",
-    status: "live",
+    // Waiting rather than live: this conversation exists for the brief it
+    // produced, which belongs in the handoff queue. A seeded call left "live"
+    // sits in the live console for ever and hides the one you just placed.
+    status: "waiting_human",
     outcome: "escalated",
     startedMinsAgo: 5,
     sentimentStart: -0.1,
@@ -172,7 +175,7 @@ const CONVERSATIONS: Seed[] = [
     customerRef: "AH-CU-40913",
     channel: "phone",
     intent: "Invoice dispute £8,410",
-    status: "live",
+    status: "waiting_human",
     outcome: "escalated",
     startedMinsAgo: 12,
     durationSeconds: 581,

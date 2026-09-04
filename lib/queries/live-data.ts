@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import * as s from "@/lib/db/schema";
 
 /**
@@ -22,3 +22,22 @@ export const realTraffic = () => eq(s.conversations.isTest, false);
 
 /** The same rule expressed for a raw SQL fragment. */
 export const REAL_TRAFFIC_SQL = "is_test = false";
+
+/**
+ * How long a conversation may go quiet and still count as live.
+ *
+ * A bridge that crashes or a browser that closes without a clean disconnect
+ * leaves a row marked `live` behind it, and the live console shows the newest
+ * live conversation — so one abandoned row hides every real call placed after
+ * it. `reapStaleCalls` closes them on a schedule; this makes the screens right
+ * in between, without waiting for a job to run.
+ *
+ * Measured from the last turn, not from the start: a long call with someone
+ * still talking is not stale.
+ */
+export const LIVE_IDLE_MINUTES = 15;
+
+export const stillLive = () => sql`coalesce(
+  (select max(created_at) from ${s.turns} where conversation_id = ${s.conversations.id}),
+  ${s.conversations.startedAt}
+) > now() - (${LIVE_IDLE_MINUTES} || ' minutes')::interval`;

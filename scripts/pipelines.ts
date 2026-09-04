@@ -11,6 +11,7 @@
 import "../lib/db/script-env";
 import {
   backfillCosts,
+  reapStaleCalls,
   enforceRetention,
   recomputeDocumentStats,
   recomputeHealth,
@@ -51,6 +52,8 @@ async function classifyPending(limit = 25) {
 }
 
 const JOBS: Record<string, () => Promise<unknown>> = {
+  // First: a stale "live" row hides every real call behind it.
+  stale: reapStaleCalls,
   // Before usage, which sums what this writes.
   costs: backfillCosts,
   usage: rollUpUsage,
