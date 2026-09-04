@@ -106,16 +106,6 @@ export function OutlineButton(p: ButtonBase) {
   }, p);
 }
 
-/** Hairline utility button used in toolbars. */
-export function HairlineButton(p: ButtonBase) {
-  return styled("hov-border", {
-    display: "inline-block",
-    fontSize: 12,
-    fontWeight: 600,
-    border: "1px solid var(--color-neutral-400)",
-    padding: "5px 10px",
-  }, p);
-}
 
 /** The bare accent text link that ends most panel headers. */
 export function LinkAction(p: ButtonBase & { size?: number }) {
@@ -269,35 +259,6 @@ export function ScreenHeader({
   );
 }
 
-/** A titled block in one of the 316–356px right rails. */
-export function RailPanel({
-  title,
-  aside,
-  titleColor,
-  children,
-  last = false,
-}: {
-  title: string;
-  aside?: ReactNode;
-  titleColor?: string;
-  children: ReactNode;
-  last?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        padding: "16px 20px",
-        borderBottom: last ? undefined : "2px solid var(--color-divider)",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Kicker color={titleColor}>{title}</Kicker>
-        {aside && <div style={{ marginLeft: "auto" }}>{aside}</div>}
-      </div>
-      <div style={{ marginTop: 12 }}>{children}</div>
-    </div>
-  );
-}
 
 /** A label/value row — the workhorse of every rail and detail list. */
 export function StatRow({

@@ -1,7 +1,32 @@
-import { Bar, LinkAction, OutlineButton, PrimaryButton, ScreenHeader, SectionTitle } from "@/components/ui";
+import { Bar, OutlineButton, ScreenHeader, SectionTitle } from "@/components/ui";
+import { ActionButton } from "@/components/ActionButton";
+import {
+  AddBrand,
+  BrandLiveToggle,
+  ChannelRow,
+  HoursRow,
+  PrivacyForm,
+} from "@/components/SetupControls";
 import { getConsoleContext } from "@/lib/auth/context";
-import { hoursFallback, privacy } from "@/lib/data";
+import { can } from "@/lib/auth/permissions";
+import {
+  createBrand,
+  setBrandLive,
+  setBusinessHours,
+  setChannel,
+  setIntegration,
+  setPrivacy,
+} from "@/lib/actions/setup";
 import { getSetup } from "@/lib/queries/workspace";
+
+/** Every channel Corva can answer, so a disconnected one is still listed. */
+const ALL_CHANNELS = [
+  { kind: "phone", name: "Phone" },
+  { kind: "whatsapp", name: "WhatsApp" },
+  { kind: "web_chat", name: "Web chat" },
+  { kind: "email", name: "Email" },
+  { kind: "sms", name: "SMS" },
+] as const;
 
 /** A label/value line in one of the settings blocks. */
 function SettingRow({ label, value, labelWidth }: { label: string; value: string; labelWidth: number }) {
@@ -32,9 +57,13 @@ function StatusPill({ children, live }: { children: string; live: boolean }) {
 }
 
 export default async function SetupPage() {
-  const { session } = await getConsoleContext();
-  const setup = await getSetup(session.orgId);
-  const { brands, channels, integrations, usage, org } = setup;
+  const { session, brand: currentBrand } = await getConsoleContext();
+  const setup = await getSetup(session.orgId, currentBrand.id);
+  const { brands, brand, channels, hours, afterHours, privacy, audit, integrations, usage, org } =
+    setup;
+
+  const manages = can(session.actor, "billing.manage").allowed;
+  const channelBy = new Map(channels.map((c) => [c.kind, c]));
 
   const planUsage = [
     { label: "Plan", value: (org?.plan ?? "trial").replace(/^./, (c) => c.toUpperCase()) },
@@ -46,10 +75,10 @@ export default async function SetupPage() {
   ];
 
   return (
-    <section>
+    <section style={{ position: "relative" }}>
       <ScreenHeader kicker={`Workspace · ${session.orgName}`} title="Setup & channels">
-        <OutlineButton>Billing &amp; plan</OutlineButton>
-        <PrimaryButton>Add a brand</PrimaryButton>
+        <OutlineButton href="#plan">Billing &amp; plan</OutlineButton>
+        {manages && <AddBrand onCreate={createBrand} />}
       </ScreenHeader>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
@@ -61,7 +90,7 @@ export default async function SetupPage() {
             </div>
             {brands.map((b) => (
               <div
-                key={b.initials}
+                key={b.id}
                 style={{
                   padding: "12px 0",
                   borderTop: "1px solid var(--color-neutral-300)",
@@ -92,37 +121,65 @@ export default async function SetupPage() {
                   </span>
                 </span>
                 <StatusPill live={b.live}>{b.status}</StatusPill>
-                <LinkAction size={11}>Configure</LinkAction>
+                {manages && (
+                  <BrandLiveToggle
+                    brandId={b.id}
+                    live={b.live}
+                    name={b.name}
+                    onToggle={setBrandLive}
+                  />
+                )}
               </div>
             ))}
           </div>
 
           <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
             <div style={{ marginBottom: 12 }}>
-              <SectionTitle size={16}>Channels · {brands[0]?.name ?? "—"}</SectionTitle>
+              <SectionTitle size={16}>Channels · {brand?.name ?? "—"}</SectionTitle>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 11, fontSize: 12.5 }}>
-              {channels.map((c) => (
-                <div
-                  key={c.name}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    paddingBottom: 10,
-                    borderBottom: "1px solid var(--color-neutral-300)",
-                  }}
-                >
-                  <b style={{ width: 96 }}>{c.name}</b>
-                  <span style={{ flex: 1, color: "var(--color-neutral-800)" }}>{c.detail}</span>
-                  {c.connected ? (
-                    <StatusPill live={c.live}>{c.status}</StatusPill>
-                  ) : (
-                    <LinkAction size={11}>Connect</LinkAction>
-                  )}
-                </div>
-              ))}
-
+              {ALL_CHANNELS.map((definition) => {
+                const c = channelBy.get(definition.kind);
+                const connected = c ? c.state !== "not_connected" : false;
+                return (
+                  <div
+                    key={definition.kind}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 12,
+                      paddingBottom: 10,
+                      borderBottom: "1px solid var(--color-neutral-300)",
+                    }}
+                  >
+                    <b style={{ width: 96 }}>{definition.name}</b>
+                    <span style={{ flex: 1, color: "var(--color-neutral-800)" }}>
+                      {c?.detail ?? "Not connected"}
+                    </span>
+                    {connected && <StatusPill live={c!.live}>{c!.status}</StatusPill>}
+                    {manages && brand && (
+                      <ChannelRow
+                        brandId={brand.id}
+                        kind={definition.kind}
+                        name={definition.name}
+                        address={c?.detail ?? ""}
+                        detail={c?.detail ?? ""}
+                        state={c?.state ?? "not_connected"}
+                        onSave={async (input) => {
+                          "use server";
+                          await setChannel({
+                            brandId: input.brandId,
+                            kind: input.kind as (typeof ALL_CHANNELS)[number]["kind"],
+                            address: input.address,
+                            detail: input.detail,
+                            state: input.state,
+                          });
+                        }}
+                      />
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -130,10 +187,35 @@ export default async function SetupPage() {
             <div style={{ marginBottom: 12 }}>
               <SectionTitle size={16}>Hours &amp; fallback</SectionTitle>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12.5 }}>
-              {hoursFallback.map((h) => (
-                <SettingRow key={h.label} label={h.label} value={h.value} labelWidth={150} />
-              ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+              {hours.map((h) =>
+                manages && brand ? (
+                  <HoursRow
+                    key={h.weekday}
+                    brandId={brand.id}
+                    weekday={h.weekday}
+                    day={h.day}
+                    closed={h.closed}
+                    opens={h.opens}
+                    closes={h.closes}
+                    onSave={setBusinessHours}
+                  />
+                ) : (
+                  <SettingRow key={h.weekday} label={h.day} value={h.label} labelWidth={96} />
+                ),
+              )}
+              <div
+                style={{
+                  marginTop: 6,
+                  paddingTop: 10,
+                  borderTop: "1px solid var(--color-neutral-300)",
+                }}
+              >
+                <SettingRow label="Outside those hours" value={afterHours} labelWidth={150} />
+                <div style={{ marginTop: 8 }}>
+                  <SettingRow label="Timezone" value={brand?.timezone ?? "—"} labelWidth={150} />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -147,7 +229,7 @@ export default async function SetupPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 11, fontSize: 12.5 }}>
               {integrations.map((g) => (
                 <div
-                  key={g.name}
+                  key={g.id}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -159,6 +241,19 @@ export default async function SetupPage() {
                   <b style={{ width: 130 }}>{g.name}</b>
                   <span style={{ flex: 1, color: "var(--color-neutral-800)" }}>{g.purpose}</span>
                   <span style={{ fontSize: 11, fontWeight: 700, color: g.color }}>{g.status}</span>
+                  {manages && (
+                    <ActionButton
+                      variant="hairline"
+                      pendingLabel="Saving…"
+                      style={{ fontSize: 10.5, padding: "3px 7px" }}
+                      action={async () => {
+                        "use server";
+                        await setIntegration(g.id, !g.healthy);
+                      }}
+                    >
+                      {g.healthy ? "Disconnect" : "Reconnect"}
+                    </ActionButton>
+                  )}
                 </div>
               ))}
             </div>
@@ -168,14 +263,53 @@ export default async function SetupPage() {
             <div style={{ marginBottom: 12 }}>
               <SectionTitle size={16}>Data, privacy &amp; residency</SectionTitle>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12.5 }}>
-              {privacy.map((p) => (
-                <SettingRow key={p.label} label={p.label} value={p.value} labelWidth={168} />
-              ))}
-            </div>
+            {manages ? (
+              <PrivacyForm
+                initial={{
+                  retentionDays: privacy?.retentionDays ?? 365,
+                  redactPii: privacy?.redactPii ?? true,
+                  trainOnTranscripts: privacy?.trainOnTranscripts ?? false,
+                  recordCalls: privacy?.recordCalls ?? true,
+                  allowSupportAccess: privacy?.allowSupportAccess ?? true,
+                  dpoEmail: privacy?.dpoEmail ?? "",
+                }}
+                region={org?.region ?? "—"}
+                onSave={setPrivacy}
+              />
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12.5 }}>
+                <SettingRow
+                  label="Transcript retention"
+                  value={`${privacy?.retentionDays ?? 365} days`}
+                  labelWidth={168}
+                />
+                <SettingRow
+                  label="Personal data redacted"
+                  value={privacy?.redactPii ? "Yes" : "No"}
+                  labelWidth={168}
+                />
+                <SettingRow
+                  label="Transcripts train the model"
+                  value={privacy?.trainOnTranscripts ? "Yes" : "No"}
+                  labelWidth={168}
+                />
+                <SettingRow
+                  label="Corva staff may request access"
+                  value={privacy?.allowSupportAccess ? "Yes, time-boxed" : "No"}
+                  labelWidth={168}
+                />
+                <SettingRow label="Residency" value={org?.region ?? "—"} labelWidth={168} />
+              </div>
+            )}
+            {privacy?.updatedBy && (
+              <p style={{ margin: "12px 0 0", fontSize: 11, color: "var(--color-neutral-700)" }}>
+                Last changed by {privacy.updatedBy} on{" "}
+                {privacy.updatedAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}.
+              </p>
+            )}
           </div>
 
-          <div style={{ padding: "18px 24px" }}>
+          <div id="plan" style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
             <div style={{ marginBottom: 12 }}>
               <SectionTitle size={16}>Plan &amp; usage</SectionTitle>
             </div>
@@ -230,6 +364,56 @@ export default async function SetupPage() {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Audit log. Tenant-visible on purpose: it is what makes the
+              support-access promise checkable rather than a claim. */}
+          <div id="audit" style={{ padding: "18px 24px" }}>
+            <div style={{ marginBottom: 12, display: "flex", alignItems: "baseline", gap: 10 }}>
+              <SectionTitle size={16}>Audit log</SectionTitle>
+              <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+                last {audit.length} entries
+              </span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12 }}>
+              {audit.length === 0 && (
+                <span style={{ color: "var(--color-neutral-700)" }}>
+                  Nothing recorded yet.
+                </span>
+              )}
+              {audit.map((a) => (
+                <div
+                  key={a.id}
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    paddingBottom: 7,
+                    borderBottom: "1px solid var(--color-neutral-300)",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 110,
+                      color:
+                        a.actorType === "staff" ? "var(--color-accent-700)" : "var(--color-text)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {a.who}
+                  </span>
+                  <span style={{ flex: 1, color: "var(--color-neutral-800)" }}>
+                    {a.action}
+                    {a.target ? ` · ${a.target}` : ""}
+                  </span>
+                  <span style={{ color: "var(--color-neutral-700)" }}>{a.when}</span>
+                </div>
+              ))}
+            </div>
+            <p style={{ margin: "12px 0 0", fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.45 }}>
+              Corva staff reads appear here in accent, alongside your own team&rsquo;s changes. That
+              is what makes &ldquo;we cannot read your transcripts without a grant&rdquo; something
+              you can check rather than something we say.
+            </p>
           </div>
         </div>
       </div>

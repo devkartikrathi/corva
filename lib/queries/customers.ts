@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { config } from "@/lib/config";
@@ -39,20 +39,100 @@ function ago(date: Date | null): string {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
-export type CustomerRow = Awaited<ReturnType<typeof listCustomers>>[number];
+export type ListedCustomers = Awaited<ReturnType<typeof listCustomers>>;
 
-export async function listCustomers(brandId: string, limit = 12) {
-  const rows = await db
-    .select()
-    .from(s.customers)
-    .where(eq(s.customers.brandId, brandId))
-    .limit(200);
+export type CustomerFilters = {
+  q?: string;
+  /** Minimum blended priority. */
+  minScore?: number;
+  /** Minimum value on a named axis, e.g. { churn_risk: 60 }. */
+  axisMinimums?: Record<string, number>;
+  segment?: string[];
+  tier?: string[];
+  /** Behaviour flags: "on_call", "churn", "expansion", "detractor", "payment". */
+  flag?: string[];
+  /** Days since last contact: "7", "30", "90". */
+  lastContact?: string;
+  owner?: string;
+  sort?: string;
+  page?: number;
+  pageSize?: number;
+};
 
-  const scores = await latestScores(rows.map((r) => r.id));
-  const signals = await db
-    .select()
-    .from(s.customerSignals)
-    .where(inArray(s.customerSignals.customerId, rows.map((r) => r.id)));
+/**
+ * Which behaviour flag a customer carries.
+ *
+ * One flag, not several, because the table has one column for it and the
+ * question it answers — "what is the single most notable thing about this
+ * account right now" — has one answer. The order below is that priority.
+ */
+function behaviourFlag(
+  onCall: boolean,
+  signal: (key: string) => number | undefined,
+): { key: string; label: string } {
+  if (onCall) return { key: "on_call", label: "On call" };
+  if ((signal("churn_risk") ?? 0) >= 60) return { key: "churn", label: "Churn risk" };
+  if ((signal("expansion_potential") ?? 0) >= 70) return { key: "expansion", label: "Expansion" };
+  if ((signal("advocacy_nps") ?? 100) <= 30) return { key: "detractor", label: "Detractor" };
+  if ((signal("payment_reliability") ?? 100) <= 40) return { key: "payment", label: "Payment" };
+  return { key: "healthy", label: "Healthy" };
+}
+
+const HOT_FLAGS = new Set(["on_call", "churn", "detractor", "payment"]);
+
+/**
+ * The customer table.
+ *
+ * Filtering on score and axis values happens in memory rather than in SQL,
+ * because both live in tables keyed by customer and a filtered join across
+ * eleven axes reads worse than it performs at this size. The name and segment
+ * filters, which do narrow the set meaningfully, are pushed into the query.
+ */
+export async function listCustomers(brandId: string, filters: CustomerFilters = {}) {
+  const pageSize = filters.pageSize ?? 25;
+  const page = Math.max(1, filters.page ?? 1);
+
+  const where = [eq(s.customers.brandId, brandId)];
+  if (filters.q?.trim()) {
+    const pattern = `%${filters.q.trim().replace(/[%_]/g, (c) => `\\${c}`)}%`;
+    where.push(
+      or(
+        ilike(s.customers.name, pattern),
+        ilike(s.customers.externalRef, pattern),
+        ilike(s.customers.email, pattern),
+        ilike(s.customers.location, pattern),
+      )!,
+    );
+  }
+  if (filters.segment?.length) where.push(inArray(s.customers.segment, filters.segment));
+  if (filters.tier?.length) where.push(inArray(s.customers.tier, filters.tier));
+  if (filters.owner) where.push(eq(s.customers.owner, filters.owner));
+
+  const rows = await db.select().from(s.customers).where(and(...where));
+  if (rows.length === 0) {
+    return { rows: [], total: 0, page, pageSize, facets: { segments: [], tiers: [], owners: [] } };
+  }
+
+  const ids = rows.map((r) => r.id);
+  const [scores, signals, live, lastContact] = await Promise.all([
+    latestScores(ids),
+    db.select().from(s.customerSignals).where(inArray(s.customerSignals.customerId, ids)),
+    db
+      .select({ customerId: s.conversations.customerId })
+      .from(s.conversations)
+      .where(and(eq(s.conversations.brandId, brandId), eq(s.conversations.status, "live"))),
+    // The last time anyone actually spoke to them. Previously this column
+    // showed how long they had been a customer, which is a different number
+    // and made every quiet account look freshly contacted.
+    db
+      .select({
+        customerId: s.conversations.customerId,
+        at: sql<Date>`max(${s.conversations.startedAt})`,
+      })
+      .from(s.conversations)
+      .where(inArray(s.conversations.customerId, ids))
+      .groupBy(s.conversations.customerId),
+  ]);
 
   const byCustomer = new Map<string, Map<string, (typeof signals)[number]>>();
   for (const sig of signals) {
@@ -61,62 +141,114 @@ export async function listCustomers(brandId: string, limit = 12) {
     byCustomer.set(sig.customerId, map);
   }
 
-  // Live conversations decide the "On call" flag, so the table reflects now.
-  const live = await db
-    .select({ customerId: s.conversations.customerId })
-    .from(s.conversations)
-    .where(and(eq(s.conversations.brandId, brandId), eq(s.conversations.status, "live")));
   const onCall = new Set(live.map((l) => l.customerId).filter(Boolean) as string[]);
+  const contactedAt = new Map(
+    lastContact
+      .filter((l) => l.customerId)
+      .map((l) => [l.customerId!, l.at instanceof Date ? l.at : new Date(l.at)]),
+  );
 
-  const enriched = rows.map((c) => {
+  let enriched = rows.map((c) => {
     const sig = byCustomer.get(c.id);
-    const churn = sig?.get("churn_risk")?.value ?? 0;
+    const value = (key: string) => sig?.get(key)?.value;
+    const churn = value("churn_risk") ?? 0;
     const sentiment = sig?.get("sentiment");
     const priority = scores.get(c.id)?.blended ?? 0;
-    const sentimentDisplay = sentiment?.display ?? "—";
+    const sentimentDisplay = sentiment?.display ?? (sentiment ? sentiment.value.toFixed(0) : "—");
     const negative = sentimentDisplay.startsWith("−") || sentimentDisplay.startsWith("-");
-
-    const flag = onCall.has(c.id)
-      ? "On call"
-      : churn >= 60
-        ? "Churn risk"
-        : (sig?.get("expansion_potential")?.value ?? 0) >= 70
-          ? "Expansion"
-          : (sig?.get("advocacy_nps")?.value ?? 100) <= 30
-            ? "Detractor"
-            : (sig?.get("payment_reliability")?.value ?? 100) <= 40
-              ? "Payment"
-              : "Healthy";
-
-    const hot = ["On call", "Churn risk", "Detractor", "Payment"].includes(flag);
+    const flag = behaviourFlag(onCall.has(c.id), value);
+    const hot = HOT_FLAGS.has(flag.key);
+    const last = contactedAt.get(c.id) ?? null;
 
     return {
       id: c.id,
       name: c.name,
+      segment: c.segment,
+      tier: c.tier,
+      owner: c.owner ?? "Unassigned",
       meta: [c.segment, c.tier, c.location].filter(Boolean).join(" · "),
       priority: Math.round(priority),
       pColor: scoreColor(priority),
       ltv: money(c.ltvPence),
+      ltvPence: c.ltvPence,
       churn: `${Math.round(churn)} · ${churn >= 60 ? "high" : churn >= 35 ? "medium" : "low"}`,
+      churnValue: churn,
       churnBar: pct(churn),
       churnColor: churn >= 60 ? ACCENT : N_500,
       sentiment: sentimentDisplay,
       sentColor: negative ? ACCENT_700 : N_800,
-      last: onCall.has(c.id) ? "on call now" : ago(c.customerSince),
-      owner: c.owner ?? "Unassigned",
-      flag,
+      last: onCall.has(c.id) ? "on call now" : ago(last),
+      lastContactAt: last,
+      flag: flag.label,
+      flagKey: flag.key,
       flagBg: hot ? ACCENT_200 : N_200,
       flagFg: hot ? ACCENT_800 : N_800,
+      signalValue: value,
     };
   });
 
-  enriched.sort((a, b) => b.priority - a.priority);
-  return enriched.slice(0, limit);
+  // Facets are computed before the score and flag filters narrow the set, so a
+  // filter chip keeps showing the option you would need to click to widen.
+  const facets = {
+    segments: countBy(enriched.map((c) => c.segment)),
+    tiers: countBy(enriched.map((c) => c.tier)),
+    owners: countBy(enriched.map((c) => c.owner)),
+  };
+
+  if (filters.minScore) enriched = enriched.filter((c) => c.priority >= filters.minScore!);
+  if (filters.flag?.length) enriched = enriched.filter((c) => filters.flag!.includes(c.flagKey));
+  for (const [axis, minimum] of Object.entries(filters.axisMinimums ?? {})) {
+    enriched = enriched.filter((c) => (c.signalValue(axis) ?? 0) >= minimum);
+  }
+  if (filters.lastContact) {
+    const days = Number(filters.lastContact);
+    if (Number.isFinite(days)) {
+      const cutoff = Date.now() - days * 864e5;
+      enriched = enriched.filter((c) => (c.lastContactAt?.getTime() ?? 0) >= cutoff);
+    }
+  }
+
+  const [sortField, sortDir] = (filters.sort ?? "score:desc").split(":");
+  const key = (c: (typeof enriched)[number]) => {
+    switch (sortField) {
+      case "name": return c.name.toLowerCase();
+      case "value": return c.ltvPence;
+      case "churn": return c.churnValue;
+      case "last": return c.lastContactAt?.getTime() ?? 0;
+      default: return c.priority;
+    }
+  };
+  enriched.sort((a, b) => {
+    const x = key(a);
+    const y = key(b);
+    const cmp = typeof x === "string" ? x.localeCompare(y as string) : (x as number) - (y as number);
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
+  return {
+    total: enriched.length,
+    page,
+    pageSize,
+    facets,
+    rows: enriched.slice((page - 1) * pageSize, page * pageSize),
+  };
+}
+
+/** `[{ value, count }]` for a facet column, commonest first, nulls dropped. */
+function countBy(values: (string | null)[]) {
+  const counts = new Map<string, number>();
+  for (const v of values) {
+    if (!v) continue;
+    counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([value, count]) => ({ value, count }));
 }
 
 /** The priority queue on the command center — the top of the same list. */
 export async function priorityQueue(brandId: string, limit = 6) {
-  const customers = await listCustomers(brandId, limit);
+  const { rows: customers } = await listCustomers(brandId, { pageSize: limit });
   const scores = await latestScores(customers.map((c) => c.id));
 
   return customers.map((c) => {
@@ -142,7 +274,16 @@ export async function priorityQueue(brandId: string, limit = 6) {
   });
 }
 
-/** One customer's full record, for Customer 360. */
+/**
+ * One customer's full record, for Customer 360.
+ *
+ * Pulls the four things the profile shows that live outside `customers`: the
+ * scoring arithmetic, the conversation history, the records mirrored from the
+ * tenant's other systems, and what people have written about them. Consent is
+ * fetched with the rest rather than lazily, because a screen that renders the
+ * customer before it knows what they agreed to can show a marketing prompt to
+ * someone who opted out.
+ */
 export async function getCustomer(brandId: string, customerId: string) {
   const [customer] = await db
     .select()
@@ -151,25 +292,92 @@ export async function getCustomer(brandId: string, customerId: string) {
     .limit(1);
   if (!customer) return null;
 
-  const [scoreRow] = await db
-    .select()
-    .from(s.customerScores)
-    .where(eq(s.customerScores.customerId, customerId))
-    .orderBy(desc(s.customerScores.computedAt))
-    .limit(1);
+  const [scoreRows, signals, conversations, records, consents, notes] = await Promise.all([
+    db
+      .select()
+      .from(s.customerScores)
+      .where(eq(s.customerScores.customerId, customerId))
+      .orderBy(desc(s.customerScores.computedAt))
+      .limit(12),
+    db
+      .select({ signal: s.customerSignals, axis: s.scoringAxes })
+      .from(s.customerSignals)
+      .innerJoin(s.scoringAxes, eq(s.scoringAxes.key, s.customerSignals.axisKey))
+      .where(eq(s.customerSignals.customerId, customerId)),
+    db
+      .select()
+      .from(s.conversations)
+      .where(eq(s.conversations.customerId, customerId))
+      .orderBy(desc(s.conversations.startedAt))
+      .limit(20),
+    db
+      .select()
+      .from(s.customerRecords)
+      .where(eq(s.customerRecords.customerId, customerId))
+      .orderBy(desc(s.customerRecords.occurredAt)),
+    db.select().from(s.customerConsents).where(eq(s.customerConsents.customerId, customerId)),
+    db
+      .select()
+      .from(s.customerNotes)
+      .where(eq(s.customerNotes.customerId, customerId))
+      .orderBy(desc(s.customerNotes.pinned), desc(s.customerNotes.createdAt)),
+  ]);
 
-  const signals = await db
-    .select({ signal: s.customerSignals, axis: s.scoringAxes })
-    .from(s.customerSignals)
-    .innerJoin(s.scoringAxes, eq(s.scoringAxes.key, s.customerSignals.axisKey))
-    .where(eq(s.customerSignals.customerId, customerId));
+  const scoreRow = scoreRows[0] ?? null;
 
-  const conversations = await db
-    .select()
-    .from(s.conversations)
-    .where(eq(s.conversations.customerId, customerId))
-    .orderBy(desc(s.conversations.startedAt))
-    .limit(20);
+  // What the AI has actually learned about this customer, drawn from the
+  // record rather than written by hand: the axes it moved furthest, the
+  // actions it has taken, and the intents it has had to escalate.
+  const escalated = conversations.filter((c) => c.contained === false);
+  const intents = new Map<string, number>();
+  for (const c of escalated) {
+    if (!c.intent) continue;
+    intents.set(c.intent, (intents.get(c.intent) ?? 0) + 1);
+  }
 
-  return { customer, score: scoreRow ?? null, signals, conversations };
+  const learned: string[] = [];
+  const highest = [...signals].sort((a, b) => b.signal.value - a.signal.value)[0];
+  if (highest) {
+    learned.push(
+      `${highest.axis.label} sits at ${Math.round(highest.signal.value)} of 100 — the strongest single input to their score.`,
+    );
+  }
+  if (escalated.length) {
+    learned.push(
+      `${escalated.length} of their last ${conversations.length} contacts needed a person, most often about ${[...intents.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "an unclassified intent"}.`,
+    );
+  }
+  const openRecords = records.filter((r) => /reschedul|disput|overdue|open|scheduled/i.test(r.status ?? ""));
+  if (openRecords.length) {
+    learned.push(
+      `${openRecords.length} record${openRecords.length === 1 ? " is" : "s are"} still open across ${new Set(openRecords.map((r) => r.sourceSystem)).size} connected system${new Set(openRecords.map((r) => r.sourceSystem)).size === 1 ? "" : "s"}.`,
+    );
+  }
+  const sentiments = conversations.map((c) => c.sentimentEnd).filter((x): x is number => x !== null);
+  if (sentiments.length >= 2) {
+    const recent = sentiments.slice(0, 3).reduce((a, b) => a + b, 0) / Math.min(3, sentiments.length);
+    learned.push(
+      `Sentiment across their recent contacts averages ${recent >= 0 ? "+" : ""}${recent.toFixed(2)}.`,
+    );
+  }
+
+  // The score's own history, for the "how did this move" line on the profile.
+  const history = scoreRows
+    .map((row) => ({
+      at: row.computedAt,
+      blended: Math.round(row.blended),
+    }))
+    .reverse();
+
+  return {
+    customer,
+    score: scoreRow,
+    scoreHistory: history,
+    signals,
+    conversations,
+    records,
+    consents,
+    notes,
+    learned,
+  };
 }

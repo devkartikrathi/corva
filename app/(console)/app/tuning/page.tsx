@@ -1,17 +1,45 @@
 import {
-  Bar,
-  CheckSquare,
   DeltaRow,
   Kicker,
-  LinkAction,
-  OutlineButton,
-  PrimaryButton,
   ScreenTitle,
   Th,
 } from "@/components/ui";
 import { notFound } from "next/navigation";
 import { getConsoleContext } from "@/lib/auth/context";
-import { replayDelta, tuneNav } from "@/lib/data";
+import {
+  AuthorityCell,
+  NeverRules,
+  PersonaEditor,
+  TestConsole,
+  ToneDial,
+} from "@/components/tuning-controls";
+import { ActionToggle } from "@/components/ActionButton";
+import {
+  addNeverRule,
+  discardDraft,
+  previewReply,
+  removeNeverRule,
+  rollbackToVersion,
+  setAuthority,
+  setPersona,
+  setTone,
+  toggleTrigger,
+} from "@/lib/actions/workspace";
+
+/** The dial ends, phrased the way the design phrased them. */
+const TONE_ENDS: Record<string, [string, string]> = {
+  warmth: ["clinical", "effusive"],
+  brevity: ["thorough", "terse"],
+  formality: ["casual", "formal"],
+  persistence: ["hands over early", "keeps trying"],
+};
+
+const SECTIONS = [
+  { id: "persona", name: "Persona & tone" },
+  { id: "authority", name: "What it may do" },
+  { id: "guardrails", name: "Guardrails" },
+  { id: "history", name: "Version history" },
+];
 import { getTuning } from "@/lib/queries/workspace";
 import { publishAgentVersion } from "@/lib/actions/workspace";
 import { ActionButton } from "@/components/ActionButton";
@@ -26,15 +54,19 @@ export default async function TuningPage() {
     draft,
     versions,
     persona: PERSONA,
-    tone: toneSliders,
+    toneRaw,
     authority,
     triggers: escalationTriggers,
     neverRules: neverDo,
+    diff,
+    editingDraft,
   } = tuning;
 
   const versionHistory = versions
     .filter((v) => v.status !== "draft")
     .map((v) => ({
+      id: v.id,
+      status: v.status,
       version: `v${v.version}`,
       by: [
         v.publishedAt?.toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
@@ -90,7 +122,19 @@ export default async function TuningPage() {
           </span>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <OutlineButton>Replay 200 past calls</OutlineButton>
+          {draft && (
+            <ActionButton
+              variant="outline"
+              pendingLabel="Discarding…"
+              confirm={`Discard v${draft.version}? Every unpublished change is lost.`}
+              action={async () => {
+                "use server";
+                await discardDraft();
+              }}
+            >
+              Discard draft
+            </ActionButton>
+          )}
           {draft ? (
             <ActionButton
               action={async () => {
@@ -103,7 +147,17 @@ export default async function TuningPage() {
               Publish v{draft.version}
             </ActionButton>
           ) : (
-            <PrimaryButton>No draft to publish</PrimaryButton>
+            <span
+              style={{
+                fontSize: 11.5,
+                color: "var(--color-neutral-700)",
+                alignSelf: "center",
+                maxWidth: "26ch",
+                lineHeight: 1.4,
+              }}
+            >
+              No draft. Editing anything below forks one from v{live?.version} automatically.
+            </span>
           )}
         </div>
       </div>
@@ -111,10 +165,10 @@ export default async function TuningPage() {
       <div style={{ display: "grid", gridTemplateColumns: "210px 1fr 340px" }}>
         {/* Section nav */}
         <div style={{ borderRight: "2px solid var(--color-divider)", padding: "14px 0" }}>
-          {tuneNav.map((t) => (
-            <button
+          {SECTIONS.map((t, i) => (
+            <a
               key={t.name}
-              type="button"
+              href={`#${t.id}`}
               className="hov-surface"
               style={{
                 width: "100%",
@@ -125,12 +179,19 @@ export default async function TuningPage() {
                 gap: 10,
                 fontSize: 12.5,
                 fontWeight: 600,
+                color: "var(--color-text)",
               }}
             >
-              <span style={{ width: 3, height: 14, display: "block", background: t.edge }} />
+              <span
+                style={{
+                  width: 3,
+                  height: 14,
+                  display: "block",
+                  background: i === 0 ? "var(--color-accent)" : "transparent",
+                }}
+              />
               <span style={{ flex: 1 }}>{t.name}</span>
-              <span style={{ fontSize: 10.5, color: t.badgeColor }}>{t.badge}</span>
-            </button>
+            </a>
           ))}
           <div
             style={{
@@ -162,7 +223,7 @@ export default async function TuningPage() {
                 color: "var(--color-text)",
               }}
             >
-              {PERSONA}
+              <PersonaEditor persona={PERSONA} onSave={setPersona} />
             </div>
 
             <div
@@ -173,38 +234,18 @@ export default async function TuningPage() {
                 gap: "16px 28px",
               }}
             >
-              {toneSliders.map((s) => (
-                <div key={s.label}>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: 12,
-                      marginBottom: 5,
-                    }}
-                  >
-                    <span style={{ color: "var(--color-neutral-800)" }}>{s.label}</span>
-                    <b>{s.value}</b>
-                  </div>
-                  <Bar
-                    width={s.bar}
-                    color="var(--color-text)"
-                    marker="handle"
-                    markerColor="var(--color-accent)"
-                  />
-                  <div
-                    style={{
-                      marginTop: 4,
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: 10.5,
-                      color: "var(--color-neutral-500)",
-                    }}
-                  >
-                    <span>{s.low}</span>
-                    <span>{s.high}</span>
-                  </div>
-                </div>
+              {Object.entries(toneRaw).map(([key, value]) => (
+                <ToneDial
+                  key={key}
+                  label={key[0].toUpperCase() + key.slice(1)}
+                  value={value}
+                  low={TONE_ENDS[key]?.[0] ?? ""}
+                  high={TONE_ENDS[key]?.[1] ?? ""}
+                  onChange={async (next) => {
+                    "use server";
+                    await setTone(key, next);
+                  }}
+                />
               ))}
             </div>
           </div>
@@ -222,22 +263,31 @@ export default async function TuningPage() {
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--color-neutral-400)" }}>
                   <Th padding="7px 0">Action</Th>
-                  <Th width={130} padding="7px 10px">Ceiling</Th>
+                  <Th width={170} padding="7px 10px">Ceiling</Th>
                   <Th width={140} padding="7px 10px">Above that</Th>
-                  <Th width={90} padding="7px 0">Used /wk</Th>
                 </tr>
               </thead>
               <tbody>
                 {authority.map((a) => (
-                  <tr key={a.action} style={{ borderBottom: "1px solid var(--color-neutral-300)" }}>
+                  <tr key={a.id} style={{ borderBottom: "1px solid var(--color-neutral-300)" }}>
                     <td style={{ padding: "9px 0" }}>
                       <b>{a.action}</b>
                     </td>
-                    <td style={{ padding: "9px 10px", color: a.color, fontWeight: 600 }}>{a.ceiling}</td>
+                    <td style={{ padding: "9px 10px" }}>
+                      <AuthorityCell
+                        row={{
+                          id: a.id,
+                          action: a.key,
+                          blocked: a.blocked,
+                          ceilingPence: a.ceilingPence,
+                          escalateTo: a.escalateTo,
+                        }}
+                        onSave={setAuthority}
+                      />
+                    </td>
                     <td style={{ padding: "9px 10px", color: "var(--color-neutral-800)" }}>
                       {a.escalate}
                     </td>
-                    <td style={{ padding: "9px 0", color: "var(--color-neutral-700)" }}>—</td>
                   </tr>
                 ))}
               </tbody>
@@ -258,14 +308,18 @@ export default async function TuningPage() {
                   }}
                 >
                   {escalationTriggers.map((t) => (
-                    <div key={t.text} style={{ display: "flex", gap: 9 }}>
+                    <div key={t.id} style={{ display: "flex", gap: 9, alignItems: "flex-start" }}>
                       <span style={{ marginTop: 1 }}>
-                        <CheckSquare on={t.on} />
+                        <ActionToggle
+                          on={t.on}
+                          label={t.text}
+                          action={async (next) => {
+                            "use server";
+                            await toggleTrigger(t.id, next);
+                          }}
+                        />
                       </span>
-                      <span>
-                        {t.text}
-
-                      </span>
+                      <span style={{ flex: 1, opacity: t.on ? 1 : 0.55 }}>{t.text}</span>
                     </div>
                   ))}
                 </div>
@@ -282,12 +336,7 @@ export default async function TuningPage() {
                     fontSize: 12.5,
                   }}
                 >
-                  {neverDo.map((n) => (
-                    <div key={n} style={{ display: "flex", gap: 9 }}>
-                      <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>✗</span>
-                      <span>{n}</span>
-                    </div>
-                  ))}
+                  <NeverRules rules={neverDo} onAdd={addNeverRule} onRemove={removeNeverRule} />
                 </div>
                 <div
                   style={{
@@ -319,113 +368,73 @@ export default async function TuningPage() {
                 Test console
               </span>
               <span style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--color-neutral-700)" }}>
-                v11 → v12
+                {editingDraft && draft ? `draft v${draft.version}` : `live v${live?.version}`}
               </span>
             </div>
 
-            <input
-              aria-label="Test the agent"
-              placeholder="Replay a past call, or type what a customer might say…"
-              style={{
-                marginTop: 12,
-                width: "100%",
-                border: "1px solid var(--color-neutral-400)",
-                background: "var(--color-surface)",
-                padding: "11px 12px",
-                fontSize: 12.5,
-                fontFamily: "var(--font-body)",
-                color: "var(--color-text)",
-                borderRadius: 0,
-              }}
+            <TestConsole
+              version={editingDraft && draft ? draft.version : (live?.version ?? 0)}
+              onAsk={previewReply}
             />
 
-            <div
+            <p
               style={{
-                marginTop: 12,
-                fontSize: 11.5,
-                fontWeight: 700,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                color: "var(--color-neutral-700)",
-              }}
-            >
-              Replay · Okonkwo, 3 Sep
-            </div>
-            <div
-              style={{
-                marginTop: 10,
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-                fontSize: 12.5,
-              }}
-            >
-              <div style={{ borderLeft: "3px solid var(--color-neutral-400)", paddingLeft: 10 }}>
-                <b
-                  style={{
-                    fontSize: 10.5,
-                    letterSpacing: "0.08em",
-                    textTransform: "uppercase",
-                    color: "var(--color-neutral-700)",
-                  }}
-                >
-                  v11 said
-                </b>
-                <div style={{ marginTop: 4, lineHeight: 1.45 }}>
-                  &ldquo;I can apply £40 now and book a fixed morning slot for Thursday.&rdquo;
-                </div>
-              </div>
-              <div style={{ borderLeft: "3px solid var(--color-accent)", paddingLeft: 10 }}>
-                <b
-                  style={{
-                    fontSize: 10.5,
-                    letterSpacing: "0.08em",
-                    textTransform: "uppercase",
-                    color: "var(--color-accent-700)",
-                  }}
-                >
-                  v12 would say
-                </b>
-                <div style={{ marginTop: 4, lineHeight: 1.45 }}>
-                  &ldquo;Because this is a third failure on a Premier promise, I&rsquo;m bringing a
-                  manager in now and applying the £40 while you hold.&rdquo;
-                </div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                marginTop: 12,
-                paddingTop: 12,
-                borderTop: "1px solid var(--color-neutral-300)",
-                display: "flex",
-                flexDirection: "column",
-                gap: 7,
-                fontSize: 12,
-              }}
-            >
-              {replayDelta.map((d) => (
-                <DeltaRow key={d.label} label={d.label} from={d.from} to={d.to} hot={d.worse} />
-              ))}
-              <div style={{ display: "flex", gap: 10 }}>
-                <span style={{ flex: 1, color: "var(--color-neutral-800)" }}>
-                  Est. saved escalations on Tier 1
-                </span>
-                <b style={{ color: "var(--color-neutral-800)" }}>+9%</b>
-              </div>
-            </div>
-
-            <div
-              style={{
-                marginTop: 12,
+                marginTop: 14,
                 fontSize: 11.5,
                 color: "var(--color-neutral-700)",
                 lineHeight: 1.45,
               }}
             >
-              v12 escalates more and contains less — deliberately, on high-value accounts. Publish only
-              if that trade is what you want.
-            </div>
+              The test runs the same retrieval, the same triggers and the same system prompt a real
+              turn runs. Nothing is written — no turn, no citation, no knowledge gap — so testing
+              cannot move the numbers on the other screens.
+            </p>
+          </div>
+
+          <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
+            <Kicker color="var(--color-accent-700)">
+              {draft ? `What publishing v${draft.version} changes` : "Nothing staged"}
+            </Kicker>
+            {!draft ? (
+              <p
+                style={{
+                  marginTop: 10,
+                  fontSize: 12,
+                  color: "var(--color-neutral-700)",
+                  lineHeight: 1.45,
+                }}
+              >
+                v{live?.version} is answering calls and there is no draft. Change a dial, a ceiling
+                or a guardrail and a draft is forked from it — the live version is never edited in
+                place.
+              </p>
+            ) : diff.length === 0 ? (
+              <p
+                style={{
+                  marginTop: 10,
+                  fontSize: 12,
+                  color: "var(--color-neutral-700)",
+                  lineHeight: 1.45,
+                }}
+              >
+                v{draft.version} is identical to v{live?.version} so far. Every row that differs
+                appears here as you change it.
+              </p>
+            ) : (
+              <div
+                style={{
+                  marginTop: 12,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 7,
+                  fontSize: 12,
+                }}
+              >
+                {diff.map((d, i) => (
+                  <DeltaRow key={`${d.label}-${i}`} label={d.label} from={d.from} to={d.to} hot />
+                ))}
+              </div>
+            )}
           </div>
 
           <div style={{ padding: "16px 20px" }}>
@@ -435,24 +444,61 @@ export default async function TuningPage() {
             >
               {versionHistory.map((v, i) => (
                 <div
-                  key={v.version}
+                  key={v.id}
                   style={{
                     paddingBottom: i < versionHistory.length - 1 ? 10 : undefined,
                     borderBottom:
                       i < versionHistory.length - 1 ? "1px solid var(--color-neutral-300)" : undefined,
                   }}
                 >
-                  <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                     <b>{v.version}</b>
+                    {v.status === "live" && (
+                      <span
+                        style={{
+                          fontSize: 9.5,
+                          fontWeight: 700,
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                          color: "var(--color-accent-700)",
+                        }}
+                      >
+                        Live
+                      </span>
+                    )}
                     <span style={{ color: "var(--color-neutral-700)" }}>{v.by}</span>
+                    {v.status !== "live" && (
+                      <span style={{ marginLeft: "auto" }}>
+                        <ActionButton
+                          variant="hairline"
+                          pendingLabel="Drafting…"
+                          confirm={`Roll back to ${v.version}? It is copied forward as a new draft for you to publish.`}
+                          style={{ fontSize: 10.5, padding: "3px 7px" }}
+                          action={async () => {
+                            "use server";
+                            await rollbackToVersion(v.id);
+                          }}
+                        >
+                          Roll back
+                        </ActionButton>
+                      </span>
+                    )}
                   </div>
                   <div style={{ marginTop: 3, color: "var(--color-neutral-800)" }}>{v.note}</div>
                 </div>
               ))}
             </div>
-            <LinkAction size={11} style={{ marginTop: 12, display: "block" }}>
-              Roll back to a version →
-            </LinkAction>
+            <p
+              style={{
+                marginTop: 12,
+                fontSize: 11.5,
+                color: "var(--color-neutral-700)",
+                lineHeight: 1.45,
+              }}
+            >
+              A rollback copies the old version forward as a draft rather than making it live again,
+              so &ldquo;which version answered this call&rdquo; always has one answer.
+            </p>
           </div>
         </div>
       </div>

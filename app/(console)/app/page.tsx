@@ -1,7 +1,6 @@
 import Link from "next/link";
 import {
   Bar,
-  ChartLegend,
   Kicker,
   LinkAction,
   LiveDot,
@@ -13,13 +12,27 @@ import {
   Tag,
   Th,
 } from "@/components/ui";
+import { ActionButton } from "@/components/ActionButton";
+import { takeOverCall } from "@/lib/actions/conversations";
 import { getConsoleContext } from "@/lib/auth/context";
-import { docGaps, headlineStats, liveCalls, needsHuman, scoreMovers, volume } from "@/lib/data";
+import { hourlyVolume } from "@/lib/queries/analytics";
+import { docGaps, headlineStats, liveCalls, needsHuman, scoreMovers } from "@/lib/queries/command";
 import { priorityQueue } from "@/lib/queries/customers";
+import { listSavedViews } from "@/lib/queries/views";
 
 export default async function CommandCenterPage() {
-  const { brand } = await getConsoleContext();
-  const queue = await priorityQueue(brand.id);
+  const { session, brand } = await getConsoleContext();
+
+  const [stats, live, queue, waiting, gaps, movers, volume, views] = await Promise.all([
+    headlineStats(brand.id),
+    liveCalls(brand.id),
+    priorityQueue(brand.id),
+    needsHuman(brand.id),
+    docGaps(brand.id),
+    scoreMovers(brand.id),
+    hourlyVolume(brand.id),
+    listSavedViews(session.orgId, "customers"),
+  ]);
 
   return (
     <section>
@@ -33,9 +46,18 @@ export default async function CommandCenterPage() {
         }}
       >
         <ScreenTitle kicker={brand.name} title="Command center" />
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <OutlineButton>Last 24 hours ▾</OutlineButton>
-          <PrimaryButton style={{ fontWeight: 600 }}>New saved view</PrimaryButton>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11, color: "var(--color-neutral-700)" }}>Saved views</span>
+          {views
+            .filter((v) => !v.isDefault)
+            .map((v) => (
+              <OutlineButton key={v.id} href={v.href} style={{ fontSize: 11, padding: "6px 10px", borderWidth: 1 }}>
+                {v.name}
+              </OutlineButton>
+            ))}
+          <PrimaryButton href="/app/customers" style={{ fontWeight: 600 }}>
+            All customers →
+          </PrimaryButton>
         </div>
       </div>
 
@@ -47,15 +69,15 @@ export default async function CommandCenterPage() {
           borderBottom: "2px solid var(--color-divider)",
         }}
       >
-        {headlineStats.map((s, i) => (
+        {stats.map((stat, i) => (
           <div
-            key={s.label}
+            key={stat.label}
             style={{
               padding: "16px 20px",
-              borderRight: i < headlineStats.length - 1 ? "1px solid var(--color-neutral-300)" : undefined,
+              borderRight: i < stats.length - 1 ? "1px solid var(--color-neutral-300)" : undefined,
             }}
           >
-            <Kicker style={{ letterSpacing: "0.12em" }}>{s.label}</Kicker>
+            <Kicker style={{ letterSpacing: "0.12em" }}>{stat.label}</Kicker>
             <div
               style={{
                 marginTop: 8,
@@ -63,24 +85,16 @@ export default async function CommandCenterPage() {
                 fontSize: 32,
                 lineHeight: 1,
                 letterSpacing: "-0.03em",
+                color: stat.accent ? "var(--color-accent-700)" : undefined,
               }}
             >
-              {s.value}
-              {"unit" in s && s.unit && (
-                <span style={{ fontSize: 16, color: "var(--color-neutral-700)" }}>{s.unit}</span>
+              {stat.value}
+              {stat.unit && (
+                <span style={{ fontSize: 16, color: "var(--color-neutral-700)" }}>{stat.unit}</span>
               )}
             </div>
             <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-              {"delta" in s && s.delta ? (
-                <>
-                  <b style={{ color: "var(--color-accent-700)" }}>{s.delta}</b> {s.note}
-                </>
-              ) : (
-                <>
-                  {s.note} <b>{"strong" in s ? s.strong : null}</b>
-                  {"noteAfter" in s && s.noteAfter ? ` ${s.noteAfter}` : null}
-                </>
-              )}
+              {stat.note}
             </div>
           </div>
         ))}
@@ -112,9 +126,14 @@ export default async function CommandCenterPage() {
             gap: 14,
           }}
         >
-          {liveCalls.map((c) => (
+          {live.length === 0 && (
+            <p style={{ marginTop: 14, fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+              Nothing live. The AI is answering as contacts arrive — this fills as they do.
+            </p>
+          )}
+          {live.map((c) => (
             <div
-              key={c.name}
+              key={c.id}
               style={
                 c.hot
                   ? { border: "2px solid var(--color-text)", background: "var(--color-bg)", padding: "12px 14px" }
@@ -153,7 +172,7 @@ export default async function CommandCenterPage() {
                   </span>
                 )}
                 <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-                  {c.elapsed}
+                  {c.channel.replace("_", " ")} · {c.elapsed}
                 </span>
               </div>
 
@@ -189,40 +208,37 @@ export default async function CommandCenterPage() {
                 </span>
               </div>
 
-              {c.hot ? (
-                <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
-                  <button
-                    type="button"
-                    className="hov-accent"
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      background: "var(--color-accent)",
-                      color: "var(--color-bg)",
-                      padding: "7px 10px",
-                    }}
-                  >
-                    Take the line
-                  </button>
-                  <Link
-                    href="/app/live"
-                    className="hov-invert"
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      border: "1px solid var(--color-text)",
-                      padding: "6px 10px",
-                      color: "var(--color-text)",
-                    }}
-                  >
-                    Listen in
-                  </Link>
-                </div>
-              ) : (
-                <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-                  {c.footNote} <b style={{ color: "var(--color-text)" }}>{c.footStrong}</b>
-                </div>
-              )}
+              <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                <ActionButton
+                  variant="primary"
+                  pendingLabel="Joining…"
+                  style={{ fontSize: 11, padding: "7px 10px" }}
+                  action={async () => {
+                    "use server";
+                    await takeOverCall(c.id);
+                  }}
+                >
+                  Take the line
+                </ActionButton>
+                <Link
+                  href={`/app/live?call=${c.id}`}
+                  className="hov-invert"
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    border: "1px solid var(--color-text)",
+                    padding: "6px 10px",
+                    color: "var(--color-text)",
+                  }}
+                >
+                  Listen in
+                </Link>
+                {c.tier && (
+                  <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--color-neutral-700)" }}>
+                    {c.tier}
+                  </span>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -336,10 +352,15 @@ export default async function CommandCenterPage() {
           <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
             <Kicker>Needs a human</Kicker>
             <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-              {needsHuman.map((h) => (
+              {waiting.length === 0 && (
+                <p style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
+                  The queue is empty. Every conversation is with the AI.
+                </p>
+              )}
+              {waiting.map((h) => (
                 <Link
-                  key={h.name}
-                  href="/app/handoffs"
+                  key={h.id}
+                  href={`/app/handoffs?handoff=${h.id}`}
                   className="hov-raise"
                   style={{
                     width: "100%",
@@ -389,8 +410,8 @@ export default async function CommandCenterPage() {
                 fontSize: 12,
               }}
             >
-              {docGaps.map((g) => (
-                <div key={g.text} style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
+              {gaps.map((g) => (
+                <div key={g.id} style={{ display: "flex", gap: 10, alignItems: "baseline" }}>
                   <b
                     style={{
                       width: 26,
@@ -400,7 +421,7 @@ export default async function CommandCenterPage() {
                     {g.count}
                   </b>
                   <span style={{ flex: 1, color: "var(--color-neutral-800)" }}>{g.text}</span>
-                  <LinkAction href="/app/knowledge" size={11}>
+                  <LinkAction href={`/app/knowledge?gap=${g.id}`} size={11}>
                     {g.cta}
                   </LinkAction>
                 </div>
@@ -419,16 +440,25 @@ export default async function CommandCenterPage() {
                 fontSize: 12,
               }}
             >
-              {scoreMovers.map((m, i) => (
-                <div
-                  key={m.name}
+              {movers.length === 0 && (
+                <p style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
+                  No score has moved since the last run. Movements appear here as soon as a
+                  signal or a rule changes one.
+                </p>
+              )}
+              {movers.map((m, i) => (
+                <Link
+                  key={m.id}
+                  href={`/app/customers/${m.id}`}
+                  className="hov-ink"
                   style={{
                     display: "flex",
                     gap: 10,
                     alignItems: "baseline",
-                    paddingBottom: i < scoreMovers.length - 1 ? 9 : undefined,
+                    paddingBottom: i < movers.length - 1 ? 9 : undefined,
                     borderBottom:
-                      i < scoreMovers.length - 1 ? "1px solid var(--color-neutral-300)" : undefined,
+                      i < movers.length - 1 ? "1px solid var(--color-neutral-300)" : undefined,
+                    color: "var(--color-text)",
                   }}
                 >
                   <b style={{ flex: 1 }}>{m.name}</b>
@@ -436,7 +466,7 @@ export default async function CommandCenterPage() {
                   <b style={{ color: m.hot ? "var(--color-accent-700)" : "var(--color-neutral-800)" }}>
                     {m.delta}
                   </b>
-                </div>
+                </Link>
               ))}
             </div>
           </div>

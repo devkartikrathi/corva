@@ -11,7 +11,7 @@ import { listCustomers } from "@/lib/queries/customers";
  */
 export default async function Customer360Entry() {
   const { brand } = await getConsoleContext();
-  const [top] = await listCustomers(brand.id, 1);
+  const { rows } = await listCustomers(brand.id, { pageSize: 1 });
 
-  redirect(top ? `/app/customers/${top.id}` : "/app/customers");
+  redirect(rows[0] ? `/app/customers/${rows[0].id}` : "/app/customers");
 }

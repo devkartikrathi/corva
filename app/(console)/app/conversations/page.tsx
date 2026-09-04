@@ -1,6 +1,15 @@
+import Link from "next/link";
 import { Kicker, LinkAction, OutlineButton, PrimaryButton, ScreenTitle, Tag } from "@/components/ui";
+import { ActiveFilters, Chip, Pager, SearchBox, Tab, TabStrip } from "@/components/filters";
+import { ReviewForm } from "@/components/ReviewForm";
+import { ExportButton } from "@/components/ExportButton";
+import { SaveViewButton } from "@/components/SaveViewButton";
+import { saveView } from "@/lib/actions/workspace";
 import { getConsoleContext } from "@/lib/auth/context";
+import { href, intOf, listOf, normalise, type RawParams } from "@/lib/params";
+import { exportTranscript, reviewConversation } from "@/lib/actions/conversations";
 import {
+  archiveFacets,
   conversationStats,
   getConversation,
   listConversations,
@@ -8,15 +17,13 @@ import {
   clock,
   outcomeLabel,
 } from "@/lib/queries/conversations";
+import { listSavedViews, matchView } from "@/lib/queries/views";
 
-const ACTIVE_FILTERS = ["Unresolved by AI", "Last 30 days"];
-const FILTER_OPTIONS = [
-  "Phone",
-  "WhatsApp",
-  "Email",
-  "Negative sentiment",
-  "No citation found",
-  "+ Intent",
+const PATH = "/app/conversations";
+const WINDOWS = [
+  { value: "7", label: "7 days" },
+  { value: "30", label: "30 days" },
+  { value: "90", label: "90 days" },
 ];
 
 /** A tracked-out uppercase speaker label in a transcript. */
@@ -57,14 +64,35 @@ function Provenance({ children, accent = false }: { children: string; accent?: b
 
 const TURN_GRID = { display: "grid", gridTemplateColumns: "96px 1fr", gap: 14 } as const;
 
-export default async function ConversationsPage() {
-  const { brand } = await getConsoleContext();
-  const [convos, stats] = await Promise.all([
-    listConversations(brand.id),
+export default async function ConversationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<RawParams>;
+}) {
+  const { session, brand } = await getConsoleContext();
+  const params = normalise(await searchParams);
+  const ctx = { pathname: PATH, params };
+
+  const [result, stats, facets, views] = await Promise.all([
+    listConversations(brand.id, {
+      q: params.q,
+      channel: listOf(params, "channel"),
+      outcome: listOf(params, "outcome"),
+      status: params.status,
+      since: params.since,
+      reviewed: params.reviewed === "yes" || params.reviewed === "no" ? params.reviewed : undefined,
+      sort: params.sort,
+      page: intOf(params, "page", 1, 1),
+    }),
     conversationStats(brand.id),
+    archiveFacets(brand.id),
+    listSavedViews(session.orgId, "conversations", session.membershipId),
   ]);
 
-  if (convos.length === 0) {
+  const convos = result.rows;
+  const currentView = matchView(views, params);
+
+  if (stats.total === 0) {
     return (
       <section style={{ padding: "20px 24px" }}>
         <ScreenTitle kicker="Nothing recorded yet" title="Conversations" />
@@ -76,10 +104,12 @@ export default async function ConversationsPage() {
     );
   }
 
-  // The archive opens on the most recent conversation with something to learn
-  // from — an escalation or a missing document — falling back to the newest.
-  const focus = convos.find((c) => c.bad) ?? convos[0];
-  const detail = await getConversation(brand.id, focus.id);
+  // The archive opens on whatever the URL names, then on the most recent
+  // conversation with something to learn from — an escalation or a missing
+  // document — falling back to the newest on the page.
+  const focus =
+    convos.find((c) => c.id === params.id) ?? convos.find((c) => c.bad) ?? convos[0] ?? null;
+  const detail = focus ? await getConversation(brand.id, focus.id) : null;
 
   return (
     <section>
@@ -99,17 +129,28 @@ export default async function ConversationsPage() {
           Everything the AI and your team ever said, with the documents each answer came from.
         </p>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <OutlineButton>Export for tuning</OutlineButton>
-          <PrimaryButton>Review queue · {stats.unresolved}</PrimaryButton>
+          <OutlineButton href={href(PATH, params, { reviewed: "no", outcome: null })}>
+            Unreviewed
+          </OutlineButton>
+          <PrimaryButton href={href(PATH, {}, { outcome: "escalated,no_document,detractor" })}>
+            Review queue · {stats.unresolved}
+          </PrimaryButton>
         </div>
       </div>
+
+      {/* Saved views */}
+      <TabStrip style={{ marginTop: 16 }}>
+        {views.map((v) => (
+          <Tab key={v.id} label={v.name} href={v.href} current={currentView?.id === v.id} />
+        ))}
+        {!currentView && <Tab label="Custom" href={PATH} current />}
+        <SaveViewButton surface="conversations" query={params} onSave={saveView} />
+      </TabStrip>
 
       {/* Filter bar */}
       <div
         style={{
-          marginTop: 16,
           padding: "10px 24px",
-          borderTop: "2px solid var(--color-divider)",
           borderBottom: "2px solid var(--color-divider)",
           display: "flex",
           alignItems: "center",
@@ -118,56 +159,54 @@ export default async function ConversationsPage() {
           background: "var(--color-surface)",
         }}
       >
-        {ACTIVE_FILTERS.map((f) => (
-          <span
-            key={f}
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              background: "var(--color-text)",
-              color: "var(--color-bg)",
-              padding: "5px 9px",
-            }}
-          >
-            {f} ×
+        <SearchBox ctx={ctx} placeholder="Search intents and transcripts" width={250} />
+
+        <span style={{ width: 1, height: 18, background: "var(--color-neutral-400)" }} />
+        {facets.channels.map((c) => (
+          <Chip key={c.key} ctx={ctx} paramKey="channel" value={c.key} label={`${c.label} ${c.count}`} multi />
+        ))}
+
+        <span style={{ width: 1, height: 18, background: "var(--color-neutral-400)" }} />
+        {facets.outcomes.map((o) => (
+          <Chip key={o.key} ctx={ctx} paramKey="outcome" value={o.key} label={`${o.label} ${o.count}`} multi />
+        ))}
+
+        <span style={{ width: 1, height: 18, background: "var(--color-neutral-400)" }} />
+        <Chip ctx={ctx} paramKey="reviewed" value="no" label={`Unreviewed ${facets.reviewed.no}`} />
+        {WINDOWS.map((w) => (
+          <Chip key={w.value} ctx={ctx} paramKey="since" value={w.value} label={w.label} />
+        ))}
+
+        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+          <ActiveFilters ctx={ctx} ignore={["page", "sort", "id"]} />
+          <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+            {result.total} result{result.total === 1 ? "" : "s"}
           </span>
-        ))}
-        {FILTER_OPTIONS.map((f) => (
-          <button
-            key={f}
-            type="button"
-            className="hov-border"
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              border: "1px solid var(--color-neutral-400)",
-              padding: "4px 9px",
-              color: "var(--color-neutral-700)",
-            }}
-          >
-            {f}
-          </button>
-        ))}
-        <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-          {convos.length} results
         </span>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "372px 1fr" }}>
         {/* List */}
         <div style={{ borderRight: "2px solid var(--color-divider)" }}>
+          {convos.length === 0 && (
+            <p style={{ padding: "24px 18px", fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+              No conversation matches these filters. {stats.total} exist in {brand.name}.
+            </p>
+          )}
           {convos.map((c) => (
-            <button
+            <Link
               key={c.id}
-              type="button"
+              href={href(PATH, params, { id: c.id, page: String(result.page) })}
               className="hov-raise"
               style={{
+                display: "block",
                 width: "100%",
                 textAlign: "left",
                 padding: "12px 18px",
                 borderBottom: "1px solid var(--color-neutral-300)",
                 borderLeft: `3px solid ${c.edge}`,
-                background: c.id === focus.id ? "var(--color-surface)" : "transparent",
+                background: c.id === focus?.id ? "var(--color-surface)" : "transparent",
+                color: "var(--color-text)",
               }}
             >
               <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
@@ -199,8 +238,9 @@ export default async function ConversationsPage() {
                   {c.sentiment}
                 </span>
               </div>
-            </button>
+            </Link>
           ))}
+          <Pager ctx={ctx} page={result.page} pageSize={result.pageSize} total={result.total} />
         </div>
 
         {/* Detail */}
@@ -237,6 +277,19 @@ export default async function ConversationsPage() {
                 >
                   {detail!.conversation.intent ?? "Conversation"}
                 </h2>
+                {detail!.conversation.summary && (
+                  <p
+                    style={{
+                      margin: "9px 0 0",
+                      fontSize: 13,
+                      lineHeight: 1.5,
+                      color: "var(--color-neutral-800)",
+                      maxWidth: "62ch",
+                    }}
+                  >
+                    {detail!.conversation.summary}
+                  </p>
+                )}
                 <div style={{ marginTop: 7, fontSize: 12.5, color: "var(--color-neutral-800)" }}>
                   {detail!.customer && (
                     <LinkAction href={`/app/customers/${detail!.customer.id}`} size={12.5}>
@@ -251,11 +304,16 @@ export default async function ConversationsPage() {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                <OutlineButton style={{ fontSize: 11.5, padding: "8px 12px" }}>
-                  Add to tuning set
-                </OutlineButton>
-                <OutlineButton style={{ fontSize: 11.5, padding: "8px 12px" }}>
-                  Flag for review
+                <ExportButton
+                  conversationId={detail!.conversation.id}
+                  filename={`corva-${detail!.conversation.id.slice(0, 8)}.txt`}
+                  onExport={exportTranscript}
+                />
+                <OutlineButton
+                  href={`/app/live?call=${detail!.conversation.id}`}
+                  style={{ fontSize: 11.5, padding: "8px 12px" }}
+                >
+                  Open in console
                 </OutlineButton>
               </div>
             </div>
@@ -294,13 +352,6 @@ export default async function ConversationsPage() {
                       : (detail!.conversation.sentimentEnd?.toFixed(2) ?? "—"),
                   hot: false,
                 },
-                {
-                  label: "Quality review",
-                  value: detail!.conversation.reviewScore
-                    ? `${detail!.conversation.reviewScore} / 5 · ${detail!.conversation.reviewerName ?? ""}`
-                    : "Not reviewed",
-                  hot: false,
-                },
               ].map((s) => (
                 <div key={s.label}>
                   <Kicker size={9.5} style={{ letterSpacing: "0.12em" }}>
@@ -318,6 +369,20 @@ export default async function ConversationsPage() {
                   </div>
                 </div>
               ))}
+              <div>
+                <Kicker size={9.5} style={{ letterSpacing: "0.12em" }}>
+                  Quality review
+                </Kicker>
+                <div style={{ marginTop: 4 }}>
+                  <ReviewForm
+                    conversationId={detail!.conversation.id}
+                    current={detail!.conversation.reviewScore}
+                    reviewer={detail!.conversation.reviewerName}
+                    note={detail!.conversation.reviewNote}
+                    onReview={reviewConversation}
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
@@ -398,9 +463,15 @@ export default async function ConversationsPage() {
                 {detail!.conversation.outcome === "no_document" && (
                   <div>
                     Logged as a documentation gap ·{" "}
-                    <LinkAction href="/app/knowledge" size={12.5}>
+                    <LinkAction href="/app/knowledge?tab=gaps" size={12.5}>
                       review the gaps
                     </LinkAction>
+                  </div>
+                )}
+                {detail!.conversation.reviewNote && (
+                  <div>
+                    Reviewed by {detail!.conversation.reviewerName}: &ldquo;
+                    {detail!.conversation.reviewNote}&rdquo;
                   </div>
                 )}
                 {detail!.conversation.contained === false && (

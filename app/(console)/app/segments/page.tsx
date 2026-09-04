@@ -1,23 +1,31 @@
+import Link from "next/link";
 import {
-  Bar,
   DeltaRow,
   Kicker,
-  LinkAction,
   OutlineButton,
-  PrimaryButton,
   ScreenHeader,
   SectionTitle,
   Tag,
 } from "@/components/ui";
 import { getConsoleContext } from "@/lib/auth/context";
-import { dist, modelAlerts, simulation } from "@/lib/data";
+import { RuleBuilder } from "@/components/RuleBuilder";
+import { WeightDial } from "@/components/WeightDial";
 import { getScoringModel } from "@/lib/queries/segments";
+import {
+  acknowledgeAlert,
+  createRule,
+  deleteRule,
+  setAxisWeight,
+  toggleRule,
+} from "@/lib/actions/workspace";
+import { RULE_ACTIONS, RULE_FIELDS, RULE_OPS } from "@/lib/rules";
 import { rescore } from "@/lib/actions/workspace";
-import { ActionButton } from "@/components/ActionButton";
+import { ActionButton, ActionToggle } from "@/components/ActionButton";
 
 export default async function SegmentsPage() {
   const { brand } = await getConsoleContext();
-  const { weights, rules, segments } = await getScoringModel(brand.id);
+  const { weights, rules, segments, distribution, simulation, alerts, scoredCount } =
+    await getScoringModel(brand.id);
 
   return (
     <section>
@@ -26,7 +34,9 @@ export default async function SegmentsPage() {
         title="Segments & priority rules"
         lede="The model proposes a score. Your rules have the last word — and every override is attributed."
       >
-        <OutlineButton>Simulate on 24,318</OutlineButton>
+        <OutlineButton href="/app/customers?sort=score:desc">
+          See the ranking
+        </OutlineButton>
         <ActionButton
           action={async () => {
             "use server";
@@ -49,28 +59,27 @@ export default async function SegmentsPage() {
           </div>
           <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 13 }}>
             {weights.map((w) => (
-              <div key={w.label}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 12.5 }}>
-                  <span style={{ flex: 1, color: "var(--color-text)" }}>{w.label}</span>
-                  <b>{w.weight}</b>
-                  <span
-                    style={{
-                      width: 66,
-                      textAlign: "right",
-                      fontSize: 10.5,
-                      color: "var(--color-neutral-700)",
-                    }}
-                  >
-                    {w.source}
-                  </span>
-                </div>
-                <Bar width={w.bar} color={w.color} marker="handle" style={{ marginTop: 5 }} />
-              </div>
+              <WeightDial
+                key={w.key}
+                axisKey={w.key}
+                label={w.label}
+                weight={w.value}
+                source={w.source}
+                onChange={setAxisWeight}
+              />
             ))}
           </div>
-          <LinkAction style={{ marginTop: 16, display: "block" }}>
-            + Add a custom axis from SQL or API
-          </LinkAction>
+          <p
+            style={{
+              marginTop: 16,
+              fontSize: 11.5,
+              color: "var(--color-neutral-700)",
+              lineHeight: 1.5,
+            }}
+          >
+            Every change rescores the brand immediately, so the distribution and the queue below
+            move as you tune. An axis at zero is still collected — it just stops counting.
+          </p>
         </div>
 
         {/* Override rules */}
@@ -81,13 +90,18 @@ export default async function SegmentsPage() {
               <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
                 Applied top to bottom
               </span>
-              <LinkAction style={{ marginLeft: "auto" }}>+ New rule</LinkAction>
+              <RuleBuilder
+                fields={RULE_FIELDS}
+                ops={RULE_OPS}
+                actions={RULE_ACTIONS}
+                onCreate={createRule}
+              />
             </div>
           </div>
 
           {rules.map((r) => (
             <div
-              key={r.name}
+              key={r.id}
               className="hov-surface"
               style={{ padding: "13px 24px", borderTop: "1px solid var(--color-neutral-300)" }}
             >
@@ -97,8 +111,16 @@ export default async function SegmentsPage() {
                   {r.effect}
                 </Tag>
                 <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--color-neutral-700)" }}>
-                  {r.matches}
+                  fires for {r.matches}
                 </span>
+                <ActionToggle
+                  on={r.enabled}
+                  label={`${r.name} enabled`}
+                  action={async (next) => {
+                    "use server";
+                    await toggleRule(r.id, next);
+                  }}
+                />
               </div>
               <div
                 style={{
@@ -111,8 +133,22 @@ export default async function SegmentsPage() {
                 <b style={{ color: "var(--color-neutral-700)" }}>IF</b> {r.condition}{" "}
                 <b style={{ color: "var(--color-neutral-700)" }}>THEN</b> {r.action}
               </div>
-              <div style={{ marginTop: 5, fontSize: 10.5, color: "var(--color-neutral-500)" }}>
-                {r.author}
+              <div style={{ marginTop: 5, display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 10.5, color: "var(--color-neutral-500)" }}>{r.author}</span>
+                <span style={{ marginLeft: "auto" }}>
+                  <ActionButton
+                    variant="hairline"
+                    pendingLabel="Removing…"
+                    confirm={`Delete "${r.name}"? Every customer is rescored without it.`}
+                    style={{ fontSize: 10.5, padding: "3px 7px" }}
+                    action={async () => {
+                      "use server";
+                      await deleteRule(r.id);
+                    }}
+                  >
+                    Delete
+                  </ActionButton>
+                </span>
               </div>
             </div>
           ))}
@@ -129,9 +165,12 @@ export default async function SegmentsPage() {
               }}
             >
               {segments.map((s) => (
-                <div
+                <Link
                   key={s.id}
+                  href={s.href}
+                  className="hov-ink"
                   style={{
+                    color: "var(--color-text)",
                     display: "flex",
                     alignItems: "baseline",
                     gap: 10,
@@ -151,7 +190,7 @@ export default async function SegmentsPage() {
                   >
                     {s.owner}
                   </span>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
@@ -162,11 +201,12 @@ export default async function SegmentsPage() {
           <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
             <Kicker>Simulation</Kicker>
             <div style={{ marginTop: 12, fontSize: 12, color: "var(--color-neutral-800)" }}>
-              If you save this model:
+              What your rules do to the model, across {scoredCount} scored customer
+              {scoredCount === 1 ? "" : "s"}:
             </div>
             <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-              {simulation.map((s) => (
-                <DeltaRow key={s.label} label={s.label} from={s.from} to={s.to} hot={s.hot} />
+              {simulation.map((sim) => (
+                <DeltaRow key={sim.label} label={sim.label} from={sim.from} to={sim.to} hot={sim.hot} />
               ))}
             </div>
 
@@ -180,8 +220,12 @@ export default async function SegmentsPage() {
                 borderBottom: "1px solid var(--color-neutral-400)",
               }}
             >
-              {dist.map((d, i) => (
-                <span key={i} style={{ flex: 1, display: "block", background: d.color, height: d.h }} />
+              {distribution.map((d, i) => (
+                <span
+                  key={i}
+                  title={`${d.count} customer${d.count === 1 ? "" : "s"} between ${d.from} and ${d.from + 5}`}
+                  style={{ flex: 1, display: "block", background: d.color, height: d.h }}
+                />
               ))}
             </div>
             <div
@@ -204,16 +248,55 @@ export default async function SegmentsPage() {
             <div
               style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10, fontSize: 12 }}
             >
-              {modelAlerts.map((a) => (
+              {alerts.length === 0 && (
+                <span style={{ color: "var(--color-neutral-700)" }}>
+                  Nothing to flag. Drift, stale signals and conflicting rules appear here as the
+                  rescore job finds them.
+                </span>
+              )}
+              {alerts.map((a) => (
                 <div
-                  key={a.name}
+                  key={a.id}
                   style={{
-                    borderLeft: `3px solid ${a.urgent ? "var(--color-accent)" : "var(--color-neutral-400)"}`,
+                    borderLeft: `3px solid ${a.hot ? "var(--color-accent)" : "var(--color-neutral-400)"}`,
                     paddingLeft: 10,
+                    opacity: a.open ? 1 : 0.6,
                   }}
                 >
-                  <b>{a.name}</b>
-                  <div style={{ color: "var(--color-neutral-800)", marginTop: 3 }}>{a.action}</div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                    <b style={{ flex: 1 }}>{a.title}</b>
+                    <span
+                      style={{
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: a.hot ? "var(--color-accent-700)" : "var(--color-neutral-700)",
+                      }}
+                    >
+                      {a.kind.replace(/_/g, " ")}
+                    </span>
+                  </div>
+                  <div style={{ color: "var(--color-neutral-800)", marginTop: 3, lineHeight: 1.45 }}>
+                    {a.detail}
+                  </div>
+                  {a.open ? (
+                    <ActionButton
+                      variant="hairline"
+                      pendingLabel="Marking…"
+                      style={{ marginTop: 6, fontSize: 10.5, padding: "3px 7px" }}
+                      action={async () => {
+                        "use server";
+                        await acknowledgeAlert(a.id);
+                      }}
+                    >
+                      Acknowledge
+                    </ActionButton>
+                  ) : (
+                    <div style={{ marginTop: 5, fontSize: 10.5, color: "var(--color-neutral-700)" }}>
+                      Acknowledged by {a.acknowledgedBy ?? "someone"}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

@@ -1,17 +1,30 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   Bar,
   Kicker,
   LinkAction,
-  OutlineButton,
   PrimaryButton,
   SectionTitle,
   Tag,
 } from "@/components/ui";
 import { getConsoleContext } from "@/lib/auth/context";
 import { config } from "@/lib/config";
-import { aiLearned, commercialRecord, consent, linkedRecords } from "@/lib/data";
+import { CustomerNotes } from "@/components/CustomerNotes";
+import { ConsentPanel } from "@/components/ConsentPanel";
+import { addCustomerNote, deleteCustomerNote, setConsent } from "@/lib/actions/customers";
+
+import { OwnerPicker } from "@/components/OwnerPicker";
+import { StartConversation } from "@/components/StartConversation";
+import { assignOwner } from "@/lib/actions/customers";
+import { startConversation } from "@/lib/actions/conversations";
+import { getTeam } from "@/lib/queries/workspace";
+
+const CONSENT_KINDS = [
+  { kind: "call_recording", label: "Call recording" },
+  { kind: "marketing", label: "Marketing contact" },
+  { kind: "ai_training", label: "Transcripts used for tuning" },
+  { kind: "data_sharing", label: "Sharing with third parties" },
+];
 import { getCustomer } from "@/lib/queries/customers";
 
 const money = (pence: number) =>
@@ -29,14 +42,29 @@ export default async function Customer360Page({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const { brand } = await getConsoleContext();
+  const { session, brand } = await getConsoleContext();
 
   // `slug` is the customer id; the lookup is brand-scoped, so a member of one
   // brand cannot reach another brand's customer by guessing an id.
   const record = await getCustomer(brand.id, slug);
   if (!record) notFound();
 
-  const { customer, score, signals: signalRows, conversations } = record;
+  const {
+    customer,
+    score,
+    signals: signalRows,
+    conversations,
+    records,
+    consents,
+    notes,
+    learned,
+  } = record;
+
+  const liveCall = conversations.find((c) => c.status === "live" || c.status === "waiting_human");
+  // Owners are the people who can actually hold an account, so the picker is
+  // the team list rather than free text that drifts into three spellings.
+  const team = await getTeam(session.orgId);
+  const owners = team.people.map((p) => p.name);
 
   const identity = [
     customer.phone,
@@ -147,9 +175,21 @@ export default async function Customer360Page({
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <PrimaryButton href="/app/live">Join the call</PrimaryButton>
-          <OutlineButton>Assign owner</OutlineButton>
-          <OutlineButton style={{ padding: "8px 12px" }}>···</OutlineButton>
+          {liveCall ? (
+            <PrimaryButton href={`/app/live?call=${liveCall.id}`}>Join the call</PrimaryButton>
+          ) : (
+            <StartConversation
+              customerId={customer.id}
+              customerName={customer.name}
+              onStart={startConversation}
+            />
+          )}
+          <OwnerPicker
+            customerId={customer.id}
+            current={customer.owner}
+            options={owners}
+            onAssign={assignOwner}
+          />
         </div>
       </div>
 
@@ -374,27 +414,53 @@ export default async function Customer360Page({
                 borderTop: "2px solid var(--color-divider)",
               }}
             >
-              {commercialRecord.map((m, i) => {
-                const value = m.label === "Lifetime value" ? money(customer.ltvPence) : m.value;
-                return (
+              {[
+                {
+                  label: "Lifetime value",
+                  value: money(customer.ltvPence),
+                  note: customer.customerSince
+                    ? `since ${customer.customerSince.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}`
+                    : "start date unknown",
+                  hot: false,
+                },
+                {
+                  label: "Open records",
+                  value: String(records.filter((r) => /reschedul|disput|overdue|open|scheduled/i.test(r.status ?? "")).length),
+                  note: `of ${records.length} mirrored from connected systems`,
+                  hot: records.some((r) => /disput|overdue/i.test(r.status ?? "")),
+                },
+                {
+                  label: "Contacts",
+                  value: String(conversations.length),
+                  note: `${conversations.filter((c) => c.contained === false).length} needed a person`,
+                  hot: conversations.filter((c) => c.contained === false).length >= 3,
+                },
+                {
+                  label: "Renews",
+                  value: customer.renewsAt
+                    ? `${Math.max(0, Math.round((customer.renewsAt.getTime() - Date.now()) / 864e5))}d`
+                    : "—",
+                  note: customer.renewsAt
+                    ? customer.renewsAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+                    : "no renewal date on file",
+                  hot: customer.renewsAt !== null && customer.renewsAt.getTime() - Date.now() < 30 * 864e5,
+                },
+              ].map((m, i, all) => (
                 <div
                   key={m.label}
                   style={{
                     padding:
                       i === 0
                         ? "14px 16px 14px 0"
-                        : i === commercialRecord.length - 1
+                        : i === all.length - 1
                           ? "14px 0 14px 16px"
                           : "14px 16px",
-                    borderRight:
-                      i < commercialRecord.length - 1 ? "1px solid var(--color-neutral-300)" : undefined,
+                    borderRight: i < all.length - 1 ? "1px solid var(--color-neutral-300)" : undefined,
                   }}
                 >
                   <Kicker style={{ letterSpacing: "0.12em" }}>{m.label}</Kicker>
-                  <div
-                    style={{ marginTop: 6, fontWeight: 800, fontSize: 22, letterSpacing: "-0.02em" }}
-                  >
-                    {value}
+                  <div style={{ marginTop: 6, fontWeight: 800, fontSize: 22, letterSpacing: "-0.02em" }}>
+                    {m.value}
                   </div>
                   <div
                     style={{
@@ -406,8 +472,7 @@ export default async function Customer360Page({
                     {m.note}
                   </div>
                 </div>
-                );
-              })}
+              ))}
             </div>
           </div>
         </div>
@@ -482,69 +547,113 @@ export default async function Customer360Page({
                   lineHeight: 1.45,
                 }}
               >
-                {aiLearned.map((l) => (
+                {learned.length === 0 && (
+                  <span>
+                    Not enough history yet. This fills in as the AI handles contacts and the
+                    scoring model refreshes.
+                  </span>
+                )}
+                {learned.map((l) => (
                   <div key={l} style={{ display: "flex", gap: 9 }}>
                     <span style={{ color: "var(--color-accent)", fontWeight: 700 }}>→</span>
                     <span>{l}</span>
                   </div>
                 ))}
               </div>
-              <LinkAction size={11} style={{ marginTop: 12, display: "block" }}>
+              <LinkAction href="/app/tuning" size={11} style={{ marginTop: 12, display: "block" }}>
                 Edit what the AI may use →
               </LinkAction>
             </div>
           )}
 
           <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
-            <Kicker>Household &amp; linked records</Kicker>
+            <Kicker>Linked records</Kicker>
             <div
               style={{
                 marginTop: 12,
                 display: "flex",
                 flexDirection: "column",
-                gap: 8,
+                gap: 9,
                 fontSize: 12.5,
               }}
             >
-              {linkedRecords.map((r) => (
+              {records.length === 0 && (
+                <span style={{ color: "var(--color-neutral-700)" }}>
+                  Nothing mirrored for this customer. Records arrive from the integrations on the
+                  Setup screen.
+                </span>
+              )}
+              {records.map((r) => (
                 <div
-                  key={r.name}
+                  key={r.id}
                   style={{
                     display: "flex",
-                    justifyContent: "space-between",
-                    paddingBottom: 8,
+                    gap: 10,
+                    paddingBottom: 9,
                     borderBottom: "1px solid var(--color-neutral-300)",
                   }}
                 >
-                  <span>{r.name}</span>
-                  <span style={{ color: "var(--color-neutral-700)" }}>{r.note}</span>
+                  <span style={{ flex: 1 }}>
+                    <b>{r.ref ?? r.kind}</b>
+                    <span style={{ display: "block", fontSize: 11, color: "var(--color-neutral-700)" }}>
+                      {r.label}
+                    </span>
+                  </span>
+                  <span style={{ textAlign: "right", fontSize: 11 }}>
+                    <span
+                      style={{
+                        display: "block",
+                        color: /disput|overdue|reschedul/i.test(r.status ?? "")
+                          ? "var(--color-accent-700)"
+                          : "var(--color-neutral-800)",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {r.status ?? "—"}
+                    </span>
+                    <span style={{ color: "var(--color-neutral-700)" }}>{r.sourceSystem}</span>
+                  </span>
                 </div>
               ))}
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>2 devices · 1 app login</span>
-                <LinkAction size={11}>View</LinkAction>
-              </div>
+            </div>
+          </div>
+
+          <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
+            <Kicker>Notes</Kicker>
+            <div style={{ marginTop: 12 }}>
+              <CustomerNotes
+                customerId={customer.id}
+                notes={notes.map((n) => ({
+                  id: n.id,
+                  authorName: n.authorName,
+                  body: n.body,
+                  pinned: n.pinned,
+                  createdAt: n.createdAt.toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
+                  mine: n.authorMembershipId === session.membershipId,
+                }))}
+                onAdd={addCustomerNote}
+                onDelete={deleteCustomerNote}
+              />
             </div>
           </div>
 
           <div style={{ padding: "16px 20px" }}>
             <Kicker>Consent &amp; compliance</Kicker>
-            <div
-              style={{
-                marginTop: 12,
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-                fontSize: 12,
-                color: "var(--color-neutral-800)",
-              }}
-            >
-              {consent.map((c) => (
-                <div key={c.label} style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>{c.label}</span>
-                  <b>{c.value}</b>
-                </div>
-              ))}
+            <div style={{ marginTop: 12 }}>
+              <ConsentPanel
+                customerId={customer.id}
+                rows={CONSENT_KINDS.map((k) => {
+                  const row = consents.find((c) => c.kind === k.kind);
+                  return {
+                    kind: k.kind,
+                    label: k.label,
+                    granted: row?.granted ?? false,
+                    detail: row?.detail ?? null,
+                    recorded: row !== undefined,
+                  };
+                })}
+                onSet={setConsent}
+              />
             </div>
           </div>
         </div>

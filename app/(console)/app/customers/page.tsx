@@ -1,75 +1,119 @@
 import Link from "next/link";
 import {
   Bar,
-  HairlineButton,
   Kicker,
-  LinkAction,
-  OutlineButton,
   PrimaryButton,
   ScreenTitle,
   Tag,
   Th,
 } from "@/components/ui";
+import {
+  ActiveFilters,
+  CheckFilter,
+  Chip,
+  Pager,
+  SearchBox,
+  SortTh,
+  Tab,
+  TabStrip,
+  ThresholdFilter,
+} from "@/components/filters";
+import { ExportCsvButton } from "@/components/ExportCsvButton";
+import { SaveViewButton } from "@/components/SaveViewButton";
+import { saveView } from "@/lib/actions/workspace";
 import { getConsoleContext } from "@/lib/auth/context";
-import { axisFilters, behaviourFlags, customerViews } from "@/lib/data";
+import { exportCustomersCsv } from "@/lib/actions/customers";
+import { href, intOf, listOf, normalise, type RawParams } from "@/lib/params";
 import { listCustomers } from "@/lib/queries/customers";
+import { listSavedViews, matchView } from "@/lib/queries/views";
 
-const SEGMENT_CHIPS = ["Trade", "Tier 1"];
-const SEGMENT_OPTIONS = ["Retail", "Tier 2", "Subscription"];
-const LAST_CONTACT = ["7d", "30d", "90d", "Any"];
+const PATH = "/app/customers";
 
-export default async function AllCustomersPage() {
-  const { brand } = await getConsoleContext();
-  const customers = await listCustomers(brand.id);
+/** The axes worth a threshold in the rail — the ones people actually filter on. */
+const AXIS_FILTERS = [
+  { key: "churn_risk", label: "Churn risk" },
+  { key: "escalation_likelihood", label: "Escalation likelihood" },
+  { key: "expansion_potential", label: "Expansion potential" },
+];
+
+const BEHAVIOUR_FLAGS = [
+  { key: "on_call", label: "On a call right now" },
+  { key: "churn", label: "Churn risk" },
+  { key: "detractor", label: "Detractor" },
+  { key: "payment", label: "Payment risk" },
+  { key: "expansion", label: "Expansion candidate" },
+  { key: "healthy", label: "Nothing flagged" },
+];
+
+const LAST_CONTACT = [
+  { value: "7", label: "7d" },
+  { value: "30", label: "30d" },
+  { value: "90", label: "90d" },
+];
+
+export default async function AllCustomersPage({
+  searchParams,
+}: {
+  searchParams: Promise<RawParams>;
+}) {
+  const { session, brand } = await getConsoleContext();
+  const params = normalise(await searchParams);
+  const ctx = { pathname: PATH, params };
+
+  // Axis thresholds ride in the URL as `axis_<key>=60`.
+  const axisMinimums: Record<string, number> = {};
+  for (const axis of AXIS_FILTERS) {
+    const value = Number(params[`axis_${axis.key}`]);
+    if (Number.isFinite(value) && value > 0) axisMinimums[axis.key] = value;
+  }
+
+  const [result, views] = await Promise.all([
+    listCustomers(brand.id, {
+      q: params.q,
+      minScore: intOf(params, "minScore", 0, 0, 100) || undefined,
+      axisMinimums,
+      segment: listOf(params, "segment"),
+      tier: listOf(params, "tier"),
+      flag: listOf(params, "flag"),
+      lastContact: params.lastContact,
+      owner: params.owner,
+      sort: params.sort,
+      page: intOf(params, "page", 1, 1),
+    }),
+    listSavedViews(session.orgId, "customers", session.membershipId),
+  ]);
+
+  const customers = result.rows;
+  const currentView = matchView(views, params);
 
   return (
     <section>
       <div style={{ padding: "24px 24px 0", display: "flex", alignItems: "flex-end", gap: 24 }}>
-        <ScreenTitle kicker={`${brand.name} · ${customers.length} records`} title="All customers" />
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <OutlineButton>Export CSV</OutlineButton>
-          <PrimaryButton style={{ fontWeight: 600 }}>Save this view</PrimaryButton>
+        <ScreenTitle
+          kicker={`${brand.name} · ${result.total} record${result.total === 1 ? "" : "s"} matching`}
+          title="All customers"
+        />
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "flex-start", gap: 8 }}>
+          <SearchBox ctx={ctx} placeholder="Name, reference, email, town" width={230} />
+          <ExportCsvButton
+            filename={`corva-customers-${brand.slug}.csv`}
+            query={params}
+            onExport={exportCustomersCsv}
+          />
+          <PrimaryButton href={href(PATH, params, { minScore: "70", sort: "score:desc" })} style={{ fontWeight: 600 }}>
+            Needs attention
+          </PrimaryButton>
         </div>
       </div>
 
       {/* Saved views */}
-      <div
-        style={{
-          marginTop: 18,
-          padding: "0 24px",
-          display: "flex",
-          borderBottom: "2px solid var(--color-divider)",
-          fontSize: 12.5,
-          fontWeight: 600,
-        }}
-      >
-        {customerViews.map((v) =>
-          v.current ? (
-            <span
-              key={v.label}
-              style={{
-                padding: "9px 14px",
-                borderBottom: "3px solid var(--color-accent)",
-                marginBottom: -2,
-              }}
-            >
-              {v.label}
-            </span>
-          ) : (
-            <button
-              key={v.label}
-              type="button"
-              className="hov-ink"
-              style={{ padding: "9px 14px", color: "var(--color-neutral-700)" }}
-            >
-              {v.label}
-            </button>
-          ),
-        )}
-        <button type="button" style={{ padding: "9px 12px", color: "var(--color-accent-700)" }}>
-          + New
-        </button>
-      </div>
+      <TabStrip style={{ marginTop: 18 }}>
+        {views.map((v) => (
+          <Tab key={v.id} label={v.name} href={v.href} current={currentView?.id === v.id} />
+        ))}
+        {!currentView && <Tab label="Custom" href={PATH} current />}
+        <SaveViewButton surface="customers" query={params} onSave={saveView} />
+      </TabStrip>
 
       <div style={{ display: "grid", gridTemplateColumns: "272px 1fr" }}>
         {/* Filter rail */}
@@ -92,65 +136,48 @@ export default async function AllCustomersPage() {
             >
               Filters
             </span>
-            <LinkAction size={11} style={{ marginLeft: "auto" }}>
-              Reset
-            </LinkAction>
+            <span style={{ marginLeft: "auto" }}>
+              <ActiveFilters ctx={ctx} ignore={["page", "sort"]} />
+            </span>
           </div>
 
           <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--color-neutral-300)" }}>
             <Kicker style={{ letterSpacing: "0.12em" }}>Score thresholds</Kicker>
             <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 14 }}>
-              {axisFilters.map((ax) => (
-                <div key={ax.label}>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: 12,
-                      marginBottom: 5,
-                    }}
-                  >
-                    <span style={{ color: "var(--color-neutral-800)" }}>{ax.label}</span>
-                    <b>{ax.readout}</b>
-                  </div>
-                  <Bar width={ax.bar} color={ax.color} marker="handle" />
-                </div>
+              <ThresholdFilter ctx={ctx} paramKey="minScore" label="Blended priority" />
+              {AXIS_FILTERS.map((ax) => (
+                <ThresholdFilter
+                  key={ax.key}
+                  ctx={ctx}
+                  paramKey={`axis_${ax.key}`}
+                  label={ax.label}
+                />
               ))}
             </div>
           </div>
 
           <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--color-neutral-300)" }}>
-            <Kicker style={{ letterSpacing: "0.12em" }}>Segment</Kicker>
+            <Kicker style={{ letterSpacing: "0.12em" }}>Segment &amp; tier</Kicker>
             <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {SEGMENT_CHIPS.map((s) => (
-                <span
-                  key={s}
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    background: "var(--color-text)",
-                    color: "var(--color-bg)",
-                    padding: "5px 9px",
-                  }}
-                >
-                  {s} ×
-                </span>
+              {result.facets.segments.map((f) => (
+                <Chip
+                  key={f.value}
+                  ctx={ctx}
+                  paramKey="segment"
+                  value={f.value}
+                  label={`${f.value} ${f.count}`}
+                  multi
+                />
               ))}
-              {SEGMENT_OPTIONS.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className="hov-border"
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    border: "1px solid var(--color-neutral-400)",
-                    padding: "4px 9px",
-                    color: "var(--color-neutral-700)",
-                  }}
-                >
-                  {s}
-                </button>
+              {result.facets.tiers.map((f) => (
+                <Chip
+                  key={f.value}
+                  ctx={ctx}
+                  paramKey="tier"
+                  value={f.value}
+                  label={`${f.value} ${f.count}`}
+                  multi
+                />
               ))}
             </div>
           </div>
@@ -163,18 +190,25 @@ export default async function AllCustomersPage() {
                 display: "flex",
                 flexDirection: "column",
                 gap: 8,
-                fontSize: 12.5,
               }}
             >
-              {behaviourFlags.map((f) => (
-                <label
-                  key={f.label}
-                  style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}
-                >
-                  <input type="checkbox" className="chk" defaultChecked={f.on} />
-                  <span className="chk-box" />
-                  {f.label}
-                </label>
+              {BEHAVIOUR_FLAGS.map((f) => (
+                <CheckFilter key={f.key} ctx={ctx} paramKey="flag" value={f.key} label={f.label} />
+              ))}
+            </div>
+          </div>
+
+          <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--color-neutral-300)" }}>
+            <Kicker style={{ letterSpacing: "0.12em" }}>Owner</Kicker>
+            <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {result.facets.owners.map((f) => (
+                <Chip
+                  key={f.value}
+                  ctx={ctx}
+                  paramKey="owner"
+                  value={f.value}
+                  label={`${f.value} ${f.count}`}
+                />
               ))}
             </div>
           </div>
@@ -182,41 +216,28 @@ export default async function AllCustomersPage() {
           <div style={{ padding: "16px 18px" }}>
             <Kicker style={{ letterSpacing: "0.12em" }}>Last contact</Kicker>
             <div style={{ marginTop: 10, display: "flex", border: "1px solid var(--color-neutral-400)" }}>
-              {LAST_CONTACT.map((r, i) =>
-                i === 0 ? (
-                  <span
-                    key={r}
+              {[...LAST_CONTACT, { value: "", label: "Any" }].map((r, i) => {
+                const on = (params.lastContact ?? "") === r.value;
+                return (
+                  <Link
+                    key={r.label}
+                    href={href(PATH, params, { lastContact: r.value || null })}
+                    className={on ? undefined : "hov-surface"}
                     style={{
                       flex: 1,
                       textAlign: "center",
                       padding: "7px 0",
                       fontSize: 11.5,
-                      fontWeight: 700,
-                      background: "var(--color-text)",
-                      color: "var(--color-bg)",
+                      fontWeight: on ? 700 : 600,
+                      background: on ? "var(--color-text)" : "transparent",
+                      color: on ? "var(--color-bg)" : "var(--color-neutral-700)",
+                      borderLeft: i === 0 ? undefined : "1px solid var(--color-neutral-400)",
                     }}
                   >
-                    {r}
-                  </span>
-                ) : (
-                  <button
-                    key={r}
-                    type="button"
-                    className="hov-surface"
-                    style={{
-                      flex: 1,
-                      textAlign: "center",
-                      padding: "7px 0",
-                      fontSize: 11.5,
-                      fontWeight: 600,
-                      color: "var(--color-neutral-700)",
-                      borderLeft: "1px solid var(--color-neutral-400)",
-                    }}
-                  >
-                    {r}
-                  </button>
-                ),
-              )}
+                    {r.label}
+                  </Link>
+                );
+              })}
             </div>
             <div
               style={{
@@ -228,8 +249,8 @@ export default async function AllCustomersPage() {
                 lineHeight: 1.45,
               }}
             >
-              Any filter combination can be saved as a view, shared with a role, or turned into an
-              alert.
+              Every filter is in the address bar, so this view can be linked, bookmarked, or saved
+              as one of the tabs above.
             </div>
           </div>
         </div>
@@ -247,24 +268,23 @@ export default async function AllCustomersPage() {
               background: "var(--color-surface)",
             }}
           >
-            <span style={{ fontWeight: 700 }}>{customers.length} customers</span>
-            <span style={{ color: "var(--color-neutral-700)" }}>sorted by blended priority</span>
-            <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-              <HairlineButton>Columns</HairlineButton>
-              <HairlineButton>Bulk assign</HairlineButton>
-              <HairlineButton>Create alert</HairlineButton>
+            <span style={{ fontWeight: 700 }}>
+              {result.total} customer{result.total === 1 ? "" : "s"}
+            </span>
+            <span style={{ color: "var(--color-neutral-700)" }}>
+              {params.sort ? `sorted by ${params.sort.replace(":", " ")}` : "sorted by blended priority"}
             </span>
           </div>
 
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
             <thead>
               <tr style={{ borderBottom: "2px solid var(--color-divider)" }}>
-                <Th padding="8px 24px">Customer</Th>
-                <Th width={78} padding="8px 8px">Priority</Th>
-                <Th width={84} padding="8px 8px">LTV</Th>
-                <Th width={82} padding="8px 8px">Churn</Th>
+                <SortTh ctx={ctx} field="name">Customer</SortTh>
+                <SortTh ctx={ctx} field="score" width={78}>Priority</SortTh>
+                <SortTh ctx={ctx} field="value" width={84}>LTV</SortTh>
+                <SortTh ctx={ctx} field="churn" width={82}>Churn</SortTh>
                 <Th width={82} padding="8px 8px">Sentiment</Th>
-                <Th width={96} padding="8px 8px">Last contact</Th>
+                <SortTh ctx={ctx} field="last" width={96}>Last contact</SortTh>
                 <Th width={104} padding="8px 8px">Owner</Th>
                 <Th width={118} padding="8px 24px">Flags</Th>
               </tr>
@@ -306,36 +326,18 @@ export default async function AllCustomersPage() {
               ))}
             </tbody>
           </table>
+          {customers.length === 0 && (
+            <p style={{ padding: "28px 24px", fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+              No customer in {brand.name} matches these filters.{" "}
+              <Link href={PATH} style={{ fontWeight: 700, color: "var(--color-accent-700)" }}>
+                Clear them
+              </Link>
+              .
+            </p>
+          )}
+          <Pager ctx={ctx} page={result.page} pageSize={result.pageSize} total={result.total} />
 
-          <div
-            style={{
-              padding: "14px 24px",
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              fontSize: 12,
-              color: "var(--color-neutral-700)",
-              borderBottom: "2px solid var(--color-divider)",
-            }}
-          >
-            <span>Showing 1–{customers.length} of {customers.length}</span>
-            <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-              <HairlineButton style={{ padding: "5px 11px" }}>Previous</HairlineButton>
-              <button
-                type="button"
-                className="hov-invert"
-                style={{
-                  border: "1px solid var(--color-text)",
-                  padding: "5px 11px",
-                  fontWeight: 700,
-                  color: "var(--color-text)",
-                }}
-              >
-                Next
-              </button>
-            </span>
-          </div>
-        </div>
+                  </div>
       </div>
     </section>
   );

@@ -3,14 +3,17 @@ import {
   ChartLegend,
   Kicker,
   LinkAction,
-  OutlineButton,
   ScreenHeader,
   SectionTitle,
   StackedBar,
   StatRow,
   Th,
 } from "@/components/ui";
+import { Chip } from "@/components/filters";
+import { ExportCsvButton } from "@/components/ExportCsvButton";
 import { getConsoleContext } from "@/lib/auth/context";
+import { exportAnalyticsCsv } from "@/lib/actions/analytics";
+import { intOf, normalise, type RawParams } from "@/lib/params";
 import {
   agentPerformance,
   getBrandMetrics,
@@ -19,15 +22,35 @@ import {
   weeklyContainment,
 } from "@/lib/queries/analytics";
 
+const PATH = "/app/analytics";
+/** The windows the header offers, in weeks. */
+const WINDOWS = [
+  { value: "4", label: "4 weeks" },
+  { value: "12", label: "12 weeks" },
+  { value: "26", label: "26 weeks" },
+];
+
 const money = (pence: number) => `£${(pence / 100).toFixed(2)}`;
 const clock = (secs: number) =>
   secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
 
-export default async function AnalyticsPage() {
+export default async function AnalyticsPage({
+  searchParams,
+}: {
+  searchParams: Promise<RawParams>;
+}) {
   const { brand, session } = await getConsoleContext();
+  const params = normalise(await searchParams);
+  const ctx = { pathname: PATH, params };
+
+  // Every figure on this screen is measured over the same window, so changing
+  // it changes the KPIs and the chart together rather than only the chart.
+  const weeksBack = intOf(params, "weeks", 12, 1, 52);
+  const from = new Date(Date.now() - weeksBack * 7 * 864e5);
+
   const [m, containment, intents, qualityReview, agents] = await Promise.all([
-    getBrandMetrics(brand.id),
-    weeklyContainment(brand.id),
+    getBrandMetrics(brand.id, { from }),
+    weeklyContainment(brand.id, weeksBack),
     unfinishedIntents(brand.id),
     qualityMetrics(brand.id),
     agentPerformance(session.orgId),
@@ -84,11 +107,19 @@ export default async function AnalyticsPage() {
   return (
     <section>
       <ScreenHeader
-        kicker={`${brand.name} · ${m.total} conversation${m.total === 1 ? "" : "s"}`}
+        kicker={`${brand.name} · ${m.total} conversation${m.total === 1 ? "" : "s"} in the last ${weeksBack} weeks`}
         title="Analytics & AI performance"
       >
-        <OutlineButton>12 weeks ▾</OutlineButton>
-        <OutlineButton>Schedule report</OutlineButton>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {WINDOWS.map((w) => (
+            <Chip key={w.value} ctx={ctx} paramKey="weeks" value={w.value} label={w.label} />
+          ))}
+        </span>
+        <ExportCsvButton
+          filename={`corva-analytics-${brand.slug}-${weeksBack}w.csv`}
+          query={params}
+          onExport={exportAnalyticsCsv}
+        />
       </ScreenHeader>
 
       {/* KPI strip */}

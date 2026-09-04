@@ -1,7 +1,10 @@
-import { Kicker, OutlineButton, PrimaryButton, ScreenHeader, SectionTitle, Tag, Th } from "@/components/ui";
+import { Kicker, OutlineButton, ScreenHeader, SectionTitle, Tag, Th } from "@/components/ui";
+import { ActionButton } from "@/components/ActionButton";
+import { InvitePanel, RoleSelect } from "@/components/TeamControls";
 import { getConsoleContext } from "@/lib/auth/context";
 import { getTeam } from "@/lib/queries/workspace";
-import { CAPABILITIES, MATRIX, ROLES, grantLabel, grantWeight } from "@/lib/auth/permissions";
+import { changeRole, inviteMember, revokeInvite, suspendMember } from "@/lib/actions/team";
+import { can, CAPABILITIES, MATRIX, ROLES, grantLabel, grantWeight } from "@/lib/auth/permissions";
 
 /** How each capability reads on the matrix. */
 const CAPABILITY_LABELS: Record<string, string> = {
@@ -23,8 +26,14 @@ const WEIGHT_COLOR = {
 } as const;
 
 export default async function TeamPage() {
-  const { session } = await getConsoleContext();
-  const { people, brandAccess, activity: recentActivity } = await getTeam(session.orgId);
+  const { session, brand } = await getConsoleContext();
+  const { people, brands, brandAccess, activity: recentActivity } = await getTeam(session.orgId);
+
+  const manages = can(session.actor, "people.manage", { brandId: brand.id }).allowed;
+  // Nobody hands out a role above their own; the server enforces this too, and
+  // trimming the list here just stops the screen offering a refusal.
+  const assignable = ROLES.slice(ROLES.indexOf(session.role));
+  const activeOwners = people.filter((p) => p.roleKey === "owner" && p.statusKey === "active").length;
 
   // The matrix renders from the same rules the server enforces, so the screen
   // cannot drift from what is actually permitted.
@@ -35,14 +44,49 @@ export default async function TeamPage() {
   }));
 
   return (
-    <section>
+    <section style={{ position: "relative" }}>
       <ScreenHeader
         kicker={`${session.orgName} · ${people.length} people`}
         title="Team & roles"
       >
-        <OutlineButton>Audit log</OutlineButton>
-        <PrimaryButton>Invite people</PrimaryButton>
+        <OutlineButton href="/app/setup#audit">Audit log</OutlineButton>
+        {manages && (
+          <InvitePanel
+            roles={[...assignable]}
+            brands={brands}
+            onInvite={async (input) => {
+              "use server";
+              await inviteMember({
+                email: input.email,
+                name: input.name,
+                role: input.role as (typeof ROLES)[number],
+                brandIds: input.brandIds,
+                allBrands: input.allBrands,
+              });
+            }}
+          />
+        )}
       </ScreenHeader>
+
+      {manages && (
+        <p
+          style={{
+            padding: "0 24px 16px",
+            margin: 0,
+            fontSize: 12,
+            color: "var(--color-neutral-700)",
+            maxWidth: "78ch",
+            lineHeight: 1.5,
+          }}
+        >
+          As {session.role[0].toUpperCase() + session.role.slice(1)} you can invite people as{" "}
+          <b style={{ color: "var(--color-text)" }}>
+            {assignable.map((r) => r[0].toUpperCase() + r.slice(1)).join(", ")}
+          </b>
+          . Nobody can grant a role above their own, which is what stops an invite chain being
+          walked upwards — Corva creates your Owner, and everyone else is invited from inside.
+        </p>
+      )}
 
       {/* Capability matrix */}
       <div style={{ padding: "18px 24px", borderBottom: "2px solid var(--color-divider)" }}>
@@ -97,7 +141,8 @@ export default async function TeamPage() {
                 <Th width={104} padding="9px 10px">Role</Th>
                 <Th width={160} padding="9px 10px">Brands</Th>
                 <Th width={96} padding="9px 10px">Status</Th>
-                <Th width={108} padding="9px 24px">Last active</Th>
+                <Th width={92} padding="9px 10px">Last active</Th>
+                {manages && <Th width={130} padding="9px 24px">Manage</Th>}
               </tr>
             </thead>
             <tbody>
@@ -113,14 +158,66 @@ export default async function TeamPage() {
                       {p.email}
                     </span>
                   </td>
-                  <td style={{ padding: "10px 10px" }}>{p.role}</td>
+                  <td style={{ padding: "10px 10px" }}>
+                    <RoleSelect
+                      membershipId={p.membershipId}
+                      role={p.roleKey}
+                      roles={[...assignable]}
+                      // The only Owner cannot be demoted: there would be no one
+                      // left who could undo it.
+                      disabled={
+                        !manages || (p.roleKey === "owner" && activeOwners <= 1)
+                      }
+                      onChange={async (membershipId, role) => {
+                        "use server";
+                        await changeRole(membershipId, role as (typeof ROLES)[number]);
+                      }}
+                    />
+                  </td>
                   <td style={{ padding: "10px 10px", color: "var(--color-neutral-800)" }}>{p.brands}</td>
                   <td style={{ padding: "10px 10px" }}>
                     <Tag bg={p.tagBg} fg={p.tagFg} padding="3px 6px">
                       {p.status}
                     </Tag>
                   </td>
-                  <td style={{ padding: "10px 24px", color: "var(--color-neutral-700)" }}>{p.active}</td>
+                  <td style={{ padding: "10px 10px", color: "var(--color-neutral-700)" }}>{p.active}</td>
+                  {manages && (
+                    <td style={{ padding: "10px 24px" }}>
+                      {p.statusKey === "invited" ? (
+                        <ActionButton
+                          variant="hairline"
+                          pendingLabel="Revoking…"
+                          confirm={`Revoke the invite for ${p.email}?`}
+                          style={{ fontSize: 10.5, padding: "3px 7px" }}
+                          action={async () => {
+                            "use server";
+                            await revokeInvite(p.membershipId);
+                          }}
+                        >
+                          Revoke invite
+                        </ActionButton>
+                      ) : p.membershipId === session.membershipId ? (
+                        <span style={{ fontSize: 11, color: "var(--color-neutral-500)" }}>you</span>
+                      ) : (
+                        <ActionButton
+                          variant="hairline"
+                          pendingLabel="Saving…"
+                          confirm={
+                            p.statusKey === "suspended"
+                              ? undefined
+                              : `Suspend ${p.name}? Their history stays; their access stops.`
+                          }
+                          style={{ fontSize: 10.5, padding: "3px 7px" }}
+                          action={async () => {
+                            "use server";
+                            await suspendMember(p.membershipId, p.statusKey !== "suspended");
+                          }}
+                        >
+                          {p.statusKey === "suspended" ? "Reinstate" : "Suspend"}
+                        </ActionButton>
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -170,8 +267,13 @@ export default async function TeamPage() {
                 color: "var(--color-neutral-800)",
               }}
             >
+              {recentActivity.length === 0 && (
+                <span style={{ color: "var(--color-neutral-700)" }}>
+                  Nothing yet. Every consequential change lands here and in the audit log.
+                </span>
+              )}
               {recentActivity.map((a) => (
-                <div key={`${a.who}-${a.what}`}>
+                <div key={a.id}>
                   <b style={{ color: "var(--color-text)" }}>{a.who}</b> {a.what}
                 </div>
               ))}

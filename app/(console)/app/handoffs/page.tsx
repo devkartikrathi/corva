@@ -1,9 +1,21 @@
-import { Kicker, LinkAction, OutlineButton, PrimaryButton, ScreenHeader, Tag } from "@/components/ui";
-import { notFound } from "next/navigation";
+import Link from "next/link";
+import { Kicker, LinkAction, ScreenHeader, Tag } from "@/components/ui";
+import { Tab, TabStrip } from "@/components/filters";
 import { getConsoleContext } from "@/lib/auth/context";
-import { getHandoffTranscript, listHandoffs } from "@/lib/queries/conversations";
-import { acceptHandoff, approveHandoffDecision } from "@/lib/actions/handoffs";
+import { handoffCounts, getHandoffTranscript, listHandoffs } from "@/lib/queries/conversations";
+import { acceptHandoff, approveHandoffDecision, reassignHandoff } from "@/lib/actions/handoffs";
+import { getTeam } from "@/lib/queries/workspace";
+import { href, normalise, type RawParams } from "@/lib/params";
 import { ActionButton } from "@/components/ActionButton";
+import { ReassignPicker } from "@/components/ReassignPicker";
+
+const PATH = "/app/handoffs";
+const TABS = [
+  { key: "waiting", label: "Waiting" },
+  { key: "accepted", label: "Being handled" },
+  { key: "resolved", label: "Resolved" },
+  { key: "all", label: "Everything" },
+] as const;
 
 type Brief = {
   wants?: string;
@@ -14,24 +26,56 @@ type Brief = {
   sensitivities?: string;
 };
 
-export default async function HandoffsPage() {
-  const { brand } = await getConsoleContext();
-  const handoffs = await listHandoffs(brand.id);
+export default async function HandoffsPage({
+  searchParams,
+}: {
+  searchParams: Promise<RawParams>;
+}) {
+  const { session, brand } = await getConsoleContext();
+  const params = normalise(await searchParams);
+  const status = (TABS.find((t) => t.key === params.status)?.key ?? "waiting") as
+    | "waiting"
+    | "accepted"
+    | "resolved"
+    | "all";
+
+  const [handoffs, counts, team] = await Promise.all([
+    listHandoffs(brand.id, status),
+    handoffCounts(brand.id),
+    getTeam(session.orgId),
+  ]);
+
+  const tabs = (
+    <TabStrip>
+      {TABS.map((t) => (
+        <Tab
+          key={t.key}
+          label={t.label}
+          href={href(PATH, params, { status: t.key === "waiting" ? null : t.key, handoff: null })}
+          current={status === t.key}
+          count={counts[t.key]}
+        />
+      ))}
+    </TabStrip>
+  );
 
   if (handoffs.length === 0) {
     return (
       <section>
         <ScreenHeader
-          kicker="Nothing waiting"
+          kicker={counts.waiting === 0 ? "Nothing waiting" : `${counts.waiting} waiting`}
           title="Handoffs"
-          lede="When the AI reaches a limit it writes a brief and queues it here. Nothing is waiting for a person right now."
+          lede="When the AI reaches a limit it writes a brief and queues it here. Nothing matches this filter right now."
         />
+        {tabs}
       </section>
     );
   }
 
-  // The queue is worked oldest-first, so the top of it is what is open.
-  const selected = handoffs[0];
+  // The queue is worked most-urgent-first, so the top of it is what opens —
+  // unless the URL names one, which is how a link from the command centre or
+  // the live console lands on the right brief.
+  const selected = handoffs.find((h) => h.id === params.handoff) ?? handoffs[0];
   const brief = (selected.brief ?? {}) as Brief;
   const briefTranscript = await getHandoffTranscript(selected.conversationId);
   const briefDidAlready = brief.alreadyDid ?? [];
@@ -39,29 +83,47 @@ export default async function HandoffsPage() {
   return (
     <section>
       <ScreenHeader
-        kicker={`${handoffs.length} waiting · oldest ${handoffs[0].wait}`}
+        kicker={
+          status === "waiting"
+            ? `${counts.waiting} waiting · oldest ${handoffs[0].wait}`
+            : `${handoffs.length} ${TABS.find((t) => t.key === status)!.label.toLowerCase()}`
+        }
         title="Handoffs"
         lede="Every handoff arrives with a written brief. No customer is asked to explain themselves twice."
+        border={false}
       >
-        <OutlineButton>Round-robin: on</OutlineButton>
-        <PrimaryButton>Take next</PrimaryButton>
+        {counts.waiting > 0 && (
+          <ActionButton
+            variant="primary"
+            pendingLabel="Taking…"
+            action={async () => {
+              "use server";
+              await acceptHandoff(handoffs[0].id);
+            }}
+          >
+            Take next · {handoffs[0].name}
+          </ActionButton>
+        )}
       </ScreenHeader>
+      {tabs}
 
       <div style={{ display: "grid", gridTemplateColumns: "320px 1fr" }}>
         {/* Queue */}
         <div style={{ borderRight: "2px solid var(--color-divider)" }}>
           {handoffs.map((h) => (
-            <button
+            <Link
               key={h.id}
-              type="button"
+              href={href(PATH, params, { handoff: h.id })}
               className="hov-raise"
               style={{
+                display: "block",
                 width: "100%",
                 textAlign: "left",
                 padding: "13px 18px",
                 borderBottom: "1px solid var(--color-neutral-300)",
                 borderLeft: `3px solid ${h.edge}`,
                 background: h.id === selected.id ? "var(--color-surface)" : "transparent",
+                color: "var(--color-text)",
               }}
             >
               <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
@@ -89,8 +151,13 @@ export default async function HandoffsPage() {
                 <span style={{ fontSize: 11, color: "var(--color-neutral-700)" }}>
                   P{h.priority} · {h.value}
                 </span>
+                {h.acceptedBy && (
+                  <span style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--color-neutral-700)" }}>
+                    {h.acceptedBy}
+                  </span>
+                )}
               </div>
-            </button>
+            </Link>
           ))}
         </div>
 
@@ -119,19 +186,36 @@ export default async function HandoffsPage() {
                 {selected.name} · {selected.reason}
               </h2>
               <div style={{ marginTop: 7, fontSize: 12.5, color: "var(--color-neutral-800)" }}>
-                Waiting {selected.wait} · Priority {selected.priority} · {selected.value} lifetime value
+                {selected.status === "waiting"
+                  ? `Waiting ${selected.wait}`
+                  : selected.acceptedBy
+                    ? `With ${selected.acceptedBy}`
+                    : selected.status}
+                {" · "}Priority {selected.priority} · {selected.value} lifetime value
+                {selected.resolution && ` · ${selected.resolution}`}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <ActionButton
-                action={async () => {
-                  "use server";
-                  await acceptHandoff(selected.id);
-                }}
-                pendingLabel="Taking…"
-              >
-                Accept &amp; take the line
-              </ActionButton>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <LinkAction href={`/app/live?call=${selected.conversationId}`} size={12}>
+                Open the conversation →
+              </LinkAction>
+              <ReassignPicker
+                handoffId={selected.id}
+                current={selected.acceptedBy}
+                options={team.people.map((p) => ({ id: p.membershipId, name: p.name, role: p.role }))}
+                onReassign={reassignHandoff}
+              />
+              {selected.status === "waiting" && (
+                <ActionButton
+                  action={async () => {
+                    "use server";
+                    await acceptHandoff(selected.id);
+                  }}
+                  pendingLabel="Taking…"
+                >
+                  Accept &amp; take the line
+                </ActionButton>
+              )}
             </div>
           </div>
 

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 
@@ -16,7 +16,13 @@ const N_800 = "var(--color-neutral-800)";
 const HUMAN_COST_PENCE = 490;
 const AI_COST_PENCE = 68;
 
-export async function getBrandMetrics(brandId: string) {
+/**
+ * @param window Restrict to a time span. The command centre asks for the last
+ * 24 hours and compares it against the 24 before that; analytics asks for
+ * everything. Passing a span here rather than filtering the result keeps the
+ * two ends of a comparison measured the same way.
+ */
+export async function getBrandMetrics(brandId: string, window?: { from: Date; to?: Date }) {
   const rows = await db
     .select({
       status: s.conversations.status,
@@ -29,7 +35,13 @@ export async function getBrandMetrics(brandId: string) {
       reviewScore: s.conversations.reviewScore,
     })
     .from(s.conversations)
-    .where(eq(s.conversations.brandId, brandId));
+    .where(
+      and(
+        eq(s.conversations.brandId, brandId),
+        ...(window ? [gte(s.conversations.startedAt, window.from)] : []),
+        ...(window?.to ? [lt(s.conversations.startedAt, window.to)] : []),
+      ),
+    );
 
   const total = rows.length;
   const contained = rows.filter((r) => r.contained === true).length;
@@ -145,6 +157,8 @@ export async function weeklyContainment(brandId: string, weeks = 12) {
         ai: n ? `${Math.round((b.ai / n) * 80)}%` : "0%",
         human: n ? `${Math.round((b.human / n) * 80)}%` : "0%",
         total: n,
+        contained: b.ai,
+        escalated: b.human,
       };
     }),
     weeksCovered: span.length,
