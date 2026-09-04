@@ -1,4 +1,4 @@
-import { generateText, tool } from "ai";
+import { streamText, tool } from "ai";
 import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -11,8 +11,9 @@ import {
   describeNeverRules,
   type ConversationState,
 } from "./guardrails";
-import { TURN_MODEL, TURN_THINKING } from "./model";
+import { TURN_MODEL, TURN_OPTIONS } from "./model";
 import { grounded, hasGrounding, recordGap, retrieve, type RetrievedChunk } from "./retrieval";
+import { runningSentiment, scoreUtterance } from "@/lib/pipelines/sentiment";
 import { writeBrief } from "./brief";
 
 /**
@@ -24,8 +25,10 @@ import { writeBrief } from "./brief";
  *   3. generate, with tools gated by the authority table
  *   4. persist the turn, its citations, and any action taken
  *
- * The same function serves web chat, email and (later) the voice worker, so
- * a customer gets the same answer and the same refusals on every channel.
+ * `respondStream` is the pipeline; `respond` waits for it. The same code
+ * serves web chat, email and the voice worker, so a customer gets the same
+ * answer and the same refusals on every channel — the only difference is
+ * whether the caller hears it a sentence at a time.
  */
 
 export type AgentReply = {
@@ -37,7 +40,8 @@ export type AgentReply = {
   actions: { label: string; allowed: boolean }[];
 };
 
-function systemPrompt(config: AgentConfig, context: string, chunks: RetrievedChunk[]): string {
+/** Exported so the tuning screen can preview a draft without persisting it. */
+export function systemPrompt(config: AgentConfig, context: string, chunks: RetrievedChunk[]): string {
   const sources = grounded(chunks)
     .map(
       (c, i) =>
@@ -101,10 +105,57 @@ async function customerContext(customerId: string | null): Promise<{ text: strin
   return { text: lines.join("\n"), priority: row.score ? Math.round(row.score.blended) : null };
 }
 
-export async function respond(opts: {
+/**
+ * What a caller hears, as it is produced.
+ *
+ * `sentence` is the event a voice pipeline waits on: text-to-speech wants a
+ * complete clause, not a token, and emitting per token would have TTS
+ * re-synthesising the same phrase five times. `delta` is for text surfaces
+ * that want the typing effect. Both come off the same generation, so a call
+ * and a web chat cannot diverge.
+ */
+export type AgentEvent =
+  | { type: "delta"; text: string }
+  | { type: "sentence"; text: string }
+  | { type: "action"; label: string; allowed: boolean }
+  | { type: "escalation"; reason: string; handoffId: string }
+  | { type: "done"; reply: AgentReply };
+
+/** Split on sentence ends, keeping the terminator — TTS needs the punctuation. */
+function takeSentences(buffer: string): { sentences: string[]; rest: string } {
+  const sentences: string[] = [];
+  let rest = buffer;
+  // A terminator followed by whitespace. Decimals and "£50." survive because
+  // the following character is a digit or end-of-buffer, not a space.
+  const boundary = /([.!?])\s+/;
+  let match = rest.match(boundary);
+  while (match && match.index !== undefined) {
+    const end = match.index + match[1].length;
+    const sentence = rest.slice(0, end).trim();
+    if (sentence) sentences.push(sentence);
+    rest = rest.slice(end).replace(/^\s+/, "");
+    match = rest.match(boundary);
+  }
+  return { sentences, rest };
+}
+
+/**
+ * One turn of the agent, streamed.
+ *
+ * The gates run first and to completion — retrieval, then triggers — because
+ * both decide whether the agent speaks at all, and a caller must not hear the
+ * first half of an answer the guardrails were about to stop. Only generation
+ * streams.
+ *
+ * The exception worth knowing: an action refused *after* speech has started
+ * cannot be unsaid. When that happens the holding line is appended rather than
+ * substituted, and the transcript shows both — which is what actually happened
+ * on the call.
+ */
+export async function* respondStream(opts: {
   conversationId: string;
   message: string;
-}): Promise<AgentReply> {
+}): AsyncGenerator<AgentEvent, void, undefined> {
   const { conversationId, message } = opts;
 
   const [conversation] = await db
@@ -123,11 +174,21 @@ export async function respond(opts: {
     .where(eq(s.turns.conversationId, conversationId))
     .orderBy(asc(s.turns.ordinal));
 
-  // 1. Record what the customer said.
+  // 1. Record what the customer said, with its sentiment.
+  //
+  // Scored inline with the lexicon rather than the model: this reading is
+  // checked by the escalation trigger a few lines below, so it has to exist
+  // before generation starts, and a model call there is seconds the caller
+  // spends in silence. See lib/pipelines/sentiment.ts.
   const nextOrdinal = history.length;
-  await db
-    .insert(s.turns)
-    .values({ conversationId, ordinal: nextOrdinal, speaker: "customer", body: message });
+  const turnSentiment = scoreUtterance(message);
+  await db.insert(s.turns).values({
+    conversationId,
+    ordinal: nextOrdinal,
+    speaker: "customer",
+    body: message,
+    sentiment: turnSentiment,
+  });
 
   // 2. Retrieve before deciding anything.
   const chunks = await retrieve(conversation.brandId, message);
@@ -139,17 +200,33 @@ export async function respond(opts: {
   ];
   const { text: context, priority } = await customerContext(conversation.customerId);
 
+  // The running figure, weighted towards what was just said — a call that has
+  // been recovered should stop escalating, and one that has just turned should
+  // escalate now rather than after the average catches up.
+  const sentiment = runningSentiment(utterances);
+
   const state: ConversationState = {
     customerUtterances: utterances,
-    sentiment: conversation.sentimentEnd ?? null,
+    sentiment,
     humanRequests: countHumanRequests(utterances),
     priority,
     retrievalConfidence: best,
     authorityExceeded: false,
   };
 
-  // 3. A fired trigger pre-empts generation.
+  // 3. A fired trigger pre-empts generation entirely — nothing is spoken.
   let fired = checkTriggers(config, state);
+
+  await db
+    .update(s.conversations)
+    .set({
+      sentimentEnd: sentiment,
+      // The opening reading is whatever the first customer turn scored, and is
+      // never overwritten — "it started here and ended there" is the shape the
+      // archive prints.
+      ...(nextOrdinal === 0 ? { sentimentStart: turnSentiment } : {}),
+    })
+    .where(eq(s.conversations.id, conversationId));
 
   if (!hasGrounding(chunks)) {
     await recordGap(conversation.brandId, conversation.intent ?? message.slice(0, 120));
@@ -157,12 +234,13 @@ export async function respond(opts: {
 
   const actionsTaken: { label: string; allowed: boolean }[] = [];
   let authorityBlocked: string | null = null;
+  let spoken = "";
 
   if (fired.length === 0) {
     // 4. Generate, with every action gated by the authority table.
-    const result = await generateText({
+    const result = streamText({
       model: TURN_MODEL,
-      providerOptions: { google: { thinkingConfig: { thinkingLevel: TURN_THINKING } } },
+      providerOptions: TURN_OPTIONS,
       system: systemPrompt(config, context, chunks),
       messages: [
         ...history.map((t) => ({
@@ -194,11 +272,7 @@ export async function respond(opts: {
 
             if (!decision.allowed) {
               authorityBlocked = decision.reason;
-              return {
-                allowed: false,
-                reason: decision.reason,
-                escalateTo: decision.escalateTo,
-              };
+              return { allowed: false, reason: decision.reason, escalateTo: decision.escalateTo };
             }
             return { allowed: true };
           },
@@ -207,20 +281,37 @@ export async function respond(opts: {
       stopWhen: (step) => step.steps.length >= 4,
     });
 
+    let buffer = "";
+    for await (const delta of result.textStream) {
+      // Nothing is emitted while an action is being refused: the reply that
+      // was forming assumed permission it turned out not to have.
+      if (authorityBlocked) break;
+      buffer += delta;
+      spoken += delta;
+      yield { type: "delta", text: delta };
+
+      const { sentences, rest } = takeSentences(buffer);
+      buffer = rest;
+      for (const sentence of sentences) yield { type: "sentence", text: sentence };
+    }
+    if (!authorityBlocked && buffer.trim()) {
+      yield { type: "sentence", text: buffer.trim() };
+    }
+
+    for (const action of actionsTaken) {
+      yield { type: "action", label: action.label, allowed: action.allowed };
+    }
+
     // An action refused mid-turn is itself an escalation trigger.
     if (authorityBlocked) {
       fired = checkTriggers(config, { ...state, authorityExceeded: true });
     }
 
     if (fired.length === 0) {
+      const text = spoken.trim() || (await result.text);
       const [aiTurn] = await db
         .insert(s.turns)
-        .values({
-          conversationId,
-          ordinal: nextOrdinal + 1,
-          speaker: "ai",
-          body: result.text,
-        })
+        .values({ conversationId, ordinal: nextOrdinal + 1, speaker: "ai", body: text })
         .returning();
 
       const cited = grounded(chunks).slice(0, 2);
@@ -254,30 +345,39 @@ export async function respond(opts: {
         });
       }
 
-      return {
-        turnId: aiTurn.id,
-        text: result.text,
-        citations: cited.map((c) => ({
-          documentTitle: c.documentTitle,
-          anchor: c.anchor,
-          confidence: c.confidence,
-        })),
-        escalation: null,
-        actions: actionsTaken,
+      yield {
+        type: "done",
+        reply: {
+          turnId: aiTurn.id,
+          text,
+          citations: cited.map((c) => ({
+            documentTitle: c.documentTitle,
+            anchor: c.anchor,
+            confidence: c.confidence,
+          })),
+          escalation: null,
+          actions: actionsTaken,
+        },
       };
+      return;
     }
   }
 
   // 5. Escalate: hold the customer, write the brief, queue the handoff.
   const reason = fired.map((f) => f.detail).join(" ");
-  const holdingLine =
-    authorityBlocked
-      ? `That's not my decision to make, and I'd rather not guess at it. I'm getting someone now — nothing you've been offered so far changes.`
-      : `I want to get this right rather than guess, so I'm bringing in a colleague now. Please stay with me.`;
+  const holdingLine = authorityBlocked
+    ? `That's not my decision to make, and I'd rather not guess at it. I'm getting someone now — nothing you've been offered so far changes.`
+    : `I want to get this right rather than guess, so I'm bringing in a colleague now. Please stay with me.`;
+
+  yield { type: "sentence", text: holdingLine };
+
+  // If speech had already started, both halves are kept: the caller heard the
+  // first part, and a transcript that hid it would not match the recording.
+  const body = spoken.trim() ? `${spoken.trim()} ${holdingLine}` : holdingLine;
 
   const [aiTurn] = await db
     .insert(s.turns)
-    .values({ conversationId, ordinal: nextOrdinal + 1, speaker: "ai", body: holdingLine })
+    .values({ conversationId, ordinal: nextOrdinal + 1, speaker: "ai", body })
     .returning();
 
   const handoff = await writeBrief({
@@ -295,11 +395,33 @@ export async function respond(opts: {
     .set({ status: "waiting_human", outcome: "escalated", contained: false })
     .where(eq(s.conversations.id, conversationId));
 
-  return {
-    turnId: aiTurn.id,
-    text: holdingLine,
-    citations: [],
-    escalation: { reason, handoffId: handoff.id },
-    actions: actionsTaken,
+  yield { type: "escalation", reason, handoffId: handoff.id };
+  yield {
+    type: "done",
+    reply: {
+      turnId: aiTurn.id,
+      text: body,
+      citations: [],
+      escalation: { reason, handoffId: handoff.id },
+      actions: actionsTaken,
+    },
   };
+}
+
+/**
+ * One turn, waited for.
+ *
+ * A thin consumer of `respondStream`, so the console and the voice worker run
+ * exactly the same pipeline rather than two that drift apart.
+ */
+export async function respond(opts: {
+  conversationId: string;
+  message: string;
+}): Promise<AgentReply> {
+  let reply: AgentReply | null = null;
+  for await (const event of respondStream(opts)) {
+    if (event.type === "done") reply = event.reply;
+  }
+  if (!reply) throw new Error("The agent produced no reply.");
+  return reply;
 }

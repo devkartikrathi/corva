@@ -3,14 +3,16 @@ import { google } from "@ai-sdk/google";
 /**
  * Where the models come from.
  *
- * Google Gemini, called directly with the project's own API key
+ * Google Gemini by default, called directly with the project's own API key
  * (`GOOGLE_GENERATIVE_AI_API_KEY`) rather than through a gateway. Direct
  * instantiation also happens to be the only path where the embedding
  * `outputDimensionality` option is actually honoured — routing the same model
  * through a gateway silently returns full-width vectors.
  *
  * This is the only file that knows which provider is in use. Swapping to
- * another one means changing these six constants and nothing else.
+ * another one — Sarvam for Indian-language voice, say — means changing these
+ * constants and nothing else; that was tested against a local Ollama model and
+ * held, though the local path is gone now that we have settled on Gemini.
  */
 
 /**
@@ -35,6 +37,18 @@ export const ANALYSIS_MODEL = google("gemini-3.6-flash");
  */
 export const TURN_THINKING = "low" as const;
 export const ANALYSIS_THINKING = "high" as const;
+
+/**
+ * Provider options for a live turn, passed at both call sites so the thinking
+ * setting cannot drift between the console and the tuning preview.
+ *
+ * Worth knowing before reaching for this on a phone call: on the batch API
+ * `minimal` and `low` both measured 18–25s to first token, which is why voice
+ * goes through the Live API instead. See docs/VOICE.md.
+ */
+export const TURN_OPTIONS = {
+  google: { thinkingConfig: { thinkingLevel: TURN_THINKING } },
+} as const;
 
 /* ─── Embeddings ───────────────────────────────────────────────────────── */
 
