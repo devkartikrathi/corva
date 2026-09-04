@@ -9,12 +9,7 @@ export const config = {
   accentPriorityThreshold: 75,
   /** Show the "why this number" score breakdown on Customer 360. */
   showAiRationale: true,
-  /** Row density for tables and list rows. */
-  density: "Comfortable" as "Comfortable" | "Compact",
 };
-
-/** Vertical cell padding driven by `density`. */
-export const rowPadY = config.density === "Compact" ? 6 : 11;
 
 /** From `Corva Operator Console.dc.html` — the platform operator console. */
 export const operatorConfig = {

@@ -36,17 +36,20 @@ button work.
 | `/app/live` | Live call console — transcript with citations, guardrail stop, entitlements |
 | `/app/handoffs` | Handoff queue and the AI-written brief behind each one |
 | `/app/conversations` | Conversation archive with per-turn provenance |
-| `/app/customers` | Filterable customer table |
-| `/app/customers/marguerite-okonkwo` | Customer 360 — score rationale, timeline, signals |
-| `/app/segments` | Axis weights, override rules, scoring simulation |
+| `/app/conversations/[id]` | Permalink into the archive |
+| `/app/customers` | Customer table — filters, sort, paging, CSV export |
+| `/app/customers/[id]` | Customer 360 — score rationale, record, notes, consent |
+| `/app/segments` | Axis weights, override rules, distribution, model alerts |
 | `/app/knowledge` | Knowledge base, coverage gaps, AI-readiness score |
-| `/app/tuning` | Persona, authority ceilings, guardrails, version replay |
+| `/app/knowledge/[id]` | Document editor with revisions and a retrieval preview |
+| `/app/tuning` | Persona, tone, authority ceilings, guardrails, version diff |
 | `/app/analytics` | Containment trend and what the AI still can't finish |
-| `/app/team` | Role capability matrix and people |
-| `/app/setup` | Brands, channels, integrations, privacy, plan |
+| `/app/team` | Role capability matrix, invites, role changes |
+| `/app/setup` | Brands, channels, hours, integrations, privacy, audit log |
+| `/app/search` | Across customers, conversations, documents and people |
 
-Customer 360 is the one profile with a full record in the fixtures, so `/app/customers/[slug]`
-generates just that page and 404s on any other slug.
+`/app/customer-360` resolves to whoever is at the top of the priority queue, rather than
+pinning the nav to an id that may not exist in a given workspace.
 
 ### `/operator/*` — the platform operator console (`Corva Operator Console.dc.html`)
 
@@ -60,7 +63,8 @@ never tenant transcripts, unless a company grants time-boxed, audited access.
 | `/operator/companies/[slug]` | Company detail — usage, brands, AI health, flags, billing |
 | `/operator/quality` | Cross-tenant failure classes and patterns worth fixing centrally |
 | `/operator/revenue` | MRR, plan mix, at-risk accounts, unit economics |
-| `/operator/reliability` | Regions, dependencies, incident timeline |
+| `/operator/reliability` | Regions, dependencies, incident timeline and updates |
+| `/operator/testing` | Voice playground — talk to a tenant's agent over Gemini Live |
 
 ## Layout
 
@@ -71,22 +75,31 @@ app/
   page.tsx                      the marketing site
   (console)/
     layout.tsx                  tenant shell — sidebar + sticky top bar
-    app/<route>/page.tsx        the twelve tenant screens
+    app/<route>/page.tsx        the tenant screens
   (operator)/
     layout.tsx                  staff shell — dark header + tab bar
-    operator/<route>/page.tsx   the five operator screens
+    operator/<route>/page.tsx   the operator screens
 components/
-  Sidebar.tsx  OperatorNav.tsx  the two client components (they need usePathname)
+  Sidebar.tsx  OperatorNav.tsx  nav shells (they need usePathname)
   TopBar.tsx
+  filters.tsx                   URL-driven chips, tabs, sort headers, pagers
+  ActionButton.tsx              a button that runs a server action and shows refusals
+  VoicePlayground.tsx           mic capture and playback for /operator/testing
   ui.tsx                        light primitives — Kicker, Bar, Tag, buttons, Th, …
   operator-ui.tsx               dark primitives — DarkKicker, DarkBar, KpiCell, …
 lib/
-  data.ts                       tenant console fixtures, with derived colours and widths
-  operator-data.ts              operator console fixtures
+  db/                           schema, seed and the maintenance scripts
+  agent/                        retrieval, guardrails, authority, the turn pipeline
+  queries/                      read models, one module per surface
+  actions/                      server actions, each re-checking the capability
+  voice/                        the Gemini Live session and its cost guards
   marketing.ts                  landing page content
   nav.ts                        console nav groups and the profile href
   config.ts                     the designs' declared props, made real
+scripts/
+  voice-server.ts               the Gemini Live bridge (npm run voice)
 design/                         the three source designs, for reference
+docs/VOICE.md                   voice measurements, gotchas and the case for Sarvam
 ```
 
 ### Styling
@@ -108,10 +121,14 @@ paints the page behind it so overscroll doesn't flash light.
 ### Derived values
 
 The designs computed presentation values — bar widths, accent thresholds, tag colours — inside
-their render functions. The `lib/*-data.ts` modules do the same at module scope, so a screen
-never re-derives them inline. A score is drawn in accent above `config.accentPriorityThreshold`;
-a churn bar turns accent at 60; a tenant's health bar turns accent below
-`operatorConfig.healthThreshold`.
+their render functions. The `lib/queries/*` modules do the same on the way out of the database,
+so a screen stays a layout and a threshold lives in one place. A score is drawn in accent above
+`config.accentPriorityThreshold`; a churn bar turns accent at 60; a tenant's health bar turns
+accent below `operatorConfig.healthThreshold`.
+
+Filters, sorts and paging are search parameters, not client state (`lib/params.ts`). A filtered
+table can be linked and the back button undoes a filter — and a saved view is just a stored copy
+of that query, so there is no privileged second path through the same data.
 
 ### The designs' props
 
@@ -120,14 +137,39 @@ anything. `lib/config.ts` makes them real:
 
 - `accentPriorityThreshold` (75) — drives the accent cutoff the tenant console had hardcoded
 - `showAiRationale` (true) — the score breakdown and "what the AI has learned" panels
-- `density` (Comfortable) — row padding
 - `healthThreshold` (70) — the fleet health cutoff, hardcoded in the operator design
 - `showSupportAccessGuard` (true) — the tenant-privacy panel on company detail
 
 ## Data
 
-Every screen runs on fixtures. There is no backend, no database, and no AI call yet — the
-transcripts, scores, and metrics are the designs' own sample content, ported intact. Making
-this real is the next step: Neon Postgres with pgvector, Clerk for auth and the
-Owner/Admin/Manager/Agent/Analyst roles, and a retrieval-grounded agent over the knowledge
-base for the text channels.
+Every screen reads Postgres. There are no fixtures left — `lib/data.ts` and
+`lib/operator-data.ts` are gone, and the seed builds the world the designs describe: 148
+tenants, four brands, a 60-day conversation history, an eleven-axis scoring model with
+attributed override rules, and a knowledge base embedded into pgvector.
+
+```bash
+npm run db:migrate         # schema
+npm run db:seed            # tenants, customers, documents, agent versions
+npm run db:embed           # embed the chunks — retrieval returns nothing until you do
+npm run db:conversations   # transcripts, citations, handoffs
+npm run db:rescore         # let the override rules see the new history
+npm run db:doctor          # checks the database, the key, and the live agent version
+```
+
+The agent is real: `lib/agent/respond.ts` retrieves, checks the escalation triggers,
+generates with every action gated by the authority table, and persists the turn with its
+citations. `respondStream()` is the pipeline and `respond()` waits for it, so the console
+and the voice bridge run the same code.
+
+## Voice
+
+`/operator/testing` is a playground for talking to a tenant's agent the way a customer
+would, over Gemini Live. The bridge is a separate process because Next.js route handlers
+cannot hold a WebSocket open:
+
+```bash
+npm run voice              # then open /operator/testing
+```
+
+Every measurement behind that choice — why the batch API cannot do voice, what the local
+alternatives cost, the API corrections — is in [docs/VOICE.md](docs/VOICE.md).

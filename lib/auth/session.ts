@@ -1,5 +1,5 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { cache } from "react";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
@@ -120,26 +120,6 @@ export const getStaffSession = cache(async (): Promise<StaffSession | null> => {
   };
 });
 
-/**
- * Whether this staff member currently holds a live grant to read one tenant's
- * content. Fleet health is always visible; transcripts and customer records
- * are not, and this is the gate.
- */
-export const hasSupportGrant = cache(async (staffId: string, orgId: string): Promise<boolean> => {
-  const [row] = await db
-    .select({ id: s.supportGrants.id })
-    .from(s.supportGrants)
-    .where(
-      and(
-        eq(s.supportGrants.staffId, staffId),
-        eq(s.supportGrants.orgId, orgId),
-        isNull(s.supportGrants.revokedAt),
-        gt(s.supportGrants.expiresAt, new Date()),
-      ),
-    )
-    .limit(1);
-  return Boolean(row);
-});
 
 /** The brands this session may see, already scoped. */
 export const getVisibleBrands = cache(async (session: TenantSession) => {
