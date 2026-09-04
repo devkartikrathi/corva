@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { LiveDot } from "./ui";
 
 /** The sticky 52px strip above every screen. */
@@ -17,7 +18,9 @@ export function TopBar({ live, waiting }: { live: number; waiting: number }) {
         padding: "0 24px",
       }}
     >
-      <div
+      <Link
+        href="/app/live"
+        className="hov-ink"
         style={{
           display: "flex",
           alignItems: "center",
@@ -31,9 +34,11 @@ export function TopBar({ live, waiting }: { live: number; waiting: number }) {
       >
         <LiveDot />
         {live} call{live === 1 ? "" : "s"} live
-      </div>
+      </Link>
       <span style={{ height: 20, width: 1, background: "var(--color-neutral-300)" }} />
-      <div
+      {/* A GET form, so a search is a URL you can share and go back from. */}
+      <form
+        action="/app/search"
         style={{
           flex: 1,
           maxWidth: 420,
@@ -44,27 +49,43 @@ export function TopBar({ live, waiting }: { live: number; waiting: number }) {
           alignItems: "center",
           gap: 8,
           padding: "0 10px",
-          color: "var(--color-neutral-700)",
           fontSize: 12.5,
         }}
       >
-        <span>Search customers, calls, documents</span>
-        <span
+        <input
+          type="search"
+          name="q"
+          placeholder="Search customers, calls, documents"
+          aria-label="Search customers, calls, documents"
           style={{
-            marginLeft: "auto",
+            flex: 1,
+            minWidth: 0,
+            border: 0,
+            outline: "none",
+            background: "transparent",
+            font: "inherit",
+            fontSize: 12.5,
+            color: "inherit",
+          }}
+        />
+        <button
+          type="submit"
+          style={{
             fontSize: 10,
             fontWeight: 700,
             border: "1px solid var(--color-neutral-400)",
             padding: "1px 5px",
+            color: "var(--color-neutral-700)",
           }}
         >
-          ⌘K
-        </span>
-      </div>
+          Go
+        </button>
+      </form>
+
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+        <Link href="/app/handoffs" className="hov-ink" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
           Waiting for a person <b style={{ color: "var(--color-accent-700)" }}>{waiting}</b>
-        </span>
+        </Link>
         <span style={{ height: 20, width: 1, background: "var(--color-neutral-300)" }} />
         <span style={{ fontSize: 11.5, fontWeight: 600 }}>
           {new Date().toLocaleString("en-GB", {

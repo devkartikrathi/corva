@@ -2,24 +2,34 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { navGroups } from "@/lib/nav";
+import { useState, useTransition } from "react";
+import type { NavItem } from "@/lib/nav";
+
+export type BrandOption = { id: string; name: string; initials: string; isLive: boolean };
 
 export function Sidebar({
-  brandName,
+  brand,
+  brands,
   orgName,
-  initials,
   userName,
   userRole,
   counts,
+  groups,
+  onSwitchBrand,
 }: {
-  brandName: string;
+  brand: BrandOption;
+  brands: BrandOption[];
   orgName: string;
-  initials: string;
   userName: string;
   userRole: string;
   counts: { live: number; waiting: number };
+  /** Already filtered to what this role may reach — see lib/nav.ts. */
+  groups: { label: string; items: NavItem[] }[];
+  onSwitchBrand: (brandId: string) => Promise<void>;
 }) {
   const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+  const [switching, startSwitch] = useTransition();
 
   return (
     <aside
@@ -44,55 +54,136 @@ export function Sidebar({
         <span style={{ width: 7, height: 7, background: "var(--color-accent)", display: "block" }} />
       </div>
 
-      <button
-        type="button"
-        className="hov-raise"
-        style={{
-          padding: "12px 16px",
-          borderBottom: "1px solid var(--color-neutral-300)",
-          textAlign: "left",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-        }}
-      >
-        <span
+      {/* The brand switcher. Only brands this membership is scoped to appear
+          here, and the server re-checks that on switch — the list is a
+          convenience, not the authorization. */}
+      <div style={{ position: "relative", borderBottom: "1px solid var(--color-neutral-300)" }}>
+        <button
+          type="button"
+          className="hov-raise"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-haspopup="listbox"
+          disabled={switching}
           style={{
-            width: 26,
-            height: 26,
-            background: "var(--color-text)",
-            color: "var(--color-bg)",
-            fontWeight: 800,
-            fontSize: 12,
+            width: "100%",
+            padding: "12px 16px",
+            textAlign: "left",
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
+            gap: 10,
+            opacity: switching ? 0.6 : 1,
+            cursor: switching ? "progress" : "pointer",
           }}
         >
-          {initials}
-        </span>
-        <span style={{ flex: 1, minWidth: 0 }}>
           <span
             style={{
-              display: "block",
-              fontSize: 12.5,
-              fontWeight: 700,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
+              width: 26,
+              height: 26,
+              background: "var(--color-text)",
+              color: "var(--color-bg)",
+              fontWeight: 800,
+              fontSize: 12,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
             }}
           >
-            {brandName}
+            {brand.initials}
           </span>
-          <span style={{ display: "block", fontSize: 10.5, color: "var(--color-neutral-700)" }}>
-            {orgName}
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span
+              style={{
+                display: "block",
+                fontSize: 12.5,
+                fontWeight: 700,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {brand.name}
+            </span>
+            <span style={{ display: "block", fontSize: 10.5, color: "var(--color-neutral-700)" }}>
+              {orgName}
+            </span>
           </span>
-        </span>
-        <span style={{ fontSize: 10, color: "var(--color-neutral-700)" }}>▾</span>
-      </button>
+          <span style={{ fontSize: 10, color: "var(--color-neutral-700)" }}>{open ? "▴" : "▾"}</span>
+        </button>
+
+        {open && (
+          <ul
+            role="listbox"
+            style={{
+              position: "absolute",
+              insetInline: 0,
+              top: "100%",
+              zIndex: 40,
+              margin: 0,
+              padding: 0,
+              listStyle: "none",
+              background: "var(--color-bg)",
+              border: "2px solid var(--color-text)",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+            }}
+          >
+            {brands.map((b) => (
+              <li key={b.id}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={b.id === brand.id}
+                  className="hov-raise"
+                  onClick={() => {
+                    setOpen(false);
+                    if (b.id === brand.id) return;
+                    startSwitch(async () => {
+                      await onSwitchBrand(b.id);
+                    });
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "9px 14px",
+                    textAlign: "left",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 9,
+                    fontSize: 12.5,
+                    fontWeight: b.id === brand.id ? 700 : 400,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 20,
+                      height: 20,
+                      fontSize: 10,
+                      fontWeight: 800,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: b.id === brand.id ? "var(--color-text)" : "var(--color-neutral-300)",
+                      color: b.id === brand.id ? "var(--color-bg)" : "var(--color-neutral-800)",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {b.initials}
+                  </span>
+                  <span style={{ flex: 1 }}>{b.name}</span>
+                  {!b.isLive && (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.1em", color: "var(--color-neutral-700)" }}>
+                      SETUP
+                    </span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <nav style={{ flex: 1, padding: "10px 0 20px" }}>
-        {navGroups.map((group, i) => (
+        {groups.map((group, i) => (
           <div key={group.label}>
             <div
               style={{

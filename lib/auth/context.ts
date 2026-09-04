@@ -1,5 +1,7 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
+import { BRAND_COOKIE, resolveBrand } from "./brand";
 import type { brands } from "@/lib/db/schema";
 import { demoEnabled, getDemoStaffSession, getDemoTenantSession } from "./demo";
 import {
@@ -28,7 +30,7 @@ export type ConsoleContext = {
   session: TenantSession;
   /** Brands this membership may see, in creation order. */
   brands: Brand[];
-  /** The brand currently in view — the first they may see. */
+  /** The brand currently in view — their selection, or the first they may see. */
   brand: Brand;
   /** True when no one actually signed in. Surfaced in the UI, not hidden. */
   isDemo: boolean;
@@ -46,7 +48,13 @@ export const getConsoleContext = cache(async (): Promise<ConsoleContext> => {
   const visible = await getVisibleBrands(session);
   if (visible.length === 0) redirect("/no-workspace");
 
-  return { session, brands: visible, brand: visible[0], isDemo: !real };
+  const selected = (await cookies()).get(BRAND_COOKIE)?.value;
+  return {
+    session,
+    brands: visible,
+    brand: resolveBrand(visible, selected),
+    isDemo: !real,
+  };
 });
 
 /**
