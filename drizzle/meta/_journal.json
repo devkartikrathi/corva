@@ -8,6 +8,27 @@
       "when": 1788454404301,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788488620240,
+      "tag": "0001_smooth_junta",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788488703226,
+      "tag": "0002_vengeful_gamma_corps",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788512043830,
+      "tag": "0003_panoramic_peter_parker",
+      "breakpoints": true
     }
   ]
 }

@@ -26,7 +26,7 @@ type Turn = {
 
 type Seed = {
   customerRef: string;
-  channel: "phone" | "whatsapp" | "web_chat" | "email" | "survey";
+  channel: "phone" | "whatsapp" | "web_chat" | "email" | "sms" | "survey";
   intent: string;
   status: "live" | "waiting_human" | "resolved";
   outcome?: "ai_resolved" | "human_resolved" | "escalated" | "no_document" | "no_follow_up" | "detractor";
@@ -463,6 +463,81 @@ const CONVERSATIONS: Seed[] = [
   },
 ];
 
+/* ─── Background traffic ───────────────────────────────────────────────── */
+
+/**
+ * The conversations nobody writes by hand.
+ *
+ * The fourteen above are the ones the screens tell stories about; these are
+ * the sixty days of ordinary contacts underneath them. Without volume the
+ * containment chart is a single column, the channel mix is three bars, the
+ * weekly trend has one point, and the command centre reports that the AI
+ * finished nothing today — all of which misrepresent a working deployment.
+ *
+ * Generated from a fixed seed so the charts do not move between runs.
+ */
+const ROUTINE: { intent: string; channel: Seed["channel"]; contained: boolean; ask: string; reply: string; cite?: string }[] = [
+  { intent: "Where is my order?", channel: "whatsapp", contained: true, ask: "Any update on my delivery?", reply: "It's booked for Thursday with a four-hour window, confirmed the evening before. Nothing has moved.", cite: "Delivery ops playbook" },
+  { intent: "Change delivery address", channel: "web_chat", contained: true, ask: "Can I change the delivery address?", reply: "Done — it's now going to the new address. The day and window are unchanged.", cite: "Delivery ops playbook" },
+  { intent: "Fabric care", channel: "web_chat", contained: true, ask: "How do I clean the fabric?", reply: "Damp cloth and mild soap, never a solvent cleaner. Rotate the cushions monthly for the first year.", cite: "Care guide · Lindholm" },
+  { intent: "Installation fee", channel: "phone", contained: true, ask: "What does installation cost?", reply: "£85 for a single room, £140 multi-room. That covers assembly, levelling and taking the packaging away.", cite: "Fee schedule 2026" },
+  { intent: "Warranty length", channel: "email", contained: true, ask: "How long is the warranty?", reply: "Ten years on the frame, two on upholstery and foam. A frame claim needs photographs and the order reference — no visit.", cite: "Warranty terms" },
+  { intent: "Reschedule a delivery", channel: "whatsapp", contained: true, ask: "I need to move my delivery day.", reply: "Moved. There's no charge — you're more than 48 hours out.", cite: "Delivery ops playbook" },
+  { intent: "Failed payment", channel: "sms", contained: true, ask: "My card was declined.", reply: "I've sent you a secure link to update the card. I can't take the number over the phone.", cite: "Fee schedule 2026" },
+  { intent: "Order status after dispatch", channel: "phone", contained: true, ask: "Has my order left the warehouse?", reply: "It has — it's with the courier and still on for the booked day.", cite: "Delivery ops playbook" },
+  { intent: "Goodwill after a missed slot", channel: "phone", contained: true, ask: "You missed the window again.", reply: "I've applied a £50 credit to the original card — five working days. Your warranty start date is unaffected.", cite: "Service promise v4" },
+  { intent: "Trade discount question", channel: "email", contained: false, ask: "What discount do I get at thirty units?", reply: "I'd rather not guess at that — two of our documents disagree. Getting someone who can confirm it." },
+  { intent: "Part-delivery refund", channel: "whatsapp", contained: false, ask: "Half of it arrived. What happens to the rest of the money?", reply: "I don't have a policy covering part-delivery refunds, so I'm not going to invent one. Bringing in a colleague." },
+  { intent: "Assembly service area", channel: "web_chat", contained: false, ask: "Do you assemble in Inverness?", reply: "I can't see a service area document for assembly, so I won't promise either way. Getting someone." },
+  { intent: "Waive the delivery fee", channel: "phone", contained: false, ask: "Can you waive the delivery fee for the trouble?", reply: "That's a manager's decision and not mine to make. I'm getting one now." },
+  { intent: "Cancel an order", channel: "phone", contained: false, ask: "I want to cancel the whole thing.", reply: "I want to get this right rather than guess, so I'm bringing in a colleague now." },
+];
+
+function generateTraffic(days = 60) {
+  // Deterministic: the same charts every run.
+  let state = 0x51f3a7;
+  const next = () => ((state = (state * 1664525 + 1013904223) >>> 0) / 0x100000000);
+
+  const out: {
+    template: (typeof ROUTINE)[number];
+    startedAt: Date;
+    durationSeconds: number;
+    sentimentEnd: number;
+    reviewScore: number | null;
+  }[] = [];
+
+  for (let d = days; d >= 0; d--) {
+    const date = new Date(Date.now() - d * 864e5);
+    const weekend = date.getDay() === 0 || date.getDay() === 6;
+    const count = Math.round((weekend ? 3 : 9) * (0.7 + next() * 0.7));
+
+    for (let i = 0; i < count; i++) {
+      // Contacts cluster around late morning and mid-afternoon, the way a
+      // helpline's day actually looks.
+      const hour = next() < 0.55 ? 9 + Math.floor(next() * 4) : 13 + Math.floor(next() * 6);
+      const startedAt = new Date(date);
+      startedAt.setHours(hour, Math.floor(next() * 60), 0, 0);
+      // Today's traffic must not be in the future.
+      if (startedAt.getTime() > Date.now()) startedAt.setTime(Date.now() - Math.floor(next() * 36e5));
+
+      // Roughly three in four contacts are ones the AI finishes.
+      const wantContained = next() < 0.76;
+      const pool = ROUTINE.filter((r) => r.contained === wantContained);
+      const template = pool[Math.floor(next() * pool.length)];
+
+      out.push({
+        template,
+        startedAt,
+        durationSeconds: Math.round((template.contained ? 90 : 240) + next() * 260),
+        sentimentEnd: template.contained ? 0.2 + next() * 0.6 : -0.5 + next() * 0.5,
+        // A fifth of finished conversations get reviewed by a person.
+        reviewScore: next() < 0.2 ? (template.contained ? 4 + Math.round(next()) : 2 + Math.round(next() * 2)) : null,
+      });
+    }
+  }
+  return out;
+}
+
 async function main() {
   const [brand] = await db.select().from(s.brands).where(eq(s.brands.slug, "aurelius-home")).limit(1);
   if (!brand) throw new Error("Seed the workspace first: npm run db:seed");
@@ -570,7 +645,68 @@ async function main() {
     }
   }
 
-  console.log(`\nSeeded ${CONVERSATIONS.length} conversations, ${turnCount} turns, ${handoffCount} handoffs.`);
+  // Background traffic. Inserted in bulk rather than row by row — 500
+  // conversations of round trips takes minutes over a pooled connection.
+  const traffic = generateTraffic();
+  const reviewers = ["D. Rahman", "J. Okafor", "A. Lindberg"];
+  const trafficRows = await db
+    .insert(s.conversations)
+    .values(
+      traffic.map((t, i) => ({
+        brandId: brand.id,
+        // Spread across the brand's customers so per-customer history is real.
+        customerId: customers[i % customers.length].id,
+        channel: t.template.channel,
+        intent: t.template.intent,
+        status: "resolved" as const,
+        outcome: t.template.contained ? ("ai_resolved" as const) : ("escalated" as const),
+        agentVersionId: liveVersion?.id ?? null,
+        handledBy: t.template.contained ? null : reviewers[i % reviewers.length],
+        sentimentStart: 0,
+        sentimentEnd: t.sentimentEnd,
+        startedAt: t.startedAt,
+        endedAt: new Date(t.startedAt.getTime() + t.durationSeconds * 1000),
+        durationSeconds: t.durationSeconds,
+        contained: t.template.contained,
+        reviewScore: t.reviewScore,
+        reviewerName: t.reviewScore ? reviewers[i % reviewers.length] : null,
+        reviewedAt: t.reviewScore ? new Date(t.startedAt.getTime() + 864e5) : null,
+      })),
+    )
+    .returning({ id: s.conversations.id });
+
+  const trafficTurns = trafficRows.flatMap((row, i) => [
+    { conversationId: row.id, ordinal: 0, speaker: "customer" as const, body: traffic[i].template.ask, atSeconds: 0 },
+    { conversationId: row.id, ordinal: 1, speaker: "ai" as const, body: traffic[i].template.reply, atSeconds: 12 },
+  ]);
+  const insertedTurns: { id: string; conversationId: string; ordinal: number }[] = [];
+  for (let i = 0; i < trafficTurns.length; i += 1000) {
+    const batch = await db
+      .insert(s.turns)
+      .values(trafficTurns.slice(i, i + 1000))
+      .returning({ id: s.turns.id, conversationId: s.turns.conversationId, ordinal: s.turns.ordinal });
+    insertedTurns.push(...batch);
+  }
+  turnCount += insertedTurns.length;
+
+  // Cite the document each reply actually leaned on. A grounded answer with
+  // no citation row would make the quality screens count a failure that did
+  // not happen.
+  const trafficCitations = insertedTurns
+    .filter((t) => t.ordinal === 1)
+    .map((t) => {
+      const index = trafficRows.findIndex((r) => r.id === t.conversationId);
+      const cite = index >= 0 ? traffic[index].template.cite : undefined;
+      const doc = cite ? docByTitle.get(cite) : undefined;
+      return doc ? { turnId: t.id, documentId: doc.id, confidence: 0.88 } : null;
+    })
+    .filter((x): x is { turnId: string; documentId: string; confidence: number } => x !== null);
+  for (let i = 0; i < trafficCitations.length; i += 1000) {
+    await db.insert(s.turnCitations).values(trafficCitations.slice(i, i + 1000));
+  }
+
+  console.log(`\nSeeded ${CONVERSATIONS.length} written conversations and ${trafficRows.length} of background traffic.`);
+  console.log(`  ${turnCount} turns, ${trafficCitations.length} citations, ${handoffCount} handoffs.`);
   console.log("Run `npm run db:rescore` so the rules see the new history.\n");
 }
 

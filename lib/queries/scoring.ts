@@ -230,7 +230,9 @@ export async function rescoreBrand(brandId: string): Promise<number> {
       serviceFailures90d: history.filter(
         (h) => daysSince(h.startedAt) <= 90 && h.outcome === "escalated",
       ).length,
-      renewalDays: null,
+      renewalDays: customer.renewsAt
+        ? Math.round((customer.renewsAt.getTime() - now) / 864e5)
+        : null,
       intent: history.find((h) => daysSince(h.startedAt) <= 1)?.intent ?? null,
     };
 

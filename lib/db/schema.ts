@@ -32,6 +32,9 @@ import {
 /** Roles a person can hold inside one organization. Ordered most → least. */
 export const roleEnum = pgEnum("role", ["owner", "admin", "manager", "agent", "analyst"]);
 
+/** Whether a membership is a real person yet. `invited` has no Clerk id. */
+export const membershipStatusEnum = pgEnum("membership_status", ["invited", "active", "suspended"]);
+
 export const planEnum = pgEnum("plan", ["trial", "studio", "operator", "enterprise"]);
 
 export const channelEnum = pgEnum("channel", ["phone", "whatsapp", "web_chat", "email", "sms", "survey"]);
@@ -97,6 +100,10 @@ export const brands = pgTable(
     location: text("location"),
     /** The name the AI answers to on this brand's line. */
     agentName: text("agent_name"),
+    /** IANA zone the business hours below are expressed in. */
+    timezone: text("timezone").notNull().default("Europe/London"),
+    /** What happens outside business hours: "ai", "voicemail", "closed". */
+    afterHoursMode: text("after_hours_mode").notNull().default("ai"),
     isLive: boolean("is_live").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -115,10 +122,15 @@ export const memberships = pgTable(
     orgId: uuid("org_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
-    clerkUserId: text("clerk_user_id").notNull(),
+    /** Null until the invite is accepted — a pending invite is a membership. */
+    clerkUserId: text("clerk_user_id"),
     email: text("email").notNull(),
     name: text("name").notNull(),
     role: roleEnum("role").notNull(),
+    status: membershipStatusEnum("status").notNull().default("active"),
+    /** The single-use token in an invite link. Cleared on acceptance. */
+    inviteToken: text("invite_token"),
+    invitedByName: text("invited_by_name"),
     /** Null means every brand in the org; otherwise see membershipBrands. */
     allBrands: boolean("all_brands").notNull().default(false),
     invitedAt: timestamp("invited_at", { withTimezone: true }),
@@ -127,6 +139,7 @@ export const memberships = pgTable(
   },
   (t) => [
     uniqueIndex("memberships_org_user_idx").on(t.orgId, t.clerkUserId),
+    uniqueIndex("memberships_org_email_idx").on(t.orgId, t.email),
     index("memberships_user_idx").on(t.clerkUserId),
   ],
 );
@@ -204,6 +217,8 @@ export const customers = pgTable(
     tier: text("tier"),
     owner: text("owner"),
     customerSince: timestamp("customer_since", { withTimezone: true }),
+    /** When their contract next renews. Feeds the "renewal window" rules. */
+    renewsAt: timestamp("renews_at", { withTimezone: true }),
     ltvPence: integer("ltv_pence").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -343,6 +358,9 @@ export const documents = pgTable(
     citationCount: integer("citation_count").notNull().default(0),
     successRate: real("success_rate"),
     sourceSystem: text("source_system"),
+    updatedByName: text("updated_by_name"),
+    /** Bumped on every published edit; matches the top documentRevisions row. */
+    revision: integer("revision").notNull().default(1),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -480,8 +498,15 @@ export const conversations = pgTable(
     durationSeconds: integer("duration_seconds"),
     /** True when no human was needed — the containment metric. */
     contained: boolean("contained"),
+    /**
+     * One sentence a colleague could read instead of the transcript. Written
+     * by the classification job when a conversation closes, not by a person.
+     */
+    summary: text("summary"),
     reviewScore: integer("review_score"),
     reviewerName: text("reviewer_name"),
+    reviewNote: text("review_note"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   },
   (t) => [
     index("conversations_brand_started_idx").on(t.brandId, t.startedAt),
@@ -632,6 +657,10 @@ export const featureFlags = pgTable(
     note: text("note"),
     /** Default for tenants with no explicit override. */
     defaultOn: boolean("default_on").notNull().default(false),
+    /** "internal", "alpha", "beta", "ga". */
+    stage: text("stage").notNull().default("internal"),
+    /** Share of the fleet the flag is on for, 0-100. */
+    rolloutPercent: integer("rollout_percent").notNull().default(0),
   },
 );
 
@@ -660,8 +689,13 @@ export const qualityFlags = pgTable(
     turnId: uuid("turn_id").references(() => turns.id, { onDelete: "set null" }),
     /** "unsupported_claim", "no_citation", "invented_date", … */
     failureClass: text("failure_class").notNull(),
+    summary: text("summary"),
     rootCause: text("root_cause"),
     owner: text("owner").notNull().default("tenant"),
+    /** "open", "triaged", "fixed", "wont_fix". */
+    status: text("status").notNull().default("open"),
+    assignedToStaffId: uuid("assigned_to_staff_id").references(() => staff.id, { onDelete: "set null" }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("quality_flags_org_idx").on(t.orgId, t.createdAt)],
@@ -682,6 +716,8 @@ export const channels = pgTable(
     detail: text("detail"),
     /** "live", "drafts_only", "not_connected". */
     state: text("state").notNull().default("not_connected"),
+    /** Channel-specific settings: greeting, voice, fallback number, hours. */
+    config: jsonb("config").notNull().default({}),
   },
   (t) => [uniqueIndex("channels_brand_kind_idx").on(t.brandId, t.kind)],
 );
@@ -700,4 +736,309 @@ export const integrations = pgTable(
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
   },
   (t) => [unique("integrations_org_name_key").on(t.orgId, t.name)],
+);
+
+/* ─── Saved views ──────────────────────────────────────────────────────── */
+
+/**
+ * A named filter set on a list screen.
+ *
+ * The query is stored as the same object the URL carries, so opening a saved
+ * view and hand-editing the address bar reach the same code path — there is no
+ * second, privileged way to filter a table.
+ */
+export const savedViews = pgTable(
+  "saved_views",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Null for a view every member of the org can see. */
+    membershipId: uuid("membership_id").references(() => memberships.id, { onDelete: "cascade" }),
+    /** Which list it belongs to: "customers", "conversations", "fleet". */
+    surface: text("surface").notNull(),
+    name: text("name").notNull(),
+    /** The searchParams object, e.g. { segment: "Trade", minScore: "70" }. */
+    query: jsonb("query").notNull().default({}),
+    /** Opened when the screen is visited with no query of its own. */
+    isDefault: boolean("is_default").notNull().default(false),
+    ordinal: integer("ordinal").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("saved_views_scope_idx").on(t.orgId, t.surface, t.ordinal)],
+);
+
+/* ─── Customer record ──────────────────────────────────────────────────── */
+
+/** A note a person left on a customer. Appears inline in the timeline. */
+export const customerNotes = pgTable(
+  "customer_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    authorMembershipId: uuid("author_membership_id").references(() => memberships.id, {
+      onDelete: "set null",
+    }),
+    authorName: text("author_name").notNull(),
+    body: text("body").notNull(),
+    pinned: boolean("pinned").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("customer_notes_customer_idx").on(t.customerId, t.createdAt)],
+);
+
+/**
+ * What this customer has and has not agreed to.
+ *
+ * Held per customer rather than per org because consent is the customer's, not
+ * the tenant's — and because the agent checks it before it records a call or
+ * mentions a marketing offer.
+ */
+export const customerConsents = pgTable(
+  "customer_consents",
+  {
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** "marketing", "call_recording", "ai_training", "data_sharing". */
+    kind: text("kind").notNull(),
+    granted: boolean("granted").notNull().default(false),
+    /** How it was captured: "web form", "verbal, call 8 Mar", … */
+    detail: text("detail"),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.customerId, t.kind] })],
+);
+
+/**
+ * A row pulled in from one of the tenant's other systems — an order, a
+ * subscription, an invoice, a ticket. Corva does not own these; it mirrors
+ * them so the agent and the console can reason about them in one place.
+ */
+export const customerRecords = pgTable(
+  "customer_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** "order", "subscription", "invoice", "ticket", "delivery". */
+    kind: text("kind").notNull(),
+    /** The other system's identifier, e.g. "AH-88213". */
+    ref: text("ref"),
+    label: text("label").notNull(),
+    status: text("status"),
+    amountPence: integer("amount_pence"),
+    /** Which integration it came from, so a stale mirror is attributable. */
+    sourceSystem: text("source_system"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    meta: jsonb("meta").notNull().default({}),
+  },
+  (t) => [index("customer_records_customer_idx").on(t.customerId, t.occurredAt)],
+);
+
+/* ─── Brand operations ─────────────────────────────────────────────────── */
+
+/** One weekday's opening hours for a brand, in the brand's own timezone. */
+export const businessHours = pgTable(
+  "business_hours",
+  {
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    /** 0 = Monday, 6 = Sunday. */
+    weekday: integer("weekday").notNull(),
+    /** Minutes from midnight, so comparisons are integer arithmetic. */
+    opensMinute: integer("opens_minute").notNull().default(540),
+    closesMinute: integer("closes_minute").notNull().default(1080),
+    closed: boolean("closed").notNull().default(false),
+  },
+  (t) => [primaryKey({ columns: [t.brandId, t.weekday] })],
+);
+
+/** A knowledge source that syncs into `documents` on a schedule. */
+export const knowledgeSources = pgTable(
+  "knowledge_sources",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** "notion", "zendesk", "drive", "sharepoint", "upload". */
+    kind: text("kind").notNull(),
+    /** "syncing", "synced", "error", "paused". */
+    status: text("status").notNull().default("synced"),
+    docCount: integer("doc_count").notNull().default(0),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    error: text("error"),
+  },
+  (t) => [index("knowledge_sources_brand_idx").on(t.brandId)],
+);
+
+/**
+ * A published version of a document's text.
+ *
+ * The agent cites a chunk, and a chunk belongs to whatever the document said
+ * at the time. Keeping revisions means an old citation can still be read as it
+ * was when the answer was given.
+ */
+export const documentRevisions = pgTable(
+  "document_revisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => documents.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    note: text("note"),
+    authorName: text("author_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("document_revisions_doc_rev_idx").on(t.documentId, t.revision)],
+);
+
+/**
+ * Something wrong with the scoring model itself, as opposed to one customer's
+ * score. Raised by the rescore job, cleared by a person.
+ */
+export const modelAlerts = pgTable(
+  "model_alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    /** "drift", "stale_signal", "rule_conflict", "coverage". */
+    kind: text("kind").notNull(),
+    /** "info", "warn", "critical". */
+    severity: text("severity").notNull().default("warn"),
+    title: text("title").notNull(),
+    detail: text("detail").notNull().default(""),
+    axisKey: text("axis_key").references(() => scoringAxes.key, { onDelete: "set null" }),
+    /** "open", "acknowledged", "resolved". */
+    status: text("status").notNull().default("open"),
+    acknowledgedByName: text("acknowledged_by_name"),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("model_alerts_brand_idx").on(t.brandId, t.status, t.createdAt)],
+);
+
+/* ─── Org settings ─────────────────────────────────────────────────────── */
+
+/**
+ * The promises a tenant makes to its own customers. One row per org, because
+ * retention and redaction are legal positions, not per-brand preferences.
+ */
+export const privacySettings = pgTable("privacy_settings", {
+  orgId: uuid("org_id")
+    .primaryKey()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  /** Transcripts are deleted after this many days. */
+  retentionDays: integer("retention_days").notNull().default(365),
+  /** Strip card numbers, addresses and the like before storage. */
+  redactPii: boolean("redact_pii").notNull().default(true),
+  /** Whether this tenant's transcripts may improve the shared model. */
+  trainOnTranscripts: boolean("train_on_transcripts").notNull().default(false),
+  recordCalls: boolean("record_calls").notNull().default(true),
+  /** Where the rows physically live; must match `organizations.region`. */
+  dataRegion: text("data_region").notNull().default("eu-west-2"),
+  dpoEmail: text("dpo_email"),
+  /** Whether Corva staff may request a support grant at all. */
+  allowSupportAccess: boolean("allow_support_access").notNull().default(true),
+  updatedByName: text("updated_by_name"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/* ─── Platform history and operations ──────────────────────────────────── */
+
+/**
+ * One tenant's activity for one day. Denormalised on write because every
+ * operator chart reads it and none of them wants to scan `conversations`.
+ */
+export const usageDaily = pgTable(
+  "usage_daily",
+  {
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    day: timestamp("day", { withTimezone: true }).notNull(),
+    conversations: integer("conversations").notNull().default(0),
+    contained: integer("contained").notNull().default(0),
+    handoffs: integer("handoffs").notNull().default(0),
+    aiMinutes: integer("ai_minutes").notNull().default(0),
+    humanMinutes: integer("human_minutes").notNull().default(0),
+    /** What the traffic cost Corva to serve, for unit economics. */
+    costPence: integer("cost_pence").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.day] })],
+);
+
+/** A tenant's recurring revenue at the close of one month. */
+export const mrrSnapshots = pgTable(
+  "mrr_snapshots",
+  {
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** The first of the month it describes. */
+    month: timestamp("month", { withTimezone: true }).notNull(),
+    mrrPence: integer("mrr_pence").notNull().default(0),
+    seatCount: integer("seat_count").notNull().default(0),
+    plan: planEnum("plan").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.month] })],
+);
+
+/** A staff note about a tenant. Never visible to the tenant. */
+export const accountNotes = pgTable(
+  "account_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    staffId: uuid("staff_id").references(() => staff.id, { onDelete: "set null" }),
+    authorName: text("author_name").notNull(),
+    /** "note", "risk", "expansion", "incident". */
+    kind: text("kind").notNull().default("note"),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("account_notes_org_idx").on(t.orgId, t.createdAt)],
+);
+
+/** An upstream service the platform depends on, and how it is behaving. */
+export const platformDependencies = pgTable("platform_dependencies", {
+  key: text("key").primaryKey(),
+  label: text("label").notNull(),
+  provider: text("provider"),
+  /** "healthy", "degraded", "down". */
+  state: text("state").notNull().default("healthy"),
+  note: text("note"),
+  latencyMs: integer("latency_ms"),
+  checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** A post on an incident's timeline. */
+export const incidentUpdates = pgTable(
+  "incident_updates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    incidentId: uuid("incident_id")
+      .notNull()
+      .references(() => incidents.id, { onDelete: "cascade" }),
+    /** "investigating", "identified", "monitoring", "resolved". */
+    stage: text("stage").notNull(),
+    body: text("body").notNull(),
+    authorName: text("author_name"),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("incident_updates_incident_idx").on(t.incidentId, t.at)],
 );
