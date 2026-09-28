@@ -532,7 +532,7 @@ export default function LandingPage() {
                     <div>
                       <div style={{ fontSize: 14, lineHeight: 1.45 }}>
                         You&rsquo;ve had three reschedules on order AH-40912, so this qualifies for the
-                        goodwill credit under your service promise. I can apply £40 now and book a fixed
+                        goodwill credit under your service promise. I can apply ₹4,000 now and book a fixed
                         morning slot for Thursday.
                       </div>
                       <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -552,7 +552,7 @@ export default function LandingPage() {
                             color: "var(--color-neutral-800)",
                           }}
                         >
-                          Goodwill ceiling £50 · within policy
+                          Goodwill ceiling ₹5,000 · within policy
                         </span>
                       </div>
                     </div>

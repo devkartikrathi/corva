@@ -10,7 +10,9 @@ import * as s from "@/lib/db/schema";
 import { generateText } from "ai";
 import { loadAgentConfig } from "@/lib/agent/config";
 import { checkTriggers } from "@/lib/agent/guardrails";
-import { TURN_MODEL, TURN_OPTIONS } from "@/lib/agent/model";
+import { languageModel, thinkingOptions } from "@/lib/agent/model";
+import { isKnownModel, resolveModel } from "@/lib/agent/models";
+import { recordModelCall } from "@/lib/agent/quota";
 import { systemPrompt } from "@/lib/agent/respond";
 import { retrieve } from "@/lib/agent/retrieval";
 import { rescoreBrand } from "@/lib/queries/scoring";
@@ -320,7 +322,7 @@ async function editableVersion(brandId: string, authorName: string) {
         agentVersionId: created.id,
         action: a.action,
         label: a.label,
-        ceilingPence: a.ceilingPence,
+        ceilingPaise: a.ceilingPaise,
         blocked: a.blocked,
         escalateTo: a.escalateTo,
       })),
@@ -393,7 +395,7 @@ export async function setTone(key: string, value: number) {
  */
 export async function setAuthority(
   limitId: string,
-  input: { blocked: boolean; ceilingPence: number | null; escalateTo: string | null },
+  input: { blocked: boolean; ceilingPaise: number | null; escalateTo: string | null },
 ) {
   const { session, brand } = await getConsoleContext();
   assertCan(session.actor, "agent.edit", { brandId: brand.id });
@@ -410,7 +412,7 @@ export async function setAuthority(
     .limit(1);
   if (!source) throw new Error("No such authority limit.");
 
-  if (input.ceilingPence !== null && input.ceilingPence < 0) {
+  if (input.ceilingPaise !== null && input.ceilingPaise < 0) {
     throw new Error("A ceiling cannot be negative.");
   }
 
@@ -418,7 +420,7 @@ export async function setAuthority(
     .update(s.authorityLimits)
     .set({
       blocked: input.blocked,
-      ceilingPence: input.blocked ? null : input.ceilingPence,
+      ceilingPaise: input.blocked ? null : input.ceilingPaise,
       escalateTo: input.escalateTo,
     })
     .where(
@@ -436,7 +438,7 @@ export async function setAuthority(
     actorName: session.name,
     action: "authority.changed",
     target: source.action,
-    meta: { blocked: input.blocked, ceilingPence: input.ceilingPence },
+    meta: { blocked: input.blocked, ceilingPaise: input.ceilingPaise },
   });
 
   revalidatePath("/app/tuning");
@@ -557,7 +559,7 @@ export async function rollbackToVersion(versionId: string) {
         agentVersionId: created.id,
         action: a.action,
         label: a.label,
-        ceilingPence: a.ceilingPence,
+        ceilingPaise: a.ceilingPaise,
         blocked: a.blocked,
         escalateTo: a.escalateTo,
       })),
@@ -601,12 +603,18 @@ export async function rollbackToVersion(versionId: string) {
  * does before publishing it, and a test that logged a knowledge gap would
  * quietly corrupt the numbers on the screen next door.
  */
-export async function previewReply(message: string) {
+export async function previewReply(message: string, modelId?: string) {
   const { session, brand } = await getConsoleContext();
   assertCan(session.actor, "agent.edit", { brandId: brand.id });
 
   const text = message.trim();
   if (!text) throw new Error("Type something for it to answer.");
+
+  // A preview may be run against a model the brand is not on, which is the
+  // whole point: the question "would the cheap one have answered this as
+  // well?" can only be settled by asking both. The brand's own choice is
+  // unchanged either way — trying a model here does not adopt it.
+  if (modelId && !isKnownModel(modelId)) throw new Error("That is not a model we offer.");
 
   const [draft] = await db
     .select()
@@ -631,6 +639,8 @@ export async function previewReply(message: string) {
     authorityExceeded: false,
   });
 
+  const model = resolveModel(modelId ?? config.modelId);
+
   if (fired.length > 0) {
     return {
       version: config.version,
@@ -638,15 +648,22 @@ export async function previewReply(message: string) {
       reason: fired.map((f) => f.detail).join(" "),
       text: "I want to get this right rather than guess, so I'm bringing in a colleague now.",
       citations: [] as { title: string; anchor: string | null; confidence: number }[],
+      modelId: model.id,
+      modelLabel: model.label,
     };
   }
 
   const result = await generateText({
-    model: TURN_MODEL,
-    providerOptions: TURN_OPTIONS,
+    model: languageModel(model.id),
+    providerOptions: thinkingOptions(model.thinking.turn),
     system: systemPrompt(config, "Test console — no customer record attached.", chunks),
     messages: [{ role: "user" as const, content: text }],
   });
+
+  // Nothing about a preview is persisted, but the request was still spent —
+  // and a test console that quietly ate the day's quota without saying so is
+  // how the ceiling gets hit in the first place.
+  await recordModelCall(model.id, result.usage);
 
   return {
     version: config.version,
@@ -658,6 +675,8 @@ export async function previewReply(message: string) {
       anchor: c.anchor,
       confidence: c.confidence,
     })),
+    modelId: model.id,
+    modelLabel: model.label,
   };
 }
 

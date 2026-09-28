@@ -39,11 +39,22 @@ type Seed = {
   contained?: boolean;
   reviewScore?: number;
   reviewerName?: string;
+  /** The one line a colleague reads before taking the line. */
+  liveSummary?: string;
   turns: Turn[];
-  actions?: { action: string; label: string; amountPence?: number; allowed: boolean; at: number }[];
+  actions?: { action: string; label: string; amountPaise?: number; allowed: boolean; at: number }[];
   handoff?: {
+    /**
+     * `escalation` is the AI hitting a limit. `closure_approval` is the
+     * opposite: the customer was told no, accepted it, and the conversation
+     * ended by agreement — nothing is owed, but a person still signs it off.
+     */
+    kind?: "escalation" | "closure_approval";
     reason: string;
     waitingMinsAgo: number;
+    /** Who it is ringing at. An email from PEOPLE, or null for the open queue. */
+    routeTo?: string | null;
+    routingReason?: string;
     brief: Record<string, unknown>;
   };
 };
@@ -63,12 +74,14 @@ const CONVERSATIONS: Seed[] = [
     sentimentStart: -0.1,
     sentimentEnd: -0.32,
     contained: false,
+    liveSummary:
+      "Third failed delivery — wants the ₹7,500 install fee waived on top of the ₹4,000 credit, threatening to cancel",
     turns: [
       { speaker: "customer", at: 221, body: "Hello — I'm calling about my sofa order, AH-40912." },
       {
         speaker: "ai",
         at: 224,
-        body: "I have it in front of me, Marguerite. It's the Lindholm three-seater, currently scheduled for Friday the 5th. I can see it's been moved twice before that.",
+        body: "I have it in front of me, Meera. It's the Lindholm three-seater, currently scheduled for Friday the 5th. I can see it's been moved twice before that.",
         cite: "Service promise v4",
         check: "Identity verified by number",
       },
@@ -81,9 +94,9 @@ const CONVERSATIONS: Seed[] = [
       {
         speaker: "ai",
         at: 246,
-        body: "You've had three reschedules, so this qualifies for the goodwill credit under your service promise. I can apply £40 now and book a fixed morning slot for Thursday — you won't be given a window this time.",
+        body: "You've had three reschedules, so this qualifies for the goodwill credit under your service promise. I can apply ₹4,000 now and book a fixed morning slot for Thursday — you won't be given a window this time.",
         cite: "Service promise v4",
-        check: "Goodwill ceiling £50 · within policy",
+        check: "Goodwill ceiling ₹5,000 · within policy",
       },
       { speaker: "customer", at: 249, body: "Fine. But this has cost me two days now." },
       {
@@ -101,27 +114,31 @@ const CONVERSATIONS: Seed[] = [
       },
     ],
     actions: [
-      { action: "goodwill_credit", label: "£40 goodwill credit applied", amountPence: 4000, allowed: true, at: 246 },
+      { action: "goodwill_credit", label: "₹4,000 goodwill credit applied", amountPaise: 4_00_000, allowed: true, at: 246 },
       { action: "reschedule_delivery", label: "Thu AM slot provisionally held", allowed: true, at: 247 },
-      { action: "waive_fee", label: "Waive £85 install fee", amountPence: 8500, allowed: false, at: 251 },
+      { action: "waive_fee", label: "Waive ₹7,500 install fee", amountPaise: 7_50_000, allowed: false, at: 251 },
     ],
     handoff: {
       reason: "Install fee waiver beyond AI authority · cancellation intent",
       waitingMinsAgo: 6,
+      // Ravi owns the account and is available, which is the first thing
+      // routing looks for. This is the handoff the transfer alert fires on.
+      routeTo: "ravi@aureliusgroup.com",
+      routingReason: "Owns this account",
       brief: {
         wants:
-          "The £85 installation fee waived on order AH-40912, on top of the £40 credit already applied, because the delivery has been rescheduled three times and she has taken two days off work.",
+          "The ₹7,500 installation fee waived on order AH-40912, on top of the ₹4,000 credit already applied, because the delivery has been rescheduled three times and she has taken two days off work.",
         alreadyDid: [
-          { ok: true, text: "Applied £40 goodwill credit under Service promise v4 §3.2" },
+          { ok: true, text: "Applied ₹4,000 goodwill credit under Service promise v4 §3.2" },
           { ok: true, text: "Held a fixed Thursday 08:00–12:00 slot (not yet confirmed to her)" },
           { ok: true, text: "Verified identity by number and confirmed the delivery address" },
           { ok: false, text: "Did not discuss the fee — outside its authority, and it said so plainly" },
         ],
-        decision: "Waive the £85 install fee?",
+        decision: "Waive the ₹7,500 install fee?",
         decisionContext:
-          "Your policy allows a Manager to waive fees after two or more service failures. This is the third. Retention model puts the account at £14,280 lifetime value against an £85 concession.",
+          "Your policy allows a Manager to waive fees after two or more service failures. This is the third. Retention model puts the account at ₹12,49,500 lifetime value against a ₹7,500 concession.",
         openingLine:
-          "Marguerite, it's Dania — I'm the manager here and I've read everything, so you don't need to go through it again. Three moved deliveries isn't acceptable. Here's what I can do about the fee.",
+          "Meera, it's Dania — I'm the manager here and I've read everything, so you don't need to go through it again. Three moved deliveries isn't acceptable. Here's what I can do about the fee.",
         sensitivities:
           "Dislikes being transferred, has asked twice for a single owner. Do not offer another evening slot.",
       },
@@ -137,12 +154,12 @@ const CONVERSATIONS: Seed[] = [
     outcome: "human_resolved",
     startedDaysAgo: 6,
     durationSeconds: 862,
-    handledBy: "A. Lindberg",
+    handledBy: "Anaya Lamba",
     sentimentStart: -0.41,
     sentimentEnd: 0.28,
     contained: false,
     reviewScore: 4,
-    reviewerName: "D. Rahman",
+    reviewerName: "Dania Rahman",
     turns: [
       {
         speaker: "customer",
@@ -162,19 +179,19 @@ const CONVERSATIONS: Seed[] = [
       },
       {
         speaker: "human",
-        author: "A. Lindberg",
-        body: "I've read the whole thing, Sofia — you're owed a decision, not a wait. Approved £120 back on the two undelivered chairs and kept the rest of the order live.",
+        author: "A. Lamba",
+        body: "I've read the whole thing, Sofia — you're owed a decision, not a wait. Approved ₹12,000 back on the two undelivered chairs and kept the rest of the order live.",
         sentiment: 0.28,
       },
     ],
-    actions: [{ action: "partial_refund", label: "£120 partial refund approved", amountPence: 12000, allowed: true, at: 780 }],
+    actions: [{ action: "partial_refund", label: "₹12,000 partial refund approved", amountPaise: 12_00_000, allowed: true, at: 780 }],
   },
 
   /* ── The rest of the handoff queue ────────────────────────────────────── */
   {
     customerRef: "AH-CU-40913",
     channel: "phone",
-    intent: "Invoice dispute £8,410",
+    intent: "Invoice dispute ₹7,36,000",
     status: "waiting_human",
     outcome: "escalated",
     startedMinsAgo: 12,
@@ -190,25 +207,25 @@ const CONVERSATIONS: Seed[] = [
       },
     ],
     handoff: {
-      reason: "Disputed invoice £8,410 · needs finance approval",
+      reason: "Disputed invoice ₹7,36,000 · needs finance approval",
       waitingMinsAgo: 4,
       brief: {
-        wants: "The invoice re-cut at the 18% trade tier they were quoted, a difference of £8,410.",
+        wants: "The invoice re-cut at the 18% trade tier they were quoted, a difference of ₹7,36,000.",
         alreadyDid: [
           { ok: true, text: "Confirmed the order is 27 units, above the 25-unit threshold" },
           { ok: false, text: "Did not state which discount applies — the two documents contradict each other" },
         ],
-        decision: "Honour the 18% tier and issue a credit note for £8,410?",
+        decision: "Honour the 18% tier and issue a credit note for ₹7,36,000?",
         decisionContext:
           "Trade discount tiers says 18% above 25 units. Fee schedule 2026 says 12%. The conflict is unresolved and flagged on the Knowledge screen.",
         openingLine:
-          "It's Joseph — I can see our own two documents disagree, which isn't your problem. Let me tell you what we'll honour.",
-        sensitivities: "Renewal is in 21 days. £96,500 lifetime value.",
+          "It's Jyoti — I can see our own two documents disagree, which isn't your problem. Let me tell you what we'll honour.",
+        sensitivities: "Renewal is in 21 days. ₹84,43,750 lifetime value.",
       },
     },
   },
   {
-    customerRef: "AH-CU-40915",
+    customerRef: "AH-CU-40913",
     channel: "email",
     intent: "Trade pricing for 12 units",
     status: "waiting_human",
@@ -226,6 +243,8 @@ const CONVERSATIONS: Seed[] = [
     ],
     handoff: {
       reason: "Trade pricing question with no matching document",
+      routeTo: "joseph@aureliusgroup.com",
+      routingReason: "Owns this account",
       waitingMinsAgo: 9,
       brief: {
         wants: "A price for twelve units of the Lindholm range on their trade account.",
@@ -238,7 +257,7 @@ const CONVERSATIONS: Seed[] = [
     },
   },
   {
-    customerRef: "AH-CU-40916",
+    customerRef: "AH-CU-40922",
     channel: "whatsapp",
     intent: "Written confirmation of a verbal promise",
     status: "waiting_human",
@@ -256,19 +275,21 @@ const CONVERSATIONS: Seed[] = [
     ],
     handoff: {
       reason: "Wants written confirmation of a verbal promise",
+      routeTo: "anna@aureliusgroup.com",
+      routingReason: "Free now · rated 4.3",
       waitingMinsAgo: 11,
       brief: {
         wants: "Written confirmation of a free collection promised verbally on a previous call.",
         alreadyDid: [{ ok: false, text: "Could not confirm — the promise was never recorded against the order" }],
         decision: "Honour the unrecorded promise?",
-        decisionContext: "Same root cause as the Okonkwo case: verbal commitments are not being written to the order.",
+        decisionContext: "Same root cause as the Okhale case: verbal commitments are not being written to the order.",
         openingLine: "I've found your call from last week — let me sort this out.",
         sensitivities: "NPS detractor since June.",
       },
     },
   },
   {
-    customerRef: "AH-CU-40917",
+    customerRef: "AH-CU-40914",
     channel: "phone",
     intent: "Card declined twice",
     status: "waiting_human",
@@ -287,19 +308,21 @@ const CONVERSATIONS: Seed[] = [
     actions: [{ action: "send_payment_link", label: "Secure payment link sent", allowed: true, at: 90 }],
     handoff: {
       reason: "Card declined twice · asked to speak to accounts",
+      routeTo: "anna@aureliusgroup.com",
+      routingReason: "Owns this account",
       waitingMinsAgo: 14,
       brief: {
         wants: "To resolve two failed payments and speak to someone about the account.",
         alreadyDid: [{ ok: true, text: "Sent a secure payment link" }],
         decision: "Extend payment terms, or take payment on the link?",
-        decisionContext: "Card on file expires this month. £1,260 lifetime value, Tier 3.",
+        decisionContext: "Card on file expires this month. ₹3,44,750 lifetime value, Tier 2.",
         openingLine: "It's accounts — I can see the two declines, let's get this sorted.",
         sensitivities: "Low value; do not spend a long call here.",
       },
     },
   },
   {
-    customerRef: "AH-CU-40923",
+    customerRef: "AH-CU-40918",
     channel: "email",
     intent: "Complaint about a previous agent",
     status: "waiting_human",
@@ -317,6 +340,9 @@ const CONVERSATIONS: Seed[] = [
     ],
     handoff: {
       reason: "Complaint about a previous agent — policy requires a human",
+      // Nobody named: a complaint is whoever picks it up first, and the
+      // alert offers it to everyone free rather than sitting on one desk.
+      routeTo: null,
       waitingMinsAgo: 22,
       brief: {
         wants: "To complain about the conduct of an agent on a previous call.",
@@ -329,9 +355,85 @@ const CONVERSATIONS: Seed[] = [
     },
   },
 
+  /* ── The other way a "no" can end ─────────────────────────────────────── */
+  /**
+   * The customer asked for something the AI could not give, was told so
+   * plainly, was offered a colleague, and said they were happy to leave it.
+   *
+   * Worth seeding because it is the case that would otherwise be invisible.
+   * Nothing was spent and nobody was queued, so without the `closure_approval`
+   * row it would leave no trace at all — and "the AI talked a customer out of
+   * a refund" is exactly the decision that should reach a person, if only so
+   * somebody can decide whether it should keep happening.
+   */
+  {
+    customerRef: "AH-CU-40922",
+    channel: "phone",
+    intent: "Refund on a delivered order",
+    status: "resolved",
+    outcome: "ai_resolved",
+    startedMinsAgo: 26,
+    durationSeconds: 214,
+    sentimentStart: -0.22,
+    sentimentEnd: 0.18,
+    contained: true,
+    liveSummary: "Wanted a refund outside the returns window; declined a manager and accepted the fix instead",
+    turns: [
+      { speaker: "customer", at: 8, body: "I want a refund on the dining table. It's been six weeks and I've gone off it.", sentiment: -0.22 },
+      {
+        speaker: "ai",
+        at: 14,
+        body: "I've checked, Rohan, and I can't do that one — returns close at thirty days on a delivered order, and six weeks is outside it. That isn't my call to overrule.",
+        cite: "Refunds & goodwill",
+        check: "Outside the returns window",
+      },
+      { speaker: "customer", at: 31, body: "So that's it, is it?" },
+      {
+        speaker: "ai",
+        at: 34,
+        body: "Two ways to go. I can bring in a colleague who's allowed to make an exception — or, if you'd rather not wait, we leave the order as it is and I book the free levelling visit you're still entitled to. Your call entirely.",
+        cite: "Service promise v4",
+        check: "Offered a human · within policy",
+      },
+      { speaker: "customer", at: 58, body: "No, don't bother anyone. Book the visit and we'll call it even.", sentiment: 0.18 },
+      {
+        speaker: "ai",
+        at: 62,
+        body: "Booked for Tuesday morning. Thank you for being straight with me about it — I'd rather tell you no clearly than string you along. Nothing has been charged.",
+        cite: "Delivery ops playbook",
+        check: "Closed by agreement",
+      },
+    ],
+    actions: [
+      { action: "full_refund", label: "Refund outside the returns window", amountPaise: 1_04_125, allowed: false, at: 14 },
+      { action: "reschedule_delivery", label: "Levelling visit booked · Tue AM", allowed: true, at: 62 },
+    ],
+    handoff: {
+      kind: "closure_approval",
+      reason: "Refund declined and accepted — closed by agreement",
+      waitingMinsAgo: 21,
+      routeTo: "dania@aureliusgroup.com",
+      routingReason: "Free now · rated 4.6",
+      brief: {
+        headline: "Refund refused outside the 30-day window; he accepted a free levelling visit instead",
+        wants: "A full refund on a dining table delivered six weeks ago, outside the thirty-day returns window.",
+        alreadyDid: [
+          { ok: false, text: "Refused the refund — outside the returns window, and said so plainly" },
+          { ok: true, text: "Offered a manager who could make an exception; he declined one" },
+          { ok: true, text: "Booked the free levelling visit he was still entitled to, Tuesday AM" },
+        ],
+        decision: "Confirm this was closed correctly?",
+        decisionContext:
+          "Refunds & goodwill closes returns at thirty days. Nothing was paid out. He ended the call warmer than he started it (−0.22 → +0.18), so this reads as a good no rather than a customer giving up.",
+        openingLine: "Nothing needed from you unless you disagree — just confirming we were right to hold the line here.",
+        sensitivities: "₹10,41,250 lifetime value and no complaints on record. If we would have said yes, say so now rather than next quarter.",
+      },
+    },
+  },
+
   /* ── Resolved history, for the archive and the 360 timeline ───────────── */
   {
-    customerRef: "AH-CU-40916",
+    customerRef: "AH-CU-40922",
     channel: "phone",
     intent: "Warranty claim, sofa frame",
     status: "resolved",
@@ -351,7 +453,7 @@ const CONVERSATIONS: Seed[] = [
     ],
   },
   {
-    customerRef: "AH-CU-40920",
+    customerRef: "AH-CU-40918",
     channel: "web_chat",
     intent: "Change delivery address",
     status: "resolved",
@@ -371,7 +473,7 @@ const CONVERSATIONS: Seed[] = [
     ],
   },
   {
-    customerRef: "AH-CU-40921",
+    customerRef: "AH-CU-40913",
     channel: "phone",
     intent: "Bulk order lead time",
     status: "resolved",
@@ -391,7 +493,7 @@ const CONVERSATIONS: Seed[] = [
     ],
   },
   {
-    customerRef: "AH-CU-40917",
+    customerRef: "AH-CU-40914",
     channel: "whatsapp",
     intent: "Failed payment, card expired",
     status: "resolved",
@@ -438,7 +540,7 @@ const CONVERSATIONS: Seed[] = [
     outcome: "human_resolved",
     startedDaysAgo: 21,
     durationSeconds: 698,
-    handledBy: "R. Mehta",
+    handledBy: "Ravi Mehta",
     sentimentEnd: -0.08,
     contained: false,
     turns: [
@@ -446,10 +548,10 @@ const CONVERSATIONS: Seed[] = [
       {
         speaker: "human",
         author: "R. Mehta",
-        body: "Apologised and issued a £25 credit, promised a fixed slot next time.",
+        body: "Apologised and issued a ₹2,500 credit, promised a fixed slot next time.",
       },
     ],
-    actions: [{ action: "goodwill_credit", label: "£25 goodwill credit applied", amountPence: 2500, allowed: true, at: 400 }],
+    actions: [{ action: "goodwill_credit", label: "₹2,500 goodwill credit applied", amountPaise: 2_50_000, allowed: true, at: 400 }],
   },
   {
     customerRef: "AH-CU-40912",
@@ -483,15 +585,15 @@ const ROUTINE: { intent: string; channel: Seed["channel"]; contained: boolean; a
   { intent: "Where is my order?", channel: "whatsapp", contained: true, ask: "Any update on my delivery?", reply: "It's booked for Thursday with a four-hour window, confirmed the evening before. Nothing has moved.", cite: "Delivery ops playbook" },
   { intent: "Change delivery address", channel: "web_chat", contained: true, ask: "Can I change the delivery address?", reply: "Done — it's now going to the new address. The day and window are unchanged.", cite: "Delivery ops playbook" },
   { intent: "Fabric care", channel: "web_chat", contained: true, ask: "How do I clean the fabric?", reply: "Damp cloth and mild soap, never a solvent cleaner. Rotate the cushions monthly for the first year.", cite: "Care guide · Lindholm" },
-  { intent: "Installation fee", channel: "phone", contained: true, ask: "What does installation cost?", reply: "£85 for a single room, £140 multi-room. That covers assembly, levelling and taking the packaging away.", cite: "Fee schedule 2026" },
+  { intent: "Installation fee", channel: "phone", contained: true, ask: "What does installation cost?", reply: "₹7,500 for a single room, ₹12,500 multi-room. That covers assembly, levelling and taking the packaging away.", cite: "Fee schedule 2026" },
   { intent: "Warranty length", channel: "email", contained: true, ask: "How long is the warranty?", reply: "Ten years on the frame, two on upholstery and foam. A frame claim needs photographs and the order reference — no visit.", cite: "Warranty terms" },
   { intent: "Reschedule a delivery", channel: "whatsapp", contained: true, ask: "I need to move my delivery day.", reply: "Moved. There's no charge — you're more than 48 hours out.", cite: "Delivery ops playbook" },
   { intent: "Failed payment", channel: "sms", contained: true, ask: "My card was declined.", reply: "I've sent you a secure link to update the card. I can't take the number over the phone.", cite: "Fee schedule 2026" },
   { intent: "Order status after dispatch", channel: "phone", contained: true, ask: "Has my order left the warehouse?", reply: "It has — it's with the courier and still on for the booked day.", cite: "Delivery ops playbook" },
-  { intent: "Goodwill after a missed slot", channel: "phone", contained: true, ask: "You missed the window again.", reply: "I've applied a £50 credit to the original card — five working days. Your warranty start date is unaffected.", cite: "Service promise v4" },
+  { intent: "Goodwill after a missed slot", channel: "phone", contained: true, ask: "You missed the window again.", reply: "I've applied a ₹5,000 credit to the original account — five working days. Your warranty start date is unaffected.", cite: "Service promise v4" },
   { intent: "Trade discount question", channel: "email", contained: false, ask: "What discount do I get at thirty units?", reply: "I'd rather not guess at that — two of our documents disagree. Getting someone who can confirm it." },
   { intent: "Part-delivery refund", channel: "whatsapp", contained: false, ask: "Half of it arrived. What happens to the rest of the money?", reply: "I don't have a policy covering part-delivery refunds, so I'm not going to invent one. Bringing in a colleague." },
-  { intent: "Assembly service area", channel: "web_chat", contained: false, ask: "Do you assemble in Inverness?", reply: "I can't see a service area document for assembly, so I won't promise either way. Getting someone." },
+  { intent: "Assembly service area", channel: "web_chat", contained: false, ask: "Do you assemble in Kochi?", reply: "I can't see a service area document for assembly, so I won't promise either way. Getting someone." },
   { intent: "Waive the delivery fee", channel: "phone", contained: false, ask: "Can you waive the delivery fee for the trouble?", reply: "That's a manager's decision and not mine to make. I'm getting one now." },
   { intent: "Cancel an order", channel: "phone", contained: false, ask: "I want to cancel the whole thing.", reply: "I want to get this right rather than guess, so I'm bringing in a colleague now." },
 ];
@@ -554,17 +656,25 @@ async function main() {
   const customers = await db.select().from(s.customers).where(eq(s.customers.brandId, brand.id));
   const byRef = new Map(customers.map((c) => [c.externalRef!, c]));
 
+  // Handoffs are routed at a named person here rather than by calling the
+  // router, so the fixture is deterministic: the same person is ringing on
+  // every run, and the alert you are testing is the alert you meant to test.
+  const members = await db.select().from(s.memberships).where(eq(s.memberships.orgId, brand.orgId));
+  const memberByEmail = new Map(members.map((m) => [m.email, m]));
+  const emailByName = new Map(members.map((m) => [m.name, m.email]));
+
   const documents = await db.select().from(s.documents).where(eq(s.documents.brandId, brand.id));
   const docByTitle = new Map(documents.map((d) => [d.title, d]));
 
-  // Re-runnable: clear the conversation graph, leave customers and documents.
-  const existing = await db
-    .select({ id: s.conversations.id })
-    .from(s.conversations)
-    .where(eq(s.conversations.brandId, brand.id));
-  for (const c of existing) {
-    await db.delete(s.conversations).where(eq(s.conversations.id, c.id));
-  }
+  /**
+   * Re-runnable: clear the conversation graph, leave customers and documents.
+   *
+   * One statement, not one per row. This used to select every conversation and
+   * delete them in a loop — five hundred round trips over a pooled HTTP
+   * connection, which took minutes and made re-running the script something
+   * you avoided. Turns, citations, actions and handoffs all cascade from here.
+   */
+  await db.delete(s.conversations).where(eq(s.conversations.brandId, brand.id));
 
   let turnCount = 0;
   let handoffCount = 0;
@@ -595,6 +705,10 @@ async function main() {
         contained: seed.contained ?? null,
         reviewScore: seed.reviewScore ?? null,
         reviewerName: seed.reviewerName ?? null,
+        // Written here rather than generated, so the transfer alert has a line
+        // to show on a database that has never had a model pointed at it.
+        liveSummary: seed.liveSummary ?? null,
+        liveSummaryAt: seed.liveSummary ? startedAt : null,
       })
       .returning();
 
@@ -629,20 +743,31 @@ async function main() {
         conversationId: conversation.id,
         action: action.action,
         label: action.label,
-        amountPence: action.amountPence ?? null,
+        amountPaise: action.amountPaise ?? null,
         atSeconds: action.at,
         allowed: action.allowed,
       });
     }
 
     if (seed.handoff) {
+      const routedTo = seed.handoff.routeTo ? memberByEmail.get(seed.handoff.routeTo) : null;
+      const waitingSince = minsAgo(seed.handoff.waitingMinsAgo);
+      const brief = seed.handoff.brief as { headline?: string };
+
       await db.insert(s.handoffs).values({
         conversationId: conversation.id,
         brandId: brand.id,
+        kind: seed.handoff.kind ?? "escalation",
         reason: seed.handoff.reason,
         brief: seed.handoff.brief,
+        // The alert reads this first; the conversation's own line is the
+        // fallback, and the raw reason is the fallback of last resort.
+        headline: brief.headline ?? seed.liveSummary ?? null,
         status: "waiting",
-        waitingSince: minsAgo(seed.handoff.waitingMinsAgo),
+        routedToMembershipId: routedTo?.id ?? null,
+        routedAt: routedTo ? waitingSince : null,
+        routingReason: routedTo ? (seed.handoff.routingReason ?? "Routed to you") : null,
+        waitingSince,
       });
       handoffCount++;
     }
@@ -651,7 +776,33 @@ async function main() {
   // Background traffic. Inserted in bulk rather than row by row — 500
   // conversations of round trips takes minutes over a pooled connection.
   const traffic = generateTraffic();
-  const reviewers = ["D. Rahman", "J. Okafor", "A. Lindberg"];
+  /**
+   * The people who take escalated traffic.
+   *
+   * Full names, matching `memberships.name` exactly, because `handled_by` is a
+   * denormalised label that the Team performance screen and the "is this
+   * customer theirs" predicate both join on by name. Initials here would leave
+   * both reading zero against data that is otherwise correct.
+   */
+  const humans = ["Dania Rahman", "Jyoti Okhandiar", "Anaya Lamba", "Ravi Mehta"];
+
+  /**
+   * Who handles an escalation is decided by whose account it is.
+   *
+   * Round-robining the whole team across every customer was the first version,
+   * and it made the console's central claim invisible: if every agent has
+   * spoken to every customer at least once, then "the customers you are in
+   * conversation with" is all of them, and an Agent's screen is identical to a
+   * Manager's. That is not what a real book of accounts looks like — people
+   * work their own customers — so the fixture works that way too.
+   *
+   * An account nobody owns falls to a Manager, which is also what happens in
+   * the product: the AI runs it until it cannot, and then it is the brand's
+   * problem rather than a named person's.
+   */
+  const managers = ["Dania Rahman", "Jyoti Okhandiar"];
+  const handlerFor = (customer: (typeof customers)[number], i: number) =>
+    customer.owner ?? managers[i % managers.length];
   const trafficRows = await db
     .insert(s.conversations)
     .values(
@@ -664,7 +815,11 @@ async function main() {
         status: "resolved" as const,
         outcome: t.template.contained ? ("ai_resolved" as const) : ("escalated" as const),
         agentVersionId: liveVersion?.id ?? null,
-        handledBy: t.template.contained ? null : reviewers[i % reviewers.length],
+        // A contained conversation had no human on it at all — that is what
+        // contained means. An escalated one went to whoever holds the account.
+        handledBy: t.template.contained
+          ? null
+          : handlerFor(customers[i % customers.length], i),
         sentimentStart: 0,
         sentimentEnd: t.sentimentEnd,
         startedAt: t.startedAt,
@@ -672,7 +827,7 @@ async function main() {
         durationSeconds: t.durationSeconds,
         contained: t.template.contained,
         reviewScore: t.reviewScore,
-        reviewerName: t.reviewScore ? reviewers[i % reviewers.length] : null,
+        reviewerName: t.reviewScore ? humans[i % humans.length] : null,
         reviewedAt: t.reviewScore ? new Date(t.startedAt.getTime() + 864e5) : null,
       })),
     )
@@ -707,6 +862,44 @@ async function main() {
   for (let i = 0; i < trafficCitations.length; i += 1000) {
     await db.insert(s.turnCitations).values(trafficCitations.slice(i, i + 1000));
   }
+
+  /**
+   * The handoff behind each escalated background conversation.
+   *
+   * An escalated conversation that a person finished did, by definition, pass
+   * through the queue — so without these rows the Team performance screen
+   * reads "0 handoffs taken" for a workspace with two months of history, which
+   * is a fiction in the other direction. Pick-up times are spread from 40
+   * seconds to about seven minutes so the median column has a distribution
+   * rather than a constant.
+   */
+  const escalated = trafficRows
+    .map((row, i) => ({ row, t: traffic[i], i }))
+    .filter((x) => !x.t.template.contained);
+
+  const historicHandoffs = escalated.map(({ row, t: item, i }) => {
+    const human = handlerFor(customers[i % customers.length], i);
+    const pickupSeconds = 40 + ((i * 37) % 380);
+    return {
+      conversationId: row.id,
+      brandId: brand.id,
+      kind: "escalation" as const,
+      reason: `${item.template.intent} — beyond what the AI could finish`,
+      brief: {},
+      headline: item.template.reply,
+      status: "resolved" as const,
+      waitingSince: item.startedAt,
+      acceptedAt: new Date(item.startedAt.getTime() + pickupSeconds * 1000),
+      acceptedByMembershipId: memberByEmail.get(emailByName.get(human)!)!.id,
+      routedToMembershipId: memberByEmail.get(emailByName.get(human)!)!.id,
+      routingReason: "Free now",
+      resolution: "resolved",
+    };
+  });
+  for (let i = 0; i < historicHandoffs.length; i += 500) {
+    await db.insert(s.handoffs).values(historicHandoffs.slice(i, i + 500));
+  }
+  handoffCount += historicHandoffs.length;
 
   console.log(`\nSeeded ${CONVERSATIONS.length} written conversations and ${trafficRows.length} of background traffic.`);
   console.log(`  ${turnCount} turns, ${trafficCitations.length} citations, ${handoffCount} handoffs.`);

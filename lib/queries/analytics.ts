@@ -1,6 +1,8 @@
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
+import { can } from "@/lib/auth/permissions";
+import { formatRupees } from "@/lib/money";
 import { realTraffic } from "./live-data";
 
 /**
@@ -40,7 +42,7 @@ export async function getBrandMetrics(brandId: string, window?: { from: Date; to
       sentimentEnd: s.conversations.sentimentEnd,
       startedAt: s.conversations.startedAt,
       reviewScore: s.conversations.reviewScore,
-      costPence: s.conversations.costPence,
+      costPaise: s.conversations.costPaise,
     })
     .from(s.conversations)
     .where(
@@ -71,7 +73,7 @@ export async function getBrandMetrics(brandId: string, window?: { from: Date; to
   const avgReview = reviews.length ? reviews.reduce((a, b) => a + b, 0) / reviews.length : null;
 
   // What these conversations actually cost, not what a rate card guessed.
-  const costTotal = rows.reduce((a, r) => a + (r.costPence ?? 0), 0);
+  const costTotal = rows.reduce((a, r) => a + (r.costPaise ?? 0), 0);
   const costPer = total > 0 ? costTotal / total : 0;
 
   const waiting = rows.filter((r) => r.status === "waiting_human").length;
@@ -97,15 +99,15 @@ export async function getBrandMetrics(brandId: string, window?: { from: Date; to
     avgHandleSeconds: avgHandle,
     avgSentiment,
     avgReview,
-    costPerContactPence: Math.round(costPer),
+    costPerContactPaise: Math.round(costPer),
     /** Everything these conversations cost, for the spend line. */
-    costTotalPence: Math.round(costTotal),
+    costTotalPaise: Math.round(costTotal),
     /** Split by whether a person was needed — the case for containment. */
-    costContainedPence: Math.round(
-      rows.filter((r) => r.contained === true).reduce((a, r) => a + (r.costPence ?? 0), 0),
+    costContainedPaise: Math.round(
+      rows.filter((r) => r.contained === true).reduce((a, r) => a + (r.costPaise ?? 0), 0),
     ),
-    costEscalatedPence: Math.round(
-      rows.filter((r) => r.contained === false).reduce((a, r) => a + (r.costPence ?? 0), 0),
+    costEscalatedPaise: Math.round(
+      rows.filter((r) => r.contained === false).reduce((a, r) => a + (r.costPaise ?? 0), 0),
     ),
     waiting,
     live,
@@ -216,17 +218,17 @@ export async function unfinishedIntents(brandId: string) {
    */
   const [averages] = await db
     .select({
-      contained: sql<number>`coalesce(avg(${s.conversations.costPence}) filter (where ${s.conversations.contained}), 0)`,
-      escalated: sql<number>`coalesce(avg(${s.conversations.costPence}) filter (where ${s.conversations.contained} is false), 0)`,
+      contained: sql<number>`coalesce(avg(${s.conversations.costPaise}) filter (where ${s.conversations.contained}), 0)`,
+      escalated: sql<number>`coalesce(avg(${s.conversations.costPaise}) filter (where ${s.conversations.contained} is false), 0)`,
     })
     .from(s.conversations)
     .where(and(eq(s.conversations.brandId, brandId), realTraffic()));
 
   // A gap that costs nothing extra is not worth pricing; show it as unpriced
-  // rather than as £0, which reads as "we measured it and it is free".
+  // rather than as ₹0, which reads as "we measured it and it is free".
   const perContact = Math.max(0, Number(averages.escalated) - Number(averages.contained));
   const monthly = (hits: number) =>
-    perContact > 0 ? `£${((hits * perContact * 4) / 100).toFixed(0)} / mo` : "not yet priced";
+    perContact > 0 ? `${formatRupees(hits * perContact * 4)} / mo` : "not yet priced";
 
   const REASON_LABEL: Record<string, string> = {
     no_document: "No document",
@@ -325,6 +327,181 @@ export async function agentPerformance(orgId: string) {
       name: r.name,
       role: r.role[0].toUpperCase() + r.role.slice(1),
       handled: String(r.handled),
-      csatColor: N_800,
     }));
+}
+
+/* ─── The team, as opposed to the AI ───────────────────────────────────── */
+
+/**
+ * How each person is doing, for the Manager's screen.
+ *
+ * Everything else in this module measures the AI. This measures the people —
+ * a different question, asked by a different person, which is why it has its
+ * own screen and its own capability rather than another panel on Analytics.
+ *
+ * Every figure is derived from rows that already exist for other reasons: a
+ * handoff someone accepted, a conversation they were the named human on, a
+ * review somebody left. Nothing is self-reported and nothing is a counter that
+ * has to be kept in step. The one stored number is `rating`, which is a
+ * judgement rather than a measurement and is seeded and edited as one.
+ *
+ * Five grouped queries stitched together in JS, rather than one query with
+ * five correlated subqueries. The subquery version was written first and was
+ * silently wrong: inside a raw `sql` template drizzle emits a bare `"id"`, and
+ * `where h.accepted_by_membership_id = "id"` binds that to `h.id` rather than
+ * to the membership — so every column read zero against a database that was
+ * entirely correct. Grouping is both faster and impossible to get wrong that
+ * way.
+ *
+ * Scoped to a brand, because a Manager runs a brand: an org-wide table would
+ * mix in colleagues they are not accountable for and cannot act on.
+ */
+export async function teamPerformance(orgId: string, brandId: string) {
+  const [people, handoffStats, openStats, book, handled, aiOnlyRows] = await Promise.all([
+    db
+      .select()
+      .from(s.memberships)
+      .where(and(eq(s.memberships.orgId, orgId), eq(s.memberships.status, "active"))),
+
+    // What each person took off the queue, and how quickly.
+    db
+      .select({
+        membershipId: s.handoffs.acceptedByMembershipId,
+        accepted: sql<number>`count(*)::int`,
+        resolved: sql<number>`count(*) filter (where ${s.handoffs.status} = 'resolved')::int`,
+        /**
+         * Median seconds from raised to picked up.
+         *
+         * The mean is the wrong statistic: one handoff that sat overnight
+         * because it landed at 17:58 would put a good week's median at forty
+         * minutes, and nobody would trust the column again.
+         */
+        pickupSeconds: sql<number | null>`percentile_cont(0.5) within group (
+          order by extract(epoch from (${s.handoffs.acceptedAt} - ${s.handoffs.waitingSince}))
+        )`,
+      })
+      .from(s.handoffs)
+      .where(and(eq(s.handoffs.brandId, brandId), isNotNull(s.handoffs.acceptedByMembershipId)))
+      .groupBy(s.handoffs.acceptedByMembershipId),
+
+    // Still on someone's plate: accepted by them, or ringing at them.
+    db
+      .select({
+        membershipId: sql<string>`coalesce(${s.handoffs.acceptedByMembershipId}, ${s.handoffs.routedToMembershipId})`,
+        open: sql<number>`count(*)::int`,
+      })
+      .from(s.handoffs)
+      .where(
+        and(
+          eq(s.handoffs.brandId, brandId),
+          inArray(s.handoffs.status, ["waiting", "accepted"]),
+          sql`coalesce(${s.handoffs.acceptedByMembershipId}, ${s.handoffs.routedToMembershipId}) is not null`,
+        ),
+      )
+      .groupBy(sql`coalesce(${s.handoffs.acceptedByMembershipId}, ${s.handoffs.routedToMembershipId})`),
+
+    // Accounts held, and what they are worth — "closing deals", in this product.
+    db
+      .select({
+        membershipId: s.customers.ownerMembershipId,
+        customers: sql<number>`count(*)::int`,
+        bookPaise: sql<number>`coalesce(sum(${s.customers.ltvPaise}), 0)::bigint`,
+      })
+      .from(s.customers)
+      .where(and(eq(s.customers.brandId, brandId), isNotNull(s.customers.ownerMembershipId)))
+      .groupBy(s.customers.ownerMembershipId),
+
+    /**
+     * Conversations they were the named human on.
+     *
+     * Keyed by name rather than id because `conversations.handled_by` is a
+     * denormalised label, not a foreign key. Rehearsals are excluded: a test
+     * call is not work someone did.
+     */
+    db
+      .select({
+        name: s.conversations.handledBy,
+        conversations: sql<number>`count(*)::int`,
+        reviewScore: sql<number | null>`avg(${s.conversations.reviewScore})`,
+        sentimentEnd: sql<number | null>`avg(${s.conversations.sentimentEnd})`,
+      })
+      .from(s.conversations)
+      .where(
+        and(
+          eq(s.conversations.brandId, brandId),
+          eq(s.conversations.isTest, false),
+          isNotNull(s.conversations.handledBy),
+        ),
+      )
+      .groupBy(s.conversations.handledBy),
+
+    db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(s.customers)
+      .where(and(eq(s.customers.brandId, brandId), isNull(s.customers.ownerMembershipId))),
+  ]);
+
+  const handoffsBy = new Map(handoffStats.map((r) => [r.membershipId!, r]));
+  const openBy = new Map(openStats.map((r) => [r.membershipId, r.open]));
+  const bookBy = new Map(book.map((r) => [r.membershipId!, r]));
+  const handledBy = new Map(handled.map((r) => [r.name!, r]));
+
+  // Only people who can be handed a customer. An Analyst has no handling
+  // numbers by construction, and a row of dashes against their name reads as a
+  // failing grade rather than as "not their job".
+  const rows = people
+    .filter((m) => can({ role: m.role, brandIds: null }, "calls.handle").allowed)
+    .map((m) => {
+      const h = handoffsBy.get(m.id);
+      const b = bookBy.get(m.id);
+      const c = handledBy.get(m.name);
+      const accepted = h?.accepted ?? 0;
+      const resolved = h?.resolved ?? 0;
+      const pickup = h?.pickupSeconds == null ? null : Math.round(Number(h.pickupSeconds));
+      const bookPaise = Number(b?.bookPaise ?? 0);
+
+      return {
+        membershipId: m.id,
+        name: m.name,
+        role: m.role[0].toUpperCase() + m.role.slice(1),
+        rating: m.rating,
+        availability: m.availability,
+        specialities: m.specialities,
+        accepted,
+        resolved,
+        open: openBy.get(m.id) ?? 0,
+        conversations: c?.conversations ?? 0,
+        customers: b?.customers ?? 0,
+        book: formatRupees(bookPaise),
+        bookPaise,
+        pickup: pickup === null ? "—" : pickup < 90 ? `${pickup}s` : `${Math.round(pickup / 60)}m`,
+        pickupSeconds: pickup,
+        reviewScore: c?.reviewScore == null ? null : Number(c.reviewScore),
+        sentimentEnd: c?.sentimentEnd == null ? null : Number(c.sentimentEnd),
+        /**
+         * The share of what they accepted that they actually finished.
+         *
+         * Null rather than 0% when they have accepted nothing — "resolved none
+         * of none" is not a hundred per cent and it is not zero, it is a
+         * question the data cannot answer yet.
+         */
+        closeRate: accepted > 0 ? Math.round((resolved / accepted) * 100) : null,
+      };
+    });
+
+  // Busiest first: the point of the table is who is carrying what.
+  rows.sort((a, b2) => b2.accepted - a.accepted || b2.customers - a.customers);
+
+  return {
+    people: rows,
+    totals: {
+      people: rows.length,
+      available: rows.filter((p) => p.availability === "available").length,
+      open: rows.reduce((a, p) => a + p.open, 0),
+      accepted: rows.reduce((a, p) => a + p.accepted, 0),
+      resolved: rows.reduce((a, p) => a + p.resolved, 0),
+      /** Accounts on this brand that no person holds — the AI is running them. */
+      aiOnly: aiOnlyRows[0]?.n ?? 0,
+    },
+  };
 }

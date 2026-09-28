@@ -1,8 +1,10 @@
 import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
+import { formatRupees } from "@/lib/money";
 import { config } from "@/lib/config";
 import { latestScores } from "./scoring";
+import { customerIsTheirs } from "./scoping";
 
 /**
  * Read models for the customer screens.
@@ -24,8 +26,7 @@ const N_800 = "var(--color-neutral-800)";
 const scoreColor = (n: number) => (n >= config.accentPriorityThreshold ? ACCENT : N_700);
 const pct = (n: number) => `${Math.round(n)}%`;
 
-const money = (pence: number) =>
-  `£${(pence / 100).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
+const money = (paise: number) => formatRupees(paise);
 
 /** How long ago, in the console's phrasing. */
 function ago(date: Date | null): string {
@@ -54,6 +55,16 @@ export type CustomerFilters = {
   /** Days since last contact: "7", "30", "90". */
   lastContact?: string;
   owner?: string;
+  /**
+   * Narrow to one person's accounts.
+   *
+   * "Theirs" is deliberately wider than "assigned to them": a customer they
+   * are mid-conversation with is theirs whether or not anyone has got round to
+   * setting an owner. An Agent who has just taken a transferred call would
+   * otherwise not find that customer on their own screen, which is the moment
+   * they most need to.
+   */
+  ownedBy?: string;
   sort?: string;
   page?: number;
   pageSize?: number;
@@ -107,6 +118,7 @@ export async function listCustomers(brandId: string, filters: CustomerFilters = 
   if (filters.segment?.length) where.push(inArray(s.customers.segment, filters.segment));
   if (filters.tier?.length) where.push(inArray(s.customers.tier, filters.tier));
   if (filters.owner) where.push(eq(s.customers.owner, filters.owner));
+  if (filters.ownedBy) where.push(customerIsTheirs(filters.ownedBy));
 
   const rows = await db.select().from(s.customers).where(and(...where));
   if (rows.length === 0) {
@@ -166,12 +178,20 @@ export async function listCustomers(brandId: string, filters: CustomerFilters = 
       name: c.name,
       segment: c.segment,
       tier: c.tier,
-      owner: c.owner ?? "Unassigned",
+      /**
+       * "AI only", not "Unassigned".
+       *
+       * An account with no owner is not an oversight anyone needs to correct —
+       * it is the AI handling that customer end to end, which is the product
+       * working. Calling it unassigned reads as a gap in a list a Manager is
+       * scanning for gaps, and sends someone to fix a thing that is fine.
+       */
+      owner: c.owner ?? "AI only",
       meta: [c.segment, c.tier, c.location].filter(Boolean).join(" · "),
       priority: Math.round(priority),
       pColor: scoreColor(priority),
-      ltv: money(c.ltvPence),
-      ltvPence: c.ltvPence,
+      ltv: money(c.ltvPaise),
+      ltvPaise: c.ltvPaise,
       churn: `${Math.round(churn)} · ${churn >= 60 ? "high" : churn >= 35 ? "medium" : "low"}`,
       churnValue: churn,
       churnBar: pct(churn),
@@ -213,7 +233,7 @@ export async function listCustomers(brandId: string, filters: CustomerFilters = 
   const key = (c: (typeof enriched)[number]) => {
     switch (sortField) {
       case "name": return c.name.toLowerCase();
-      case "value": return c.ltvPence;
+      case "value": return c.ltvPaise;
       case "churn": return c.churnValue;
       case "last": return c.lastContactAt?.getTime() ?? 0;
       default: return c.priority;
@@ -248,8 +268,11 @@ function countBy(values: (string | null)[]) {
 }
 
 /** The priority queue on the command center — the top of the same list. */
-export async function priorityQueue(brandId: string, limit = 6) {
-  const { rows: customers } = await listCustomers(brandId, { pageSize: limit });
+export async function priorityQueue(
+  brandId: string,
+  { limit = 6, ownedBy }: { limit?: number; ownedBy?: string } = {},
+) {
+  const { rows: customers } = await listCustomers(brandId, { pageSize: limit, ownedBy });
   const scores = await latestScores(customers.map((c) => c.id));
 
   return customers.map((c) => {
@@ -285,11 +308,23 @@ export async function priorityQueue(brandId: string, limit = 6) {
  * customer before it knows what they agreed to can show a marketing prompt to
  * someone who opted out.
  */
-export async function getCustomer(brandId: string, customerId: string) {
+export async function getCustomer(
+  brandId: string,
+  customerId: string,
+  { ownedBy }: { ownedBy?: string } = {},
+) {
   const [customer] = await db
     .select()
     .from(s.customers)
-    .where(and(eq(s.customers.brandId, brandId), eq(s.customers.id, customerId)))
+    .where(
+      and(
+        eq(s.customers.brandId, brandId),
+        eq(s.customers.id, customerId),
+        // Not found rather than forbidden: an Agent has no business learning
+        // that an account exists by being told they may not see it.
+        ...(ownedBy ? [customerIsTheirs(ownedBy)] : []),
+      ),
+    )
     .limit(1);
   if (!customer) return null;
 

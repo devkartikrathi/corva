@@ -20,11 +20,13 @@ import {
 } from "@/components/filters";
 import { ExportCsvButton } from "@/components/ExportCsvButton";
 import { SaveViewButton } from "@/components/SaveViewButton";
-import { saveView } from "@/lib/actions/workspace";
+import { RemoveViewButton } from "@/components/RemoveViewButton";
+import { deleteView, saveView } from "@/lib/actions/workspace";
 import { getConsoleContext } from "@/lib/auth/context";
 import { exportCustomersCsv } from "@/lib/actions/customers";
 import { href, intOf, listOf, normalise, type RawParams } from "@/lib/params";
 import { listCustomers } from "@/lib/queries/customers";
+import { customerScope } from "@/lib/auth/scope";
 import { listSavedViews, matchView } from "@/lib/queries/views";
 
 const PATH = "/app/customers";
@@ -67,8 +69,17 @@ export default async function AllCustomersPage({
     if (Number.isFinite(value) && value > 0) axisMinimums[axis.key] = value;
   }
 
+  /**
+   * An Agent's list is their own accounts, not the brand's.
+   *
+   * Applied here rather than left to the filter rail, because it is not a
+   * filter — a filter is something you can clear. See lib/auth/scope.ts.
+   */
+  const scope = customerScope(session.actor, session.membershipId, brand.id);
+
   const [result, views] = await Promise.all([
     listCustomers(brand.id, {
+      ownedBy: scope.kind === "own" ? scope.membershipId : undefined,
       q: params.q,
       minScore: intOf(params, "minScore", 0, 0, 100) || undefined,
       axisMinimums,
@@ -90,8 +101,12 @@ export default async function AllCustomersPage({
     <section>
       <div style={{ padding: "24px 24px 0", display: "flex", alignItems: "flex-end", gap: 24 }}>
         <ScreenTitle
-          kicker={`${brand.name} · ${result.total} record${result.total === 1 ? "" : "s"} matching`}
-          title="All customers"
+          kicker={
+            scope.kind === "own"
+              ? `${brand.name} · ${result.total} of yours matching`
+              : `${brand.name} · ${result.total} record${result.total === 1 ? "" : "s"} matching`
+          }
+          title={scope.kind === "own" ? "My customers" : "All customers"}
         />
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "flex-start", gap: 8 }}>
           <SearchBox ctx={ctx} placeholder="Name, reference, email, town" width={230} />
@@ -113,6 +128,7 @@ export default async function AllCustomersPage({
         ))}
         {!currentView && <Tab label="Custom" href={PATH} current />}
         <SaveViewButton surface="customers" query={params} onSave={saveView} />
+        {currentView && <RemoveViewButton view={currentView} onDelete={deleteView} />}
       </TabStrip>
 
       <div style={{ display: "grid", gridTemplateColumns: "272px 1fr" }}>

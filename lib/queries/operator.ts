@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
+import { formatRupees } from "@/lib/money";
 import { operatorConfig } from "@/lib/config";
 
 /**
@@ -19,8 +20,7 @@ const N_300 = "var(--color-neutral-300)";
 const N_500 = "var(--color-neutral-500)";
 const N_600 = "var(--color-neutral-600)";
 
-const money = (pence: number) =>
-  `£${(pence / 100).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
+const money = (paise: number) => formatRupees(paise);
 
 /* ─── Fleet ────────────────────────────────────────────────────────────── */
 
@@ -69,7 +69,7 @@ export async function getFleet(filters: FleetFilters = {}) {
   const ORDER = {
     health: s.organizations.healthScore,
     name: s.organizations.name,
-    mrr: s.organizations.mrrPence,
+    mrr: s.organizations.mrrPaise,
     seats: s.organizations.seatCount,
     renews: s.organizations.renewsAt,
   } as const;
@@ -126,9 +126,9 @@ export async function getFleet(filters: FleetFilters = {}) {
     db
       .select({
         companies: sql<number>`count(*)::int`,
-        mrr: sql<number>`coalesce(sum(${s.organizations.mrrPence}), 0)::bigint`,
+        mrr: sql<number>`coalesce(sum(${s.organizations.mrrPaise}), 0)::bigint`,
         unhealthy: sql<number>`count(*) filter (where ${s.organizations.healthScore} < ${operatorConfig.healthThreshold})::int`,
-        atRiskMrr: sql<number>`coalesce(sum(${s.organizations.mrrPence}) filter (where ${s.organizations.healthScore} < ${operatorConfig.healthThreshold}), 0)::bigint`,
+        atRiskMrr: sql<number>`coalesce(sum(${s.organizations.mrrPaise}) filter (where ${s.organizations.healthScore} < ${operatorConfig.healthThreshold}), 0)::bigint`,
       })
       .from(s.organizations),
     db
@@ -145,6 +145,10 @@ export async function getFleet(filters: FleetFilters = {}) {
     const stats = statsBy.get(o.id);
     const containment = stats && stats.total > 0 ? (stats.contained / stats.total) * 100 : null;
     const bad = health < operatorConfig.healthThreshold;
+    const brandCount = brandsBy.get(o.id) ?? 0;
+    const renewsInDays = o.renewsAt
+      ? Math.round((o.renewsAt.getTime() - Date.now()) / 864e5)
+      : null;
 
     return {
       id: o.id,
@@ -152,21 +156,33 @@ export async function getFleet(filters: FleetFilters = {}) {
       name: o.name,
       seats: o.seatCount,
       region: o.region,
-      renewsInDays: o.renewsAt
-        ? Math.round((o.renewsAt.getTime() - Date.now()) / 864e5)
-        : null,
+      renewsInDays,
+      /**
+       * The facts about a tenant that change what you do about it, on one line
+       * under the name.
+       *
+       * Renewal only appears inside 60 days, and that is the point: a renewal
+       * eight months out is not a reason to treat an account differently, but
+       * one three weeks out sitting next to a falling health bar is the whole
+       * argument for opening the row.
+       */
       meta: [
-        `${brandsBy.get(o.id) ?? 0} brand${(brandsBy.get(o.id) ?? 0) === 1 ? "" : "s"}`,
+        `${brandCount} brand${brandCount === 1 ? "" : "s"}`,
+        `${o.seatCount} seat${o.seatCount === 1 ? "" : "s"}`,
         o.region,
-      ].join(" · "),
+        renewsInDays !== null && renewsInDays >= 0 && renewsInDays <= 60
+          ? `renews in ${renewsInDays}d`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
       plan: o.plan[0].toUpperCase() + o.plan.slice(1),
       conv: stats ? stats.total.toLocaleString("en-GB") : "0",
       containment: containment === null ? "—" : `${containment.toFixed(1)}%`,
       health: `${health} · ${health >= 85 ? "healthy" : health >= 70 ? "steady" : "falling"}`,
-      healthV: health,
       healthBar: `${health}%`,
       healthColor: bad ? ACCENT : N_500,
-      mrr: money(o.mrrPence),
+      mrr: money(o.mrrPaise),
       flag: bad ? "Health drop" : o.plan === "trial" ? "Trial" : "Healthy",
       tagBg: bad ? "var(--color-accent-800)" : "var(--color-neutral-800)",
       tagFg: bad ? ACCENT_200 : N_300,
@@ -271,7 +287,7 @@ async function needsAttention(limit = 4) {
     // what is wrong with this account and written it down.
     note:
       noteBy.get(o.id) ??
-      `Health ${o.healthScore ?? 0} on the ${o.plan} plan, ${money(o.mrrPence)} MRR.`,
+      `Health ${o.healthScore ?? 0} on the ${o.plan} plan, ${money(o.mrrPaise)} MRR.`,
     urgent: (o.healthScore ?? 0) < 50,
   }));
 }
@@ -348,11 +364,13 @@ export async function getTenantDetail(slug: string) {
       const st = statsBy.get(b.id);
       const containment = st && st.total ? (st.contained / st.total) * 100 : null;
       return {
+        id: b.id,
         name: b.name,
         conv: `${st?.total ?? 0} conv`,
         containment: containment === null ? "—" : `${containment.toFixed(1)}%`,
         agent: b.agentName ? `${b.agentName}` : "not set up",
         color: b.agentName ? BG : ACCENT_400,
+        modelId: b.modelId,
       };
     }),
     usage: [
@@ -369,8 +387,6 @@ export async function getTenantDetail(slug: string) {
         name: flag.label,
         note: [flag.note, flag.stage].filter(Boolean).join(" · "),
         on,
-        trackBg: on ? ACCENT : "var(--color-neutral-700)",
-        knob: on ? 18 : 2,
       };
     }),
     /** Never customer content — only whether access exists at all. */
@@ -379,7 +395,7 @@ export async function getTenantDetail(slug: string) {
       last: grants[0] ?? null,
     },
     billing: [
-      { label: "MRR", value: money(org.mrrPence), hot: false },
+      { label: "MRR", value: money(org.mrrPaise), hot: false },
       { label: "Seats", value: String(org.seatCount), hot: false },
       {
         label: "Renews",
@@ -547,7 +563,7 @@ function relativeDays(d: Date) {
 
 export async function getFleetRevenue() {
   const orgs = await db.select().from(s.organizations);
-  const mrr = orgs.reduce((a, o) => a + o.mrrPence, 0);
+  const mrr = orgs.reduce((a, o) => a + o.mrrPaise, 0);
 
   const [history, economics] = await Promise.all([
     // Twelve months of recorded MRR. The chart is history, not a projection —
@@ -555,7 +571,7 @@ export async function getFleetRevenue() {
     db
       .select({
         month: s.mrrSnapshots.month,
-        mrr: sql<number>`coalesce(sum(${s.mrrSnapshots.mrrPence}), 0)::bigint`,
+        mrr: sql<number>`coalesce(sum(${s.mrrSnapshots.mrrPaise}), 0)::bigint`,
         companies: sql<number>`count(*)::int`,
       })
       .from(s.mrrSnapshots)
@@ -568,7 +584,7 @@ export async function getFleetRevenue() {
         contained: sql<number>`coalesce(sum(${s.usageDaily.contained}), 0)::int`,
         aiMinutes: sql<number>`coalesce(sum(${s.usageDaily.aiMinutes}), 0)::int`,
         humanMinutes: sql<number>`coalesce(sum(${s.usageDaily.humanMinutes}), 0)::int`,
-        cost: sql<number>`coalesce(sum(${s.usageDaily.costPence}), 0)::bigint`,
+        cost: sql<number>`coalesce(sum(${s.usageDaily.costPaise}), 0)::bigint`,
       })
       .from(s.usageDaily)
       .where(sql`${s.usageDaily.day} > now() - interval '30 days'`),
@@ -585,13 +601,13 @@ export async function getFleetRevenue() {
   for (const o of orgs) {
     const entry = byPlan.get(o.plan) ?? { count: 0, mrr: 0 };
     entry.count++;
-    entry.mrr += o.mrrPence;
+    entry.mrr += o.mrrPaise;
     byPlan.set(o.plan, entry);
   }
 
   const atRisk = orgs
     .filter((o) => (o.healthScore ?? 100) < operatorConfig.healthThreshold)
-    .sort((a, b) => b.mrrPence - a.mrrPence);
+    .sort((a, b) => b.mrrPaise - a.mrrPaise);
 
   return {
     kpis: [
@@ -604,7 +620,7 @@ export async function getFleetRevenue() {
       },
       {
         label: "At-risk MRR",
-        value: money(atRisk.reduce((a, o) => a + o.mrrPence, 0)),
+        value: money(atRisk.reduce((a, o) => a + o.mrrPaise, 0)),
         note: `${atRisk.length} companies`,
       },
       {
@@ -633,12 +649,12 @@ export async function getFleetRevenue() {
       },
       {
         label: "Cost per conversation",
-        value: conversations ? `£${(cost / conversations / 100).toFixed(2)}` : "—",
+        value: conversations ? formatRupees(cost / conversations, { decimals: "auto" }) : "—",
         hot: false,
       },
       {
         label: "Revenue per conversation",
-        value: conversations ? `£${(mrr / conversations / 100).toFixed(2)}` : "—",
+        value: conversations ? formatRupees(mrr / conversations, { decimals: "auto" }) : "—",
         hot: false,
       },
       {
@@ -663,7 +679,7 @@ export async function getFleetRevenue() {
       })),
     atRisk: atRisk.map((o) => ({
       name: o.name,
-      mrr: money(o.mrrPence),
+      mrr: money(o.mrrPaise),
       risk: (o.healthScore ?? 0) < 50 ? "High" : "Medium",
       why: `Health ${o.healthScore}, below the ${operatorConfig.healthThreshold} threshold.`,
       high: (o.healthScore ?? 0) < 50,
@@ -674,6 +690,21 @@ export async function getFleetRevenue() {
 }
 
 /* ─── Reliability ──────────────────────────────────────────────────────── */
+
+/**
+ * How a region's stored state reads on screen.
+ *
+ * A map rather than capitalising the column, because the states that matter
+ * most are the ones with an underscore in them — "Failed_over" in the middle
+ * of an incident is exactly when you want the console to look like it was
+ * written on purpose.
+ */
+const REGION_STATES: Record<string, string> = {
+  healthy: "Healthy",
+  degraded: "Degraded",
+  edge_only: "Edge only",
+  failed_over: "Failed over",
+};
 
 export async function getReliability() {
   const regionRows = await db.select().from(s.regions);
@@ -715,7 +746,7 @@ export async function getReliability() {
         tenants: String(countBy.get(r.key) ?? 0),
         p95: r.voiceP95Ms ? `${(r.voiceP95Ms / 1000).toFixed(1)}s` : "—",
         uptime: r.uptime30d ? `${r.uptime30d}%` : "—",
-        state: r.state === "edge_only" ? "Edge only" : r.state[0].toUpperCase() + r.state.slice(1),
+        state: REGION_STATES[r.state] ?? r.state[0].toUpperCase() + r.state.slice(1),
         color: bad ? ACCENT : BG,
         tagBg: bad ? "var(--color-accent-800)" : "var(--color-neutral-800)",
         tagFg: bad ? ACCENT_200 : N_300,
@@ -762,7 +793,6 @@ export async function getReliability() {
         name: d.label,
         provider: d.provider ?? "—",
         state: d.state[0].toUpperCase() + d.state.slice(1),
-        stateKey: d.state,
         note: d.note ?? "",
         latency: d.latencyMs === null ? "—" : d.latencyMs >= 1000 ? `${(d.latencyMs / 1000).toFixed(1)}s` : `${d.latencyMs}ms`,
         bad,

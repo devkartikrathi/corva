@@ -5,7 +5,13 @@ import { requireStaff } from "@/lib/auth/context";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { callersFor } from "@/lib/voice/session";
-import { BRIDGE_PORT, COST_PER_MINUTE_PENCE, LIVE_MODEL, SESSION_CAP_SECONDS } from "@/lib/voice/config";
+import { modelOptions } from "@/lib/queries/models";
+import {
+  BRIDGE_PORT,
+  COST_PER_MINUTE_PAISE,
+  LIVE_MODELS,
+  SESSION_CAP_SECONDS,
+} from "@/lib/voice/config";
 
 /**
  * The voice playground.
@@ -43,13 +49,59 @@ export default async function VoiceTestingPage() {
     await Promise.all(brands.map(async (b) => [b.slug, await callersFor(b.slug)] as const)),
   );
 
+  /**
+   * A test call spends more than audio.
+   *
+   * The call itself runs on a live model, but closing it classifies the
+   * transcript, an escalation writes a brief, and an open conversation has its
+   * live summary rewritten — each of those a request against a text model's
+   * daily allowance, on a key every tenant shares. Four rehearsals is enough to
+   * exhaust the tightest of them, which is worth seeing before pressing Start
+   * rather than discovering halfway through a demo.
+   */
+  const models = await modelOptions();
+
   return (
     <section>
       <OperatorHeader
-        kicker={`${LIVE_MODEL} · speech to speech · capped at ${SESSION_CAP_SECONDS}s`}
+        kicker={`Speech to speech · capped at ${SESSION_CAP_SECONDS}s`}
         title="Voice testing"
         lede="Ring a tenant's helpline as one of their customers. It writes a real conversation on a real brand — it appears on the live console, the handoff queue and the archive as any inbound call would, and a colleague watching those screens sees it happen."
       />
+
+      <div
+        style={{
+          borderBottom: "2px solid var(--color-neutral-700)",
+          padding: "12px 24px",
+          display: "flex",
+          alignItems: "center",
+          gap: 22,
+          flexWrap: "wrap",
+        }}
+      >
+        <DarkKicker>Model requests today</DarkKicker>
+        {models.map((m) => {
+          const spent = m.limit !== null && m.remaining === 0;
+          const low = m.limit !== null && m.remaining !== null && m.remaining <= Math.max(2, m.limit * 0.15);
+          return (
+            <span key={m.id} style={{ fontSize: 11.5, color: "var(--color-neutral-400)" }}>
+              {m.label}{" "}
+              <b
+                style={{
+                  color: spent
+                    ? "var(--color-accent)"
+                    : low
+                      ? "var(--color-accent-400)"
+                      : "var(--color-bg)",
+                }}
+              >
+                {m.used}
+                {m.limit === null ? "" : ` / ${m.limit}`}
+              </b>
+            </span>
+          );
+        })}
+      </div>
 
       {brands.length === 0 ? (
         <div style={{ padding: "28px 24px", fontSize: 13, color: "var(--color-neutral-400)", maxWidth: "62ch", lineHeight: 1.6 }}>
@@ -61,43 +113,10 @@ export default async function VoiceTestingPage() {
           bridgeUrl={`ws://localhost:${BRIDGE_PORT}`}
           brands={brands}
           callers={callers}
-          costPerMinutePence={COST_PER_MINUTE_PENCE}
+          liveModels={[...LIVE_MODELS]}
+          costPerMinutePaise={COST_PER_MINUTE_PAISE}
         />
       )}
-
-      <div
-        style={{
-          borderTop: "2px solid var(--color-neutral-700)",
-          padding: "18px 24px",
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 28,
-        }}
-      >
-        <div>
-          <DarkKicker>Running it</DarkKicker>
-          <p style={{ marginTop: 10, fontSize: 12, color: "var(--color-neutral-400)", lineHeight: 1.6 }}>
-            The bridge is a separate process — Next.js route handlers cannot hold a WebSocket
-            open. Start it with{" "}
-            <code style={{ color: "var(--color-bg)" }}>npm run voice</code> before pressing Start.
-          </p>
-        </div>
-        <div>
-          <DarkKicker>What it is really testing</DarkKicker>
-          <p style={{ marginTop: 10, fontSize: 12, color: "var(--color-neutral-400)", lineHeight: 1.6 }}>
-            Whether the agent stays inside its authority when nobody is reading its output. Ask it
-            to waive a fee: it should tell you plainly that it cannot, and offer a manager.
-          </p>
-        </div>
-        <div>
-          <DarkKicker>Why Gemini Live, for now</DarkKicker>
-          <p style={{ marginTop: 10, fontSize: 12, color: "var(--color-neutral-400)", lineHeight: 1.6 }}>
-            1.43s to first audio against 20.75s on the batch API, and it carries tool calling. The
-            measurements, and the case for Sarvam later, are in{" "}
-            <code style={{ color: "var(--color-bg)" }}>docs/VOICE.md</code>.
-          </p>
-        </div>
-      </div>
     </section>
   );
 }

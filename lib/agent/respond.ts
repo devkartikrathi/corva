@@ -3,7 +3,8 @@ import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
-import { checkAuthority, describeAuthority, formatPence } from "./authority";
+import { checkAuthority, describeAuthority } from "./authority";
+import { formatRupees } from "@/lib/money";
 import { loadAgentConfig, type AgentConfig } from "./config";
 import {
   checkTriggers,
@@ -11,11 +12,14 @@ import {
   describeNeverRules,
   type ConversationState,
 } from "./guardrails";
-import { TURN_MODEL, TURN_OPTIONS } from "./model";
+import { languageModel, thinkingOptions } from "./model";
+import { resolveModel } from "./models";
+import { recordModelCall } from "./quota";
 import { grounded, hasGrounding, recordGap, retrieve, type RetrievedChunk } from "./retrieval";
 import { runningSentiment, scoreUtterance } from "@/lib/pipelines/sentiment";
 import { addUsage, priceUsage, type Usage } from "@/lib/pricing";
 import { writeBrief } from "./brief";
+import { updateLiveSummary } from "./summary";
 
 /**
  * One turn of the agent.
@@ -37,7 +41,14 @@ export type AgentReply = {
   text: string;
   citations: { documentTitle: string; anchor: string | null; confidence: number }[];
   /** Set when a guardrail stopped the agent and a human is now needed. */
-  escalation: { reason: string; handoffId: string } | null;
+  escalation: { reason: string; handoffId: string; routedTo: string | null } | null;
+  /**
+   * Set when the customer accepted a no and the conversation ended there.
+   *
+   * Not an escalation and not a failure — but still a decision, so it leaves a
+   * row for a person to confirm rather than passing unseen.
+   */
+  closure: { outcome: string; handoffId: string } | null;
   actions: { label: string; allowed: boolean }[];
 };
 
@@ -59,6 +70,16 @@ ${describeAuthority(config)}
 
 To take one of these actions, call the \`take_action\` tool. Never claim in
 your reply that you have done something unless the tool call succeeded.
+
+## When you have to say no
+Tell them plainly that it is not your decision. Do not offer it another way.
+Then give them exactly two options and stop: a colleague who can decide, or
+leaving it where it is. Do not choose for them.
+
+If they say they are happy to leave it, thank them, confirm in one sentence
+what was and was not done, and call \`close_with_agreement\`. If they want a
+person, or they ask again, or they are still unhappy — that is not agreement,
+and a colleague is brought in instead.
 
 ## Never
 ${describeNeverRules(config)}
@@ -99,7 +120,7 @@ export async function customerContext(customerId: string | null): Promise<{ text
     `Name: ${c.name}`,
     c.tier && `Tier: ${c.tier}`,
     c.segment && `Segment: ${c.segment}`,
-    `Lifetime value: ${formatPence(c.ltvPence)}`,
+    `Lifetime value: ${formatRupees(c.ltvPaise)}`,
     c.location && `Location: ${c.location}`,
     row.score && `Priority: ${Math.round(row.score.blended)} of 100`,
   ].filter(Boolean);
@@ -120,14 +141,15 @@ export type AgentEvent =
   | { type: "delta"; text: string }
   | { type: "sentence"; text: string }
   | { type: "action"; label: string; allowed: boolean }
-  | { type: "escalation"; reason: string; handoffId: string }
+  | { type: "escalation"; reason: string; handoffId: string; routedTo: string | null }
+  | { type: "closure"; outcome: string; handoffId: string }
   | { type: "done"; reply: AgentReply };
 
 /** Split on sentence ends, keeping the terminator — TTS needs the punctuation. */
 function takeSentences(buffer: string): { sentences: string[]; rest: string } {
   const sentences: string[] = [];
   let rest = buffer;
-  // A terminator followed by whitespace. Decimals and "£50." survive because
+  // A terminator followed by whitespace. Decimals and "₹50." survive because
   // the following character is a digit or end-of-buffer, not a space.
   const boundary = /([.!?])\s+/;
   let match = rest.match(boundary);
@@ -169,6 +191,10 @@ export async function* respondStream(opts: {
 
   const config = await loadAgentConfig(conversation.brandId, conversation.agentVersionId ?? undefined);
   if (!config) throw new Error(`No live agent version for brand ${conversation.brandId}`);
+
+  // Whatever this brand is on. Resolved once, so the turn, its billing and the
+  // row that records which model answered cannot disagree with each other.
+  const model = resolveModel(config.modelId);
 
   const history = await db
     .select()
@@ -239,13 +265,20 @@ export async function* respondStream(opts: {
 
   const actionsTaken: { label: string; allowed: boolean }[] = [];
   let authorityBlocked: string | null = null;
+  /**
+   * Set when the customer accepted a no.
+   *
+   * Handled after generation rather than inside the tool, because the closing
+   * sentence the model is still writing is part of what a reviewer reads.
+   */
+  let closedByAgreement: string | null = null;
   let spoken = "";
 
   if (fired.length === 0) {
     // 4. Generate, with every action gated by the authority table.
     const result = streamText({
-      model: TURN_MODEL,
-      providerOptions: TURN_OPTIONS,
+      model: languageModel(model.id),
+      providerOptions: thinkingOptions(model.thinking.turn),
       system: systemPrompt(config, context, chunks),
       messages: [
         ...history.map((t) => ({
@@ -255,6 +288,22 @@ export async function* respondStream(opts: {
         { role: "user" as const, content: message },
       ],
       tools: {
+        close_with_agreement: tool({
+          description:
+            "End the conversation by agreement. Only after you could not do what they " +
+            "asked, told them so, offered them a colleague, and they said they were " +
+            "happy to leave it. Never for a customer who is still unhappy or who wants " +
+            "a person.",
+          inputSchema: z.object({
+            outcome: z
+              .string()
+              .describe("What was asked for and what they accepted instead, in one line"),
+          }),
+          execute: async ({ outcome }) => {
+            closedByAgreement = outcome;
+            return { closed: true };
+          },
+        }),
         take_action: tool({
           description:
             "Take an action on the customer's account. Returns whether it was permitted. " +
@@ -262,15 +311,15 @@ export async function* respondStream(opts: {
           inputSchema: z.object({
             action: z.string().describe("Action key, e.g. goodwill_credit, waive_fee"),
             label: z.string().describe("What to show on the timeline"),
-            amountPence: z.number().optional().describe("Amount in pence, when money is involved"),
+            amountPaise: z.number().optional().describe("Amount in paise, when money is involved"),
           }),
-          execute: async ({ action, label, amountPence }) => {
-            const decision = checkAuthority(config, action, amountPence);
+          execute: async ({ action, label, amountPaise }) => {
+            const decision = checkAuthority(config, action, amountPaise);
             await db.insert(s.conversationActions).values({
               conversationId,
               action,
               label,
-              amountPence: amountPence ?? null,
+              amountPaise: amountPaise ?? null,
               allowed: decision.allowed,
             });
             actionsTaken.push({ label, allowed: decision.allowed });
@@ -307,6 +356,19 @@ export async function* respondStream(opts: {
       yield { type: "action", label: action.label, allowed: action.allowed };
     }
 
+    /**
+     * The request is spent by this point, whichever way the turn goes.
+     *
+     * Counted here rather than in the branch below, because a turn that
+     * generated and was then stopped by a refused action still drew on the
+     * day's ration — and the ration is the thing that runs out mid-demo. The
+     * token counts come with it when the stream ran to completion; when it was
+     * abandoned mid-flight they are not asked for, since awaiting usage on a
+     * cancelled stream is a wait with nobody to end it.
+     */
+    const consumed = authorityBlocked ? undefined : await result.usage;
+    await recordModelCall(model.id, consumed ?? undefined);
+
     // An action refused mid-turn is itself an escalation trigger.
     if (authorityBlocked) {
       fired = checkTriggers(config, { ...state, authorityExceeded: true });
@@ -316,13 +378,16 @@ export async function* respondStream(opts: {
       const text = spoken.trim() || (await result.text);
       // The model reports what it actually consumed; nothing here is inferred
       // from the length of the reply.
-      const consumed = await result.usage;
-      await billConversation(conversationId, {
-        inputTokens: consumed?.inputTokens ?? undefined,
-        outputTokens: consumed?.outputTokens ?? undefined,
-        // Retrieval embedded the customer's message before any of this ran.
-        embeddingTokens: Math.ceil(message.length / 4),
-      });
+      await billConversation(
+        conversationId,
+        {
+          inputTokens: consumed?.inputTokens ?? undefined,
+          outputTokens: consumed?.outputTokens ?? undefined,
+          // Retrieval embedded the customer's message before any of this ran.
+          embeddingTokens: Math.ceil(message.length / 4),
+        },
+        model.id,
+      );
       const [aiTurn] = await db
         .insert(s.turns)
         .values({ conversationId, ordinal: nextOrdinal + 1, speaker: "ai", body: text })
@@ -360,6 +425,46 @@ export async function* respondStream(opts: {
         });
       }
 
+      /**
+       * The customer accepted a no.
+       *
+       * Written into the same queue as an escalation, marked
+       * `closure_approval`, because "the AI talked someone out of a refund" is
+       * precisely the decision that otherwise never reaches a person: nothing
+       * was spent and nobody was queued, so nothing would land anywhere. One
+       * row is the difference between a refusal being policy and a refusal
+       * being a habit nobody noticed.
+       */
+      let closure: AgentReply["closure"] = null;
+      if (closedByAgreement) {
+        const handoff = await writeBrief({
+          conversationId,
+          brandId: conversation.brandId,
+          config,
+          reason: closedByAgreement,
+          customerContext: context,
+          transcript: [
+            ...history.map((h) => `${h.speaker}: ${h.body}`),
+            `customer: ${message}`,
+            `ai: ${text}`,
+          ],
+          blockedAction: authorityBlocked,
+          kind: "closure_approval",
+        });
+
+        await db
+          .update(s.conversations)
+          .set({ status: "resolved", outcome: "ai_resolved", endedAt: new Date() })
+          .where(eq(s.conversations.id, conversationId));
+
+        closure = { outcome: closedByAgreement, handoffId: handoff.id };
+        yield { type: "closure", outcome: closedByAgreement, handoffId: handoff.id };
+      } else {
+        // Keep the one-line account current for anyone about to take the line.
+        // Rate-limited inside, and skipped entirely once the call has ended.
+        await updateLiveSummary(conversationId);
+      }
+
       yield {
         type: "done",
         reply: {
@@ -371,6 +476,7 @@ export async function* respondStream(opts: {
             confidence: c.confidence,
           })),
           escalation: null,
+          closure,
           actions: actionsTaken,
         },
       };
@@ -410,16 +516,22 @@ export async function* respondStream(opts: {
     .set({ status: "waiting_human", outcome: "escalated", contained: false })
     .where(eq(s.conversations.id, conversationId));
 
-  await billConversation(conversationId, { embeddingTokens: Math.ceil(message.length / 4) });
+  await billConversation(
+    conversationId,
+    { embeddingTokens: Math.ceil(message.length / 4) },
+    model.id,
+  );
 
-  yield { type: "escalation", reason, handoffId: handoff.id };
+  const routedTo = handoff.routedTo?.name ?? null;
+  yield { type: "escalation", reason, handoffId: handoff.id, routedTo };
   yield {
     type: "done",
     reply: {
       turnId: aiTurn.id,
       text: body,
       citations: [],
-      escalation: { reason, handoffId: handoff.id },
+      escalation: { reason, handoffId: handoff.id, routedTo },
+      closure: null,
       actions: actionsTaken,
     },
   };
@@ -451,23 +563,34 @@ export async function respond(opts: {
  * document, not a counter — and a conversation is a serial thing, one turn at
  * a time, so there is no second writer to race.
  */
-export async function billConversation(conversationId: string, usage: Usage) {
+export async function billConversation(
+  conversationId: string,
+  usage: Usage,
+  /** The model that did the work, on the first call that knows. */
+  modelId?: string,
+) {
   const [row] = await db
-    .select({ breakdown: s.conversations.costBreakdown })
+    .select({ breakdown: s.conversations.costBreakdown, modelId: s.conversations.modelId })
     .from(s.conversations)
     .where(eq(s.conversations.id, conversationId))
     .limit(1);
   if (!row) return;
 
+  // Whichever model is already on the row wins: a conversation is priced at
+  // the rates of the model that started answering it, even if the brand has
+  // been moved since. Only the first caller writes it.
+  const model = row.modelId ?? modelId ?? null;
+
   const previous = ((row.breakdown ?? {}) as { usage?: Usage }).usage ?? {};
   const total = addUsage(previous, usage);
-  const cost = priceUsage(total);
+  const cost = priceUsage(total, model);
 
   await db
     .update(s.conversations)
     .set({
-      costPence: cost.pence,
+      costPaise: cost.paise,
       costBreakdown: { usage: total, lines: cost.lines },
+      ...(row.modelId ? {} : { modelId: model }),
     })
     .where(eq(s.conversations.id, conversationId));
 }

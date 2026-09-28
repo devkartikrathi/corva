@@ -1,3 +1,5 @@
+import { RATES } from "@/lib/pricing";
+
 /**
  * Voice testing configuration.
  *
@@ -17,15 +19,51 @@ export const IDLE_TIMEOUT_SECONDS = Number(process.env.VOICE_IDLE_TIMEOUT_SECOND
 /** How many sessions may be open at once across the whole bridge. */
 export const MAX_CONCURRENT_SESSIONS = Number(process.env.VOICE_MAX_SESSIONS ?? 2);
 
+/**
+ * How often the bridge checks whether a person has taken the line.
+ *
+ * The takeover is a row written by the console, in another process, so the
+ * bridge has to look. This is also the longest the AI can keep talking after
+ * someone presses "Take the line" — a second is a clause, not a paragraph.
+ */
+export const HOLD_POLL_MS = Number(process.env.VOICE_HOLD_POLL_MS ?? 1000);
+
 /** Where the browser finds the bridge. */
 export const BRIDGE_PORT = Number(process.env.VOICE_BRIDGE_PORT ?? 8787);
 
 /**
- * Speech-to-speech in one socket. The alternatives on this key are
- * `gemini-3.5-transcribe-live` (STT only) and the older
- * `gemini-2.5-flash-native-audio-latest`; see docs/VOICE.md.
+ * The speech-to-speech models a test call can be placed on.
+ *
+ * A different set from the text catalogue in `lib/agent/models.ts`, and not
+ * interchangeable with it: these speak into a socket over `bidiGenerateContent`
+ * and carry tool calling, which is the whole reason voice goes through the Live
+ * API rather than the batch one. A text model cannot take a call, and none of
+ * these can serve a web chat.
+ *
+ * Only speech-to-speech models are listed. The same key also offers
+ * `gemini-3.5-transcribe-live` (transcription only) and
+ * `gemini-3.5-live-translate-preview`, but neither can hold a conversation, so
+ * neither is a choice on this screen.
  */
-export const LIVE_MODEL = process.env.VOICE_LIVE_MODEL ?? "gemini-3.1-flash-live-preview";
+export const LIVE_MODELS = [
+  {
+    id: "gemini-3.1-flash-live-preview",
+    label: "Gemini 3.1 Flash Live",
+    blurb: "Speech to speech with tool calling. 1.43s to first audio when measured.",
+  },
+  {
+    id: "gemini-2.5-flash-native-audio-latest",
+    label: "Gemini 2.5 Native Audio",
+    blurb: "The older native-audio line. Worth a try when the newer one is unavailable.",
+  },
+] as const;
+
+/** What a call uses unless the tester picks otherwise. */
+export const LIVE_MODEL = process.env.VOICE_LIVE_MODEL ?? LIVE_MODELS[0].id;
+
+/** Falls back rather than failing: an unknown id must not open a socket. */
+export const resolveLiveModel = (id: string | null | undefined) =>
+  LIVE_MODELS.find((m) => m.id === id)?.id ?? LIVE_MODEL;
 
 
 
@@ -41,5 +79,16 @@ export const LIVE_URL = (key: string) =>
   "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=" +
   encodeURIComponent(key);
 
-/** Rough Gemini Live audio pricing, for the on-screen estimate only. */
-export const COST_PER_MINUTE_PENCE = Number(process.env.VOICE_COST_PER_MINUTE_PENCE ?? 8);
+/**
+ * What a minute on the line costs, for the running figure on screen.
+ *
+ * Derived from the same per-second audio rates the conversation is actually
+ * billed at rather than carrying its own number, because the playground
+ * quoting one figure while the archive recorded another is how nobody ends up
+ * believing either. Half the minute in each direction: on a push-to-talk line
+ * only one party is ever speaking.
+ */
+export const COST_PER_MINUTE_PAISE = Number(
+  process.env.VOICE_COST_PER_MINUTE_PAISE ??
+    (RATES.audioInPerSecond + RATES.audioOutPerSecond) * 0.5 * 60,
+);

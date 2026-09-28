@@ -133,6 +133,7 @@ export async function liveCalls(brandId: string, limit = 3) {
       channel: s.conversations.channel,
       startedAt: s.conversations.startedAt,
       sentimentEnd: s.conversations.sentimentEnd,
+      handledBy: s.conversations.handledBy,
       customerId: s.customers.id,
       customerName: s.customers.name,
       tier: s.customers.tier,
@@ -165,6 +166,8 @@ export async function liveCalls(brandId: string, limit = 3) {
         name: r.customerName ?? "Unknown caller",
         intent: r.intent ?? "Not yet classified",
         channel: r.channel,
+        /** Who has taken the line, if anyone — the card must not offer it twice. */
+        heldBy: r.handledBy,
         priority,
         hot: priority >= config.accentPriorityThreshold,
         elapsed: clock(elapsed),

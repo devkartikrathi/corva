@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, gt, sql } from "drizzle-orm";
 import { checkAuthority } from "@/lib/agent/authority";
 import { loadAgentConfig, type AgentConfig } from "@/lib/agent/config";
 import { describeNeverRules } from "@/lib/agent/guardrails";
@@ -74,7 +74,7 @@ export const TOOLS = [
           properties: {
             action: { type: "STRING", description: "Key, e.g. goodwill_credit, waive_fee" },
             label: { type: "STRING", description: "What to show on the timeline" },
-            amountPence: { type: "NUMBER", description: "Amount in pence, when money is involved" },
+            amountPaise: { type: "NUMBER", description: "Amount in paise, when money is involved" },
           },
           required: ["action", "label"],
         },
@@ -90,6 +90,24 @@ export const TOOLS = [
             reason: { type: "STRING", description: "Why a person is needed" },
           },
           required: ["reason"],
+        },
+      },
+      {
+        name: "close_with_agreement",
+        description:
+          "End the call by agreement. Use ONLY when you could not do what the caller " +
+          "asked, you told them so, you offered them a colleague, and they said they " +
+          "were happy to leave it. Never use it to end a call the caller is still " +
+          "unhappy about, and never instead of escalate_to_human when they want a person.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            outcome: {
+              type: "STRING",
+              description: "What was asked for and what they accepted instead, in one line",
+            },
+          },
+          required: ["outcome"],
         },
       },
     ],
@@ -118,7 +136,7 @@ export function liveInstruction(config: AgentConfig, brandName: string, caller: 
     "HOW TO TALK",
     "- One or two sentences at a time. Never deliver a paragraph.",
     "- Contractions, plain words, no bullet points, no markdown, no emoji.",
-    "- Say numbers the way a person says them: 'fifty pounds', 'the fifth of March'.",
+    "- Say numbers the way a person says them: 'five thousand rupees', 'the fifth of March'.",
     "- Let them interrupt you. If they start talking, stop.",
     "",
     "WHILE YOU ARE LOOKING SOMETHING UP",
@@ -146,9 +164,23 @@ export function liveInstruction(config: AgentConfig, brandName: string, caller: 
     "Never assume you can. Never assume you cannot. Say a holding phrase, call it, and",
     "then tell them what came back.",
     "",
-    "If it comes back refused, tell the caller plainly that it is not your decision,",
-    "and offer to bring in a colleague. Do not offer it another way, and do not",
-    "apologise more than once for the same thing — fix it instead.",
+    "WHEN SOMETHING COMES BACK REFUSED",
+    "Tell the caller plainly that it is not your decision. Do not offer it another",
+    "way, and do not apologise more than once for the same thing.",
+    "",
+    "Then give them exactly two options, out loud, and stop talking:",
+    "  1. you bring in a colleague who can make that decision, or",
+    "  2. they are happy to leave it where it is.",
+    "",
+    "Wait for their answer. Do not choose for them, and do not assume the first.",
+    "",
+    "If they want a colleague, call escalate_to_human.",
+    "If they say they are happy to leave it, thank them properly — they have just",
+    "taken a no well — confirm in one sentence what was and was not done, and call",
+    "close_with_agreement. A colleague still reviews it afterwards; you do not need",
+    "to tell the caller that.",
+    "",
+    "If they are still unhappy, or they ask again, that is not agreement. Escalate.",
     "",
     "NEVER SAY A TOOL'S NAME OUT LOUD",
     "The caller is on a phone. They cannot see tools and must never hear one named.",
@@ -243,15 +275,15 @@ export async function handleToolCall(
   if (name === "take_action") {
     const action = String(args.action ?? "");
     const label = String(args.label ?? action);
-    const amountPence =
-      typeof args.amountPence === "number" ? Math.round(args.amountPence) : undefined;
+    const amountPaise =
+      typeof args.amountPaise === "number" ? Math.round(args.amountPaise) : undefined;
 
-    const decision = checkAuthority(ctx.config, action, amountPence);
+    const decision = checkAuthority(ctx.config, action, amountPaise);
     await db.insert(s.conversationActions).values({
       conversationId: ctx.conversationId,
       action,
       label,
-      amountPence: amountPence ?? null,
+      amountPaise: amountPaise ?? null,
       allowed: decision.allowed,
     });
 
@@ -298,7 +330,64 @@ export async function handleToolCall(
           "A colleague is now queued. Tell the caller you are bringing someone in, that " +
           "they will not have to repeat themselves, and hold the line warmly.",
       },
-      outcome: { name, summary: reason, allowed: true, detail: `handoff ${handoff.id.slice(0, 8)}` },
+      outcome: {
+        name,
+        summary: reason,
+        allowed: true,
+        // Who it actually rang at, not just that a queue exists — the tester
+        // needs to be able to check that the alert went to the right person.
+        detail: handoff.routedTo ? `ringing ${handoff.routedTo.name}` : "queued · nobody free",
+      },
+    };
+  }
+
+  if (name === "close_with_agreement") {
+    const outcome = String(args.outcome ?? "The customer accepted the outcome.");
+    const turns = await db
+      .select()
+      .from(s.turns)
+      .where(eq(s.turns.conversationId, ctx.conversationId))
+      .orderBy(asc(s.turns.ordinal));
+
+    /**
+     * A closure is written as a handoff too, and that is the point.
+     *
+     * The AI talking a customer out of something is exactly the decision that
+     * would otherwise never be reviewed — nothing was spent, nobody was
+     * queued, so nothing lands in front of a person. Writing it into the same
+     * queue as an escalation, marked `closure_approval`, means someone sees it
+     * and can reopen it. It costs one row and it is the difference between a
+     * refusal being a policy and a refusal being a habit.
+     */
+    const handoff = await writeBrief({
+      conversationId: ctx.conversationId,
+      brandId: ctx.brandId,
+      config: ctx.config,
+      reason: outcome,
+      customerContext: "Voice playground session.",
+      transcript: turns.map((t) => `${t.speaker}: ${t.body}`),
+      blockedAction: null,
+      kind: "closure_approval",
+    });
+
+    await db
+      .update(s.conversations)
+      .set({ status: "resolved", outcome: "ai_resolved", endedAt: new Date() })
+      .where(eq(s.conversations.id, ctx.conversationId));
+
+    return {
+      response: {
+        closed: true,
+        instruction:
+          "Thank them once, warmly and briefly, say goodbye, and stop. Do not re-open " +
+          "what you have just closed and do not offer anything further.",
+      },
+      outcome: {
+        name,
+        summary: outcome,
+        allowed: true,
+        detail: `closed by agreement · ${handoff.id.slice(0, 8)}`,
+      },
     };
   }
 
@@ -328,7 +417,7 @@ export async function persistTurn(
   // spacing, so a naive concatenation gives "One moment.The frame has…".
   const text = body
     .replace(/\s+/g, " ")
-    .replace(/([.!?,])(?=[A-Za-z£$])/g, "$1 ")
+    .replace(/([.!?,])(?=[A-Za-z₹$])/g, "$1 ")
     .trim();
   if (!text) return;
 
@@ -376,6 +465,55 @@ export async function persistTurn(
       ...(said.length === 1 ? { sentimentStart: sentiment } : {}),
     })
     .where(eq(s.conversations.id, conversationId));
+}
+
+/**
+ * Who has the line, and what they have typed since `afterOrdinal`.
+ *
+ * Taking the line happens in the console, which is a different process, so the
+ * bridge reads it back rather than being told. The same read picks up the
+ * person's replies, because on a playground call the only way the caller finds
+ * out what they said is the bridge relaying it.
+ */
+export async function lineState(conversationId: string, afterOrdinal: number) {
+  const [row] = await db
+    .select({ handledBy: s.conversations.handledBy })
+    .from(s.conversations)
+    .where(eq(s.conversations.id, conversationId))
+    .limit(1);
+
+  const replies = await db
+    .select({ ordinal: s.turns.ordinal, author: s.turns.authorName, body: s.turns.body })
+    .from(s.turns)
+    .where(
+      and(
+        eq(s.turns.conversationId, conversationId),
+        eq(s.turns.speaker, "human"),
+        gt(s.turns.ordinal, afterOrdinal),
+      ),
+    )
+    .orderBy(asc(s.turns.ordinal));
+
+  return { heldBy: row?.handledBy ?? null, replies };
+}
+
+/**
+ * What the model is told when the line comes back to it.
+ *
+ * While a person held the call the model kept hearing the caller and kept
+ * composing answers — the bridge dropped them — so its idea of the
+ * conversation is wrong in both directions. This puts it right before it
+ * speaks again, rather than letting it pick up from a reply nobody heard.
+ */
+export function handBackNote(heldBy: string, replies: { body: string }[]) {
+  return [
+    `You were off the line. ${heldBy}, a colleague, spoke to the caller directly.`,
+    "Nothing you said in that time reached the caller.",
+    replies.length
+      ? `What ${heldBy} told them:\n${replies.map((r) => `- ${r.body}`).join("\n")}`
+      : `${heldBy} did not say anything you can see.`,
+    "You are back on the call now. Do not repeat what was already covered.",
+  ].join("\n");
 }
 
 /** Who could be on the other end, for the caller picker. */

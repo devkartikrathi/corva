@@ -3,6 +3,7 @@ import { DarkKicker, DarkTh, OperatorHeader } from "@/components/operator-ui";
 import { OnboardCompany } from "@/components/OnboardCompany";
 import { requireStaff } from "@/lib/auth/context";
 import { onboardCompany, recentlyOnboarded } from "@/lib/actions/onboarding";
+import { modelOptions } from "@/lib/queries/models";
 
 /**
  * Onboarding.
@@ -19,7 +20,7 @@ import { onboardCompany, recentlyOnboarded } from "@/lib/actions/onboarding";
  */
 export default async function OnboardingPage() {
   await requireStaff();
-  const recent = await recentlyOnboarded();
+  const [recent, models] = await Promise.all([recentlyOnboarded(), modelOptions()]);
 
   return (
     <section>
@@ -31,7 +32,7 @@ export default async function OnboardingPage() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
         <div style={{ borderRight: "2px solid var(--color-neutral-700)", padding: "20px 24px" }}>
-          <OnboardCompany onOnboard={onboardCompany} />
+          <OnboardCompany onOnboard={onboardCompany} models={models} />
         </div>
 
         <div style={{ padding: "20px 24px" }}>

@@ -1,7 +1,7 @@
-import { Kicker, OutlineButton, ScreenHeader, SectionTitle, Tag, Th } from "@/components/ui";
+import { Kicker, OutlineButton, ScreenHeader, ScreenRefusal, SectionTitle, Tag, Th } from "@/components/ui";
 import { ActionButton } from "@/components/ActionButton";
 import { InvitePanel, RoleSelect } from "@/components/TeamControls";
-import { getConsoleContext } from "@/lib/auth/context";
+import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { getTeam } from "@/lib/queries/workspace";
 import { changeRole, inviteMember, revokeInvite, suspendMember } from "@/lib/actions/team";
 import { can, CAPABILITIES, MATRIX, ROLES, grantLabel, grantWeight } from "@/lib/auth/permissions";
@@ -17,6 +17,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
   "transcripts.export": "Export transcripts",
   "people.manage": "Manage people & roles",
   "billing.manage": "Billing, plan & residency",
+  "team.performance": "See how colleagues are performing",
 };
 
 const WEIGHT_COLOR = {
@@ -26,7 +27,18 @@ const WEIGHT_COLOR = {
 } as const;
 
 export default async function TeamPage() {
-  const { session, brand } = await getConsoleContext();
+  const { session, brand, denied } = await guardScreen("people.manage");
+  // The nav withholds this screen; this is what makes withholding it true.
+  if (denied) {
+    return (
+      <ScreenRefusal
+        title="Team & roles"
+        reason={refusalReason(denied)}
+        next="Who holds which account shows on the customer list."
+      />
+    );
+  }
+
   const { people, brands, brandAccess, activity: recentActivity } = await getTeam(session.orgId);
 
   const manages = can(session.actor, "people.manage", { brandId: brand.id }).allowed;

@@ -8,11 +8,12 @@ import {
   DarkStatRow,
 } from "@/components/operator-ui";
 import { ActionButton, ActionToggle } from "@/components/ActionButton";
-import { AccountNoteForm, SupportAccessRequest } from "@/components/OperatorForms";
+import { AccountNoteForm, BrandModelControl, SupportAccessRequest } from "@/components/OperatorForms";
 import { operatorConfig } from "@/lib/config";
-import { addAccountNote } from "@/lib/actions/operator";
+import { addAccountNote, setBrandModel } from "@/lib/actions/operator";
 import { requestSupportAccess, revokeSupportAccess, setOrgFeatureFlag } from "@/lib/actions/workspace";
 import { getTenantDetail } from "@/lib/queries/operator";
+import { modelOptions } from "@/lib/queries/models";
 
 export default async function CompanyDetailPage({
   params,
@@ -22,6 +23,10 @@ export default async function CompanyDetailPage({
   const { slug } = await params;
   const detail = await getTenantDetail(slug);
   if (!detail) notFound();
+
+  // Which models exist, what they cost, and how much of each is left today —
+  // the last part is why this is fetched per request rather than baked in.
+  const models = await modelOptions();
 
   const {
     org,
@@ -204,6 +209,35 @@ export default async function CompanyDetailPage({
                 </span>
               </div>
             ))}
+          </div>
+
+          <div style={{ padding: "18px 24px", borderTop: "1px solid var(--color-neutral-800)" }}>
+            <DarkSectionTitle style={{ marginBottom: 6 }}>Model</DarkSectionTitle>
+            <p
+              style={{
+                margin: "0 0 14px",
+                fontSize: 11.5,
+                color: "var(--color-neutral-500)",
+                lineHeight: 1.5,
+              }}
+            >
+              Ours to set, not theirs. The daily allowance is shared across every tenant on the
+              key, so a brand that is only being demonstrated does not need the model a brand
+              taking real calls does.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+              {tenantBrands.map((b) => (
+                <BrandModelControl
+                  key={b.id}
+                  orgSlug={slug}
+                  brandId={b.id}
+                  brandName={b.name}
+                  models={models}
+                  current={b.modelId}
+                  onChange={setBrandModel}
+                />
+              ))}
+            </div>
           </div>
         </div>
 

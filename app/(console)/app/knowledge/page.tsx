@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { Bar, Kicker, OutlineButton, PrimaryButton, ScreenHeader, StatRow, Tag, Th } from "@/components/ui";
+import { Bar, Kicker, OutlineButton, PrimaryButton, ScreenHeader, ScreenRefusal, StatRow, Tag, Th } from "@/components/ui";
 import { ActionButton } from "@/components/ActionButton";
 import { SearchBox } from "@/components/filters";
-import { getConsoleContext } from "@/lib/auth/context";
+import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { href, normalise, type RawParams } from "@/lib/params";
 import { dismissGap, reindexBrand, syncSource } from "@/lib/actions/knowledge";
 import { draftFromGap } from "@/lib/actions/workspace";
@@ -15,7 +15,18 @@ export default async function KnowledgeBasePage({
 }: {
   searchParams: Promise<RawParams>;
 }) {
-  const { brand } = await getConsoleContext();
+  const { brand, denied } = await guardScreen("documents.publish");
+  // The nav withholds this screen; this is what makes withholding it true.
+  if (denied) {
+    return (
+      <ScreenRefusal
+        title="Knowledge base"
+        reason={refusalReason(denied)}
+        next="Answers cite the document they came from, on every call in the archive."
+      />
+    );
+  }
+
   const params = normalise(await searchParams);
   const ctx = { pathname: PATH, params };
 
@@ -151,6 +162,15 @@ export default async function KnowledgeBasePage({
                     >
                       {source.healthy ? source.synced : "failed"}
                     </span>
+                  </div>
+                  {/*
+                    What the sync actually brought in. A source that says
+                    "synced 4 minutes ago" and nothing else looks healthy while
+                    contributing nothing; the count is what distinguishes a
+                    working connector from a connected empty one.
+                  */}
+                  <div style={{ marginTop: 2, fontSize: 10.5, color: "var(--color-neutral-700)" }}>
+                    {source.kind} · {source.docCount} document{source.docCount === 1 ? "" : "s"}
                   </div>
                   {source.error ? (
                     <div style={{ marginTop: 3, fontSize: 10.5, color: "var(--color-accent-700)", lineHeight: 1.35 }}>

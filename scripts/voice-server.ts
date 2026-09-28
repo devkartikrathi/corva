@@ -22,15 +22,19 @@ import "../lib/db/script-env";
 import { WebSocketServer, WebSocket } from "ws";
 import {
   BRIDGE_PORT,
+  HOLD_POLL_MS,
   IDLE_TIMEOUT_SECONDS,
   LIVE_MODEL,
   LIVE_URL,
   MAX_CONCURRENT_SESSIONS,
+  resolveLiveModel,
   SESSION_CAP_SECONDS,
 } from "../lib/voice/config";
 import {
   closeVoiceConversation,
+  handBackNote,
   handleToolCall,
+  lineState,
   openVoiceConversation,
   persistTurn,
   setupMessage,
@@ -48,7 +52,7 @@ let open = 0;
 
 const wss = new WebSocketServer({ port: BRIDGE_PORT });
 console.log(`voice bridge on ws://localhost:${BRIDGE_PORT}`);
-console.log(`  model ${LIVE_MODEL}`);
+console.log(`  default model ${LIVE_MODEL} — the console may pick another per call`);
 console.log(`  cap ${SESSION_CAP_SECONDS}s · idle ${IDLE_TIMEOUT_SECONDS}s · max ${MAX_CONCURRENT_SESSIONS} concurrent\n`);
 
 wss.on("connection", (client) => {
@@ -64,14 +68,36 @@ wss.on("connection", (client) => {
   let config: Awaited<ReturnType<typeof openVoiceConversation>>["config"] | null = null;
   let startedAt = new Date();
   let closed = false;
+  // Which live model this particular call is on. Chosen per session rather
+  // than per process, so trying a different one does not mean restarting the
+  // bridge — and recorded on the conversation, so the archive says which one
+  // was on the call.
+  let liveModel: string = LIVE_MODEL;
 
   // Transcription arrives in fragments; a turn is only written when the model
   // says the turn is over, so the row is a sentence rather than a syllable.
   let heard = "";
   let said = "";
 
+  /**
+   * Who has taken the line from the console, if anyone.
+   *
+   * While this is set the AI is off the call. The model is still connected and
+   * still hears the caller — that is what keeps their words transcribed for the
+   * person reading along — but nothing it says or tries to do gets through:
+   * its audio is dropped, its transcript is not written, and its tool calls are
+   * refused unrun. Enforced here, not asked of the model, for the same reason
+   * the ceilings are.
+   */
+  let heldBy: string | null = null;
+  /** The person's replies while they held it, for the hand-back note. */
+  let heldReplies: { body: string }[] = [];
+  let lastReplyOrdinal = -1;
+  let watching = false;
+
   let capTimer: NodeJS.Timeout | null = null;
   let idleTimer: NodeJS.Timeout | null = null;
+  let holdTimer: NodeJS.Timeout | null = null;
 
   /**
    * Server messages are handled one at a time.
@@ -97,6 +123,7 @@ wss.on("connection", (client) => {
     closed = true;
     if (capTimer) clearTimeout(capTimer);
     if (idleTimer) clearTimeout(idleTimer);
+    if (holdTimer) clearInterval(holdTimer);
 
     const seconds = Math.round((Date.now() - startedAt.getTime()) / 1000);
     try {
@@ -104,10 +131,14 @@ wss.on("connection", (client) => {
         if (heard.trim()) await persistTurn(conversationId, "customer", heard, startedAt);
         if (said.trim()) await persistTurn(conversationId, "ai", said, startedAt);
         await persistTurn(conversationId, "system", `Playground session ended: ${reason}.`, startedAt);
-        await billConversation(conversationId, {
-          audioInSeconds: audioInBytes / INPUT_RATE_BYTES_PER_SEC,
-          audioOutSeconds: audioOutBytes / OUTPUT_RATE_BYTES_PER_SEC,
-        });
+        await billConversation(
+          conversationId,
+          {
+            audioInSeconds: audioInBytes / INPUT_RATE_BYTES_PER_SEC,
+            audioOutSeconds: audioOutBytes / OUTPUT_RATE_BYTES_PER_SEC,
+          },
+          liveModel,
+        );
         await closeVoiceConversation(conversationId, seconds);
 
         // Name the call from its transcript, the way the nightly job does for
@@ -137,6 +168,68 @@ wss.on("connection", (client) => {
   const touch = () => {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => void shutdown("idle"), IDLE_TIMEOUT_SECONDS * 1000);
+  };
+
+  /**
+   * Notice a person taking the line, or giving it back.
+   *
+   * Not run through `serialise`: a tool call can hold that queue for the ten
+   * seconds a brief takes to write, and a takeover must not wait behind the
+   * very thing the person is stepping in to stop. Only the one write it makes
+   * goes through the queue, so the transcript stays in order.
+   */
+  const watchLine = async () => {
+    if (watching || closed || !conversationId) return;
+    watching = true;
+    try {
+      const line = await lineState(conversationId, lastReplyOrdinal);
+      if (closed) return;
+
+      // Replies first: a person can reply and hand back between two looks, and
+      // the hand-back note has to include what they said.
+      for (const reply of line.replies) {
+        lastReplyOrdinal = reply.ordinal;
+        heldReplies.push({ body: reply.body });
+        send({ type: "human", name: reply.author ?? "A colleague", text: reply.body });
+      }
+
+      if (line.heldBy && line.heldBy !== heldBy) {
+        const taking = !heldBy;
+        heldBy = line.heldBy;
+        if (taking) {
+          // Whatever the AI was halfway through saying was heard, so it is
+          // written down; nothing after this point is.
+          const cut = said;
+          said = "";
+          if (cut.trim()) {
+            const id = conversationId;
+            serialise(() => persistTurn(id, "ai", cut, startedAt));
+          }
+        }
+        send({ type: "held", by: heldBy });
+        console.log(`  ${heldBy} took the line — AI muted`);
+      } else if (!line.heldBy && heldBy) {
+        const note = handBackNote(heldBy, heldReplies);
+        heldBy = null;
+        heldReplies = [];
+        // Context only: `turnComplete: false` tells the model more is coming,
+        // so it waits for the caller rather than answering the note.
+        if (live?.readyState === WebSocket.OPEN) {
+          live.send(
+            JSON.stringify({
+              clientContent: { turns: [{ role: "user", parts: [{ text: note }] }], turnComplete: false },
+            }),
+          );
+        }
+        send({ type: "released" });
+        console.log("  line handed back — AI live again");
+      }
+    } catch (e) {
+      // One missed look is a second of lag, not a reason to drop the call.
+      console.error("  line check failed:", (e as Error).message);
+    } finally {
+      watching = false;
+    }
   };
 
   client.on("message", async (raw, isBinary) => {
@@ -190,6 +283,8 @@ wss.on("connection", (client) => {
         // client gives up.
         const { text: caller } = await customerContext(opened.customer?.id ?? null);
 
+        liveModel = resolveLiveModel(msg.liveModel);
+
         live = new WebSocket(LIVE_URL(KEY));
 
         live.on("open", () => {
@@ -198,7 +293,7 @@ wss.on("connection", (client) => {
               setupMessage(
                 config!,
                 opened.brand.name,
-                LIVE_MODEL,
+                liveModel,
                 caller || "The number is not recognised. You do not know who this is.",
               ),
             ),
@@ -219,15 +314,39 @@ wss.on("connection", (client) => {
               conversationId,
               isTest,
               brandSlug: msg.brandSlug ?? "aurelius-home",
+              liveModel,
               capSeconds: SESSION_CAP_SECONDS,
             });
             capTimer = setTimeout(() => void shutdown("session cap reached"), SESSION_CAP_SECONDS * 1000);
+            holdTimer = setInterval(() => void watchLine(), HOLD_POLL_MS);
             touch();
             return;
           }
 
           if (m.toolCall) {
             for (const call of m.toolCall.functionCalls ?? []) {
+              // Off the line means off the account too. Answered rather than
+              // ignored, because an unanswered call leaves the model waiting.
+              if (heldBy) {
+                live!.send(
+                  JSON.stringify({
+                    toolResponse: {
+                      functionResponses: [
+                        {
+                          id: call.id,
+                          name: call.name,
+                          response: {
+                            refused: true,
+                            instruction: `${heldBy} has taken the line. Do nothing and say nothing.`,
+                          },
+                        },
+                      ],
+                    },
+                  }),
+                );
+                console.log(`  refused ${call.name} — ${heldBy} has the line`);
+                continue;
+              }
               const { response, outcome } = await handleToolCall(
                 call.name,
                 call.args ?? {},
@@ -252,18 +371,20 @@ wss.on("connection", (client) => {
             heard += sc.inputTranscription.text;
             send({ type: "heard", text: heard });
           }
-          if (sc.outputTranscription?.text) {
+          if (sc.outputTranscription?.text && !heldBy) {
             said += sc.outputTranscription.text;
             send({ type: "said", text: said });
           }
 
           for (const part of sc.modelTurn?.parts ?? []) {
             if (part.inlineData?.data) {
+              const audio = Buffer.from(part.inlineData.data, "base64");
+              // Counted even when dropped: the model generated it, so it is
+              // billed, and the meter records what was spent, not what was heard.
+              audioOutBytes += audio.length;
               // Audio goes back as a binary frame; JSON-wrapping base64 audio
               // triples the bytes on a path that is already the latency budget.
-              if (client.readyState === WebSocket.OPEN) {
-                const audio = Buffer.from(part.inlineData.data, "base64");
-                audioOutBytes += audio.length;
+              if (!heldBy && client.readyState === WebSocket.OPEN) {
                 client.send(audio, { binary: true });
               }
             }

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import type { ModelOption } from "@/lib/queries/models";
+import { ModelPicker } from "@/components/ModelPicker";
 
 /**
  * Operator-side forms on the dark ground.
@@ -183,6 +185,93 @@ export function AccountNoteForm({
           {pending ? "Saving…" : "Add"}
         </button>
       </div>
+      {error && (
+        <span role="alert" style={{ fontSize: 11, color: "var(--color-accent-400)" }}>
+          {error}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Changing the model one brand answers on.
+ *
+ * Applies from the next conversation, not this one — so the control says so
+ * rather than leaving someone to wonder why a call in progress did not change
+ * character halfway through.
+ */
+export function BrandModelControl({
+  orgSlug,
+  brandId,
+  brandName,
+  models,
+  current,
+  onChange,
+}: {
+  orgSlug: string;
+  brandId: string;
+  brandName: string;
+  models: ModelOption[];
+  current: string;
+  onChange: (orgSlug: string, brandId: string, modelId: string) => Promise<unknown>;
+}) {
+  const [value, setValue] = useState(current);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+
+  const dirty = value !== current;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <ModelPicker
+        options={models}
+        value={value}
+        onChange={(id) => {
+          setValue(id);
+          setSaved(false);
+          setError(null);
+        }}
+        disabled={pending}
+        label={`${brandName} · model`}
+      />
+
+      {dirty && (
+        <button
+          type="button"
+          className="hov-accent-dark"
+          disabled={pending}
+          onClick={() => {
+            setError(null);
+            start(async () => {
+              try {
+                await onChange(orgSlug, brandId, value);
+                setSaved(true);
+              } catch (e) {
+                setValue(current);
+                setError(e instanceof Error ? e.message.replace(/^Error:\s*/, "") : "Failed.");
+              }
+            });
+          }}
+          style={{
+            alignSelf: "flex-start",
+            fontSize: 11.5,
+            fontWeight: 700,
+            background: "var(--color-accent)",
+            color: "var(--color-bg)",
+            padding: "7px 12px",
+          }}
+        >
+          {pending ? "Moving…" : "Move to this model"}
+        </button>
+      )}
+
+      {saved && !dirty && (
+        <span style={{ fontSize: 11, color: "var(--color-neutral-400)" }}>
+          Saved. It takes effect on the next conversation.
+        </span>
+      )}
       {error && (
         <span role="alert" style={{ fontSize: 11, color: "var(--color-accent-400)" }}>
           {error}

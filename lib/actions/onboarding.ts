@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { requireStaff } from "@/lib/auth/context";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
+import { DEFAULT_MODEL_ID, isKnownModel } from "@/lib/agent/models";
 
 /**
  * Onboarding a company.
@@ -21,6 +22,13 @@ import * as s from "@/lib/db/schema";
  * an Owner. Not an agent version, not documents, not channels: those are the
  * tenant's own decisions, and pre-filling them would put words in their mouth
  * that their customers would then hear.
+ *
+ * The model is the exception, and it is ours rather than theirs. Which model a
+ * brand answers on is a question about what we can afford to give them today —
+ * the free tier meters requests per model per day across the whole key — and
+ * about what they are actually buying: a helpline that reads documents aloud
+ * needs less of a model than one that credits accounts. Staff set it here and
+ * change it from the account screen; the tenant never sees it.
  */
 
 const PLANS = ["trial", "studio", "operator", "enterprise"] as const;
@@ -63,6 +71,7 @@ export async function onboardCompany(input: {
   brandName: string;
   ownerName: string;
   ownerEmail: string;
+  modelId?: string;
 }): Promise<OnboardingResult> {
   const { staff } = await requireStaff();
 
@@ -75,6 +84,12 @@ export async function onboardCompany(input: {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail)) throw new Error("That is not an email address.");
   if (!PLANS.includes(input.plan as (typeof PLANS)[number])) throw new Error("Unknown plan.");
   if (!REGIONS.includes(input.region as (typeof REGIONS)[number])) throw new Error("Unknown region.");
+
+  // An unrecognised id is refused rather than quietly defaulted: a workspace
+  // that was meant to be on the cheap model and silently is not spends someone
+  // else's quota for a week before anyone notices.
+  const modelId = input.modelId ?? DEFAULT_MODEL_ID;
+  if (!isKnownModel(modelId)) throw new Error("That is not a model we offer.");
 
   const slug = slugify(companyName);
   if (!slug) throw new Error("That name does not make a usable address.");
@@ -89,8 +104,8 @@ export async function onboardCompany(input: {
   const seats = Math.max(1, Math.min(1000, Math.round(input.seats || 1)));
 
   // Trials pay nothing; everyone else is priced per seat with a plan floor.
-  const perSeat = input.plan === "studio" ? 2900 : input.plan === "operator" ? 3900 : 5500;
-  const mrrPence = input.plan === "trial" ? 0 : seats * perSeat + (input.plan === "enterprise" ? 120000 : 0);
+  const perSeat = input.plan === "studio" ? 249_900 : input.plan === "operator" ? 349_900 : 499_900;
+  const mrrPaise = input.plan === "trial" ? 0 : seats * perSeat + (input.plan === "enterprise" ? 99_00_000 : 0);
 
   const [org] = await db
     .insert(s.organizations)
@@ -100,7 +115,7 @@ export async function onboardCompany(input: {
       plan: input.plan as (typeof PLANS)[number],
       region: input.region,
       seatCount: seats,
-      mrrPence,
+      mrrPaise,
       // No health score until the rollup has traffic to judge — a brand-new
       // tenant scored 0 would sit at the top of the "needs attention" list on
       // its first day, which is the opposite of true.
@@ -116,6 +131,7 @@ export async function onboardCompany(input: {
       slug: slugify(brandName) || "main",
       name: brandName,
       initials: initialsOf(brandName),
+      modelId,
       isLive: false,
     })
     .returning();
@@ -160,7 +176,7 @@ export async function onboardCompany(input: {
     actorName: staff.name,
     action: "workspace.created",
     target: companyName,
-    meta: { plan: input.plan, region: input.region, seats, owner: ownerEmail },
+    meta: { plan: input.plan, region: input.region, seats, owner: ownerEmail, model: modelId },
   });
 
   revalidatePath("/operator");

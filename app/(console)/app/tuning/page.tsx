@@ -1,11 +1,6 @@
-import {
-  DeltaRow,
-  Kicker,
-  ScreenTitle,
-  Th,
-} from "@/components/ui";
+import { DeltaRow, Kicker, ScreenRefusal, ScreenTitle, Th } from "@/components/ui";
 import { notFound } from "next/navigation";
-import { getConsoleContext } from "@/lib/auth/context";
+import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import {
   AuthorityCell,
   NeverRules,
@@ -45,7 +40,18 @@ import { publishAgentVersion } from "@/lib/actions/workspace";
 import { ActionButton } from "@/components/ActionButton";
 
 export default async function TuningPage() {
-  const { brand } = await getConsoleContext();
+  const { brand, denied } = await guardScreen("agent.edit");
+  // The nav withholds this screen; this is what makes withholding it true.
+  if (denied) {
+    return (
+      <ScreenRefusal
+        title="AI tuning"
+        reason={refusalReason(denied)}
+        next="What the AI was told to do shows on every call in the archive."
+      />
+    );
+  }
+
   const tuning = await getTuning(brand.id);
   if (!tuning) notFound();
 
@@ -279,7 +285,7 @@ export default async function TuningPage() {
                           id: a.id,
                           action: a.key,
                           blocked: a.blocked,
-                          ceilingPence: a.ceilingPence,
+                          ceilingPaise: a.ceilingPaise,
                           escalateTo: a.escalateTo,
                         }}
                         onSave={setAuthority}

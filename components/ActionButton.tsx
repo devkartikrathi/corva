@@ -1,5 +1,6 @@
 "use client";
 
+import { unstable_rethrow } from "next/navigation";
 import { useState, useTransition, type CSSProperties, type ReactNode } from "react";
 
 /**
@@ -37,10 +38,17 @@ export function ActionButton({
       try {
         await action();
       } catch (e) {
-        // Server actions reject with the thrown message in production builds
-        // only when it is an expected error; otherwise show something honest.
+        // A redirect is the action succeeding, not failing — let the router have it.
+        unstable_rethrow(e);
+        // Production builds replace whatever the action threw with React's
+        // minified #441, so the reason only survives in development. Say what
+        // we know rather than print a link to the React docs.
         const message = e instanceof Error ? e.message : "Something went wrong.";
-        setError(message.replace(/^Error:\s*/, ""));
+        setError(
+          message.startsWith("Minified React error")
+            ? "The server refused that. Refresh to see where things stand."
+            : message.replace(/^Error:\s*/, ""),
+        );
       }
     });
   };

@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
+import { formatRupees } from "@/lib/money";
 
 /**
  * Read models for the knowledge, tuning, team and setup screens — the parts
@@ -217,13 +218,13 @@ export async function getTuning(brandId: string) {
       key: a.action,
       action: a.label,
       blocked: a.blocked,
-      ceilingPence: a.ceilingPence,
+      ceilingPaise: a.ceilingPaise,
       escalateTo: a.escalateTo,
       ceiling: a.blocked
         ? "blocked"
-        : a.ceilingPence === null
+        : a.ceilingPaise === null
           ? "unlimited"
-          : `£${(a.ceilingPence / 100).toLocaleString("en-GB")}`,
+          : formatRupees(a.ceilingPaise),
       escalate: a.escalateTo ? a.escalateTo[0].toUpperCase() + a.escalateTo.slice(1) : "—",
       color: a.blocked ? ACCENT_700 : "var(--color-text)",
     })),
@@ -275,7 +276,7 @@ async function diffVersions(liveId: string, draftId: string) {
   }
 
   const describe = (a: (typeof liveAuth)[number]) =>
-    a.blocked ? "blocked" : a.ceilingPence === null ? "unlimited" : `£${a.ceilingPence / 100}`;
+    a.blocked ? "blocked" : a.ceilingPaise === null ? "unlimited" : formatRupees(a.ceilingPaise);
   const liveByAction = new Map(liveAuth.map((a) => [a.action, a]));
   for (const a of draftAuth) {
     const before = liveByAction.get(a.action);
@@ -526,4 +527,32 @@ export async function getSetup(orgId: string, brandId?: string) {
       allowance: org?.plan === "enterprise" ? 100_000 : org?.plan === "operator" ? 25_000 : 5_000,
     },
   };
+}
+
+
+/* ─── Demo profiles ────────────────────────────────────────────────────── */
+
+/**
+ * The people the demo console can be looked at as.
+ *
+ * Sorted by role seniority rather than alphabetically, because the point of
+ * the list is to make the *shape* of the workspace legible at a glance — an
+ * Owner, a couple of Managers, the Agents under them — and a list ordered by
+ * first name hides exactly that.
+ */
+export async function switchableProfiles(orgId: string) {
+  const rows = await db
+    .select({
+      id: s.memberships.id,
+      name: s.memberships.name,
+      role: s.memberships.role,
+      availability: s.memberships.availability,
+      rating: s.memberships.rating,
+    })
+    .from(s.memberships)
+    .where(and(eq(s.memberships.orgId, orgId), eq(s.memberships.status, "active")))
+    .orderBy(s.memberships.name);
+
+  const rank: Record<string, number> = { owner: 0, admin: 1, manager: 2, agent: 3, analyst: 4 };
+  return rows.sort((a, b) => (rank[a.role] ?? 9) - (rank[b.role] ?? 9) || a.name.localeCompare(b.name));
 }

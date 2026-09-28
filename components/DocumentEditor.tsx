@@ -181,7 +181,7 @@ export function DocumentEditor({
             onChange={(e) => setBody(e.target.value)}
             rows={22}
             placeholder={
-              "Where a delivery has been rescheduled twice or more, the customer qualifies for a goodwill credit. The agent may apply up to £50 without approval.\n\nGoodwill credits are applied to the original payment method within five working days."
+              "Where a delivery has been rescheduled twice or more, the customer qualifies for a goodwill credit. The agent may apply up to ₹5,000 without approval.\n\nGoodwill credits are applied to the original payment method within five working days."
             }
             style={{ ...field, marginTop: 6, lineHeight: 1.6, resize: "vertical" }}
           />
@@ -203,7 +203,7 @@ export function DocumentEditor({
             <input
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Raised the goodwill ceiling to £50"
+              placeholder="Raised the goodwill ceiling to ₹5,000"
               style={{ ...field, marginTop: 6 }}
             />
           </label>

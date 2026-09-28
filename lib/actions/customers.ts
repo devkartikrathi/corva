@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getConsoleContext } from "@/lib/auth/context";
 import { assertCan } from "@/lib/auth/permissions";
@@ -203,16 +203,4 @@ export async function exportCustomersCsv(query: Params): Promise<string> {
         .join(","),
     ),
   ].join("\n");
-}
-
-/** Latest scores over time for one customer, for the profile's history. */
-export async function scoreHistory(customerId: string) {
-  const { brand } = await getConsoleContext();
-  await scoped(customerId, brand.id);
-  return db
-    .select()
-    .from(s.customerScores)
-    .where(eq(s.customerScores.customerId, customerId))
-    .orderBy(desc(s.customerScores.computedAt))
-    .limit(12);
 }

@@ -1,4 +1,5 @@
 "use client";
+import { formatRupees } from "@/lib/money";
 
 import { useState, useTransition } from "react";
 
@@ -191,7 +192,7 @@ export type AuthorityRow = {
   id: string;
   action: string;
   blocked: boolean;
-  ceilingPence: number | null;
+  ceilingPaise: number | null;
   escalateTo: string | null;
 };
 
@@ -202,22 +203,22 @@ export function AuthorityCell({
   row: AuthorityRow;
   onSave: (
     limitId: string,
-    input: { blocked: boolean; ceilingPence: number | null; escalateTo: string | null },
+    input: { blocked: boolean; ceilingPaise: number | null; escalateTo: string | null },
   ) => Promise<unknown>;
 }) {
   const [editing, setEditing] = useState(false);
   const [mode, setMode] = useState<"blocked" | "unlimited" | "capped">(
-    row.blocked ? "blocked" : row.ceilingPence === null ? "unlimited" : "capped",
+    row.blocked ? "blocked" : row.ceilingPaise === null ? "unlimited" : "capped",
   );
-  const [pounds, setPounds] = useState(row.ceilingPence === null ? "" : String(row.ceilingPence / 100));
+  const [amount, setAmount] = useState(row.ceilingPaise === null ? "" : String(row.ceilingPaise / 100));
   const [escalate, setEscalate] = useState(row.escalateTo ?? "");
   const { pending, error, run } = useAction();
 
   const label = row.blocked
     ? "blocked"
-    : row.ceilingPence === null
+    : row.ceilingPaise === null
       ? "unlimited"
-      : `£${(row.ceilingPence / 100).toLocaleString("en-GB")}`;
+      : formatRupees(row.ceilingPaise);
 
   if (!editing) {
     return (
@@ -260,10 +261,10 @@ export function AuthorityCell({
       </span>
       {mode === "capped" && (
         <input
-          value={pounds}
-          onChange={(e) => setPounds(e.target.value.replace(/[^0-9.]/g, ""))}
-          placeholder="50"
-          aria-label="Ceiling in pounds"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+          placeholder="5000"
+          aria-label="Ceiling in rupees"
           style={{
             width: 78,
             border: "1px solid var(--color-neutral-400)",
@@ -305,7 +306,7 @@ export function AuthorityCell({
               () =>
                 onSave(row.id, {
                   blocked: mode === "blocked",
-                  ceilingPence: mode === "capped" ? Math.round(Number(pounds || 0) * 100) : null,
+                  ceilingPaise: mode === "capped" ? Math.round(Number(amount || 0) * 100) : null,
                   escalateTo: escalate || null,
                 }),
               () => setEditing(false),
@@ -422,6 +423,8 @@ export function TestConsole({
     reason: string | null;
     text: string;
     citations: { title: string; anchor: string | null; confidence: number }[];
+    modelId: string;
+    modelLabel: string;
   }>;
 }) {
   const [value, setValue] = useState("");
@@ -475,7 +478,9 @@ export function TestConsole({
         >
           {pending ? "Thinking…" : `Ask v${version}`}
         </button>
-        <span style={{ fontSize: 10.5, color: "var(--color-neutral-700)" }}>Nothing is recorded</span>
+        <span style={{ fontSize: 10.5, color: "var(--color-neutral-700)" }}>
+          Nothing is recorded{reply ? ` · answered by ${reply.modelLabel}` : ""}
+        </span>
       </div>
       <Err>{error}</Err>
 

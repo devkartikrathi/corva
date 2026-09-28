@@ -8,6 +8,8 @@ import {
   Tag,
 } from "@/components/ui";
 import { getConsoleContext } from "@/lib/auth/context";
+import { customerScope } from "@/lib/auth/scope";
+import { formatRupees } from "@/lib/money";
 import { config } from "@/lib/config";
 import { CustomerNotes } from "@/components/CustomerNotes";
 import { ConsentPanel } from "@/components/ConsentPanel";
@@ -27,8 +29,7 @@ const CONSENT_KINDS = [
 ];
 import { getCustomer } from "@/lib/queries/customers";
 
-const money = (pence: number) =>
-  `£${(pence / 100).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
+
 
 const monthYear = (d: Date | null) =>
   d ? d.toLocaleDateString("en-GB", { month: "short", year: "numeric" }) : null;
@@ -44,14 +45,22 @@ export default async function Customer360Page({
   const { slug } = await params;
   const { session, brand } = await getConsoleContext();
 
-  // `slug` is the customer id; the lookup is brand-scoped, so a member of one
-  // brand cannot reach another brand's customer by guessing an id.
-  const record = await getCustomer(brand.id, slug);
+  /**
+   * `slug` is the customer id. The lookup is brand-scoped, so a member of one
+   * brand cannot reach another brand's customer by guessing an id — and an
+   * Agent is scoped further still, to accounts that are actually theirs. The
+   * nav hides what they cannot reach; this is what makes hiding it true.
+   */
+  const scope = customerScope(session.actor, session.membershipId, brand.id);
+  const record = await getCustomer(brand.id, slug, {
+    ownedBy: scope.kind === "own" ? scope.membershipId : undefined,
+  });
   if (!record) notFound();
 
   const {
     customer,
     score,
+    scoreHistory,
     signals: signalRows,
     conversations,
     records,
@@ -227,6 +236,7 @@ export default async function Customer360Page({
                     {score ? score.overrideDelta : 0}
                   </b>
                 </div>
+                <ScoreHistory history={scoreHistory} />
               </div>
 
               {config.showAiRationale && (
@@ -417,7 +427,7 @@ export default async function Customer360Page({
               {[
                 {
                   label: "Lifetime value",
-                  value: money(customer.ltvPence),
+                  value: formatRupees(customer.ltvPaise),
                   note: customer.customerSince
                     ? `since ${customer.customerSince.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}`
                     : "start date unknown",
@@ -659,5 +669,71 @@ export default async function Customer360Page({
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * How the blended score got here.
+ *
+ * The number on its own is a verdict; the shape beside it is the argument. A
+ * customer sitting at 78 because they have been climbing for a month is a
+ * different account from one at 78 on the way down, and the priority queue
+ * sorts them identically — so the profile is where that difference has to show.
+ *
+ * Drawn from `customer_scores`, which keeps a row per rescore, so the bars are
+ * the actual recorded history rather than a curve fitted to today's number.
+ * Two points is the minimum worth drawing: one bar is just the score again.
+ */
+function ScoreHistory({ history }: { history: { at: Date; blended: number }[] }) {
+  if (history.length < 2) return null;
+
+  const first = history[0];
+  const last = history[history.length - 1];
+  const move = last.blended - first.blended;
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <Kicker style={{ fontSize: 9.5 }}>Last {history.length} rescores</Kicker>
+      <div
+        style={{
+          marginTop: 7,
+          display: "flex",
+          alignItems: "flex-end",
+          gap: 3,
+          height: 34,
+        }}
+        aria-hidden
+      >
+        {history.map((point, i) => (
+          <span
+            key={point.at.toISOString() + i}
+            title={`${point.blended} on ${point.at.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}
+            style={{
+              display: "block",
+              width: 7,
+              // A floor, so a genuinely low score is still a visible mark
+              // rather than a gap that reads as missing data.
+              height: `${Math.max(6, point.blended)}%`,
+              background:
+                i === history.length - 1 ? "var(--color-accent)" : "var(--color-neutral-400)",
+            }}
+          />
+        ))}
+      </div>
+      <div style={{ marginTop: 7, fontSize: 11.5, color: "var(--color-neutral-800)" }}>
+        {move === 0 ? (
+          <>Flat since {monthYear(first.at) ?? "the first score"}</>
+        ) : (
+          <>
+            <b style={{ color: move > 0 ? "var(--color-accent-700)" : "var(--color-neutral-800)" }}>
+              {move > 0 ? "+" : ""}
+              {move}
+            </b>{" "}
+            since{" "}
+            {first.at.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+          </>
+        )}
+      </div>
+    </div>
   );
 }

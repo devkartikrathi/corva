@@ -45,7 +45,7 @@ type RuleCondition = {
 export type RuleFacts = {
   tier: string | null;
   segment: string | null;
-  ltvPence: number;
+  ltvPaise: number;
   daysSinceContact: number | null;
   contacts30d: number;
   serviceFailures90d: number;
@@ -226,7 +226,7 @@ export async function rescoreBrand(brandId: string): Promise<number> {
     const facts: RuleFacts = {
       tier: customer.tier,
       segment: customer.segment,
-      ltvPence: customer.ltvPence,
+      ltvPaise: customer.ltvPaise,
       // A customer never contacted is maximally quiet, not unknown.
       daysSinceContact: mostRecent ? Math.floor(daysSince(mostRecent)) : 9999,
       contacts30d: history.filter((h) => daysSince(h.startedAt) <= 30).length,

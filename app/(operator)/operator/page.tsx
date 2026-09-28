@@ -10,6 +10,8 @@ import {
   OperatorHeader,
 } from "@/components/operator-ui";
 import { DarkChip, DarkPager, DarkSearchBox, DarkSortTh } from "@/components/operator-filters";
+import { FleetIncidentActions } from "@/components/FleetIncidentActions";
+import { failOverRegion, postIncidentUpdate } from "@/lib/actions/operator";
 import { getFleet, getReliability, platformLoad } from "@/lib/queries/operator";
 import { href, intOf, listOf, normalise, type RawParams } from "@/lib/params";
 
@@ -215,33 +217,14 @@ export default async function FleetPage({
               >
                 {ops.openIncident?.note ?? "Every region is healthy."}
               </div>
-              <div style={{ marginTop: 10, display: "flex", gap: 6 }}>
-                <button
-                  type="button"
-                  className="hov-accent-dark"
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    background: "var(--color-accent)",
-                    color: "var(--color-bg)",
-                    padding: "7px 10px",
-                  }}
-                >
-                  Fail over now
-                </button>
-                <button
-                  type="button"
-                  className="hov-invert-dark"
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    border: "1px solid var(--color-bg)",
-                    padding: "6px 10px",
-                  }}
-                >
-                  Post status update
-                </button>
-              </div>
+              {ops.openIncident && (
+                <FleetIncidentActions
+                  incidentId={ops.openIncident.id}
+                  regionScoped={ops.openIncident.regionKey !== null}
+                  onFailOver={failOverRegion}
+                  onPost={postIncidentUpdate}
+                />
+              )}
             </div>
           </div>
 

@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "build": "next build",
-    "dev": "next dev",
-    "start": "next start",
+    "check:sql": "tsx scripts/check-sql.ts",
+    "check:quota": "tsx scripts/check-quota.ts",
     "db:conversations": "tsx lib/db/seed-conversations.ts",
     "db:doctor": "tsx lib/db/doctor.ts",
     "db:embed": "tsx --tsconfig tsconfig.json lib/db/embed.ts",
@@ -16,7 +16,9 @@
     "db:reset": "tsx lib/db/reset.ts",
     "db:seed": "tsx lib/db/seed.ts",
     "db:studio": "drizzle-kit studio",
+    "dev": "next dev",
     "pipelines": "tsx scripts/pipelines.ts",
+    "start": "next start",
     "voice": "tsx scripts/voice-server.ts"
   },
   "dependencies": {

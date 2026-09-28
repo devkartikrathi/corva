@@ -58,7 +58,7 @@ export async function exportAnalyticsCsv(query: Params): Promise<string> {
     row(["Average handle seconds", m.avgHandleSeconds]),
     row(["Average sentiment at close", m.avgSentiment.toFixed(2)]),
     row(["Average review score", m.avgReview?.toFixed(2) ?? ""]),
-    row(["Cost per contact (pence)", m.costPerContactPence]),
+    row(["Cost per contact (paise)", m.costPerContactPaise]),
     ...quality.map((q) => row([q.label, q.value])),
     "",
     "Week,Contained,Escalated",

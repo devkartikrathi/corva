@@ -9,6 +9,15 @@ async function main() {
   }
   await db.execute(sql`DROP SCHEMA public CASCADE`);
   await db.execute(sql`CREATE SCHEMA public`);
-  console.log("Schema reset.");
+  /**
+   * Drizzle's ledger lives in its own schema, not in `public`.
+   *
+   * Dropping `public` alone leaves `drizzle.__drizzle_migrations` behind with
+   * every migration still marked applied — so the next `db:migrate` reports
+   * success, creates nothing, and `db:seed` fails on a table that does not
+   * exist. Resetting means resetting the record of what has been run too.
+   */
+  await db.execute(sql`DROP SCHEMA IF EXISTS drizzle CASCADE`);
+  console.log("Schema reset — including the migration ledger.");
 }
 main().then(() => process.exit(0), (e) => { console.error(e); process.exit(1); });

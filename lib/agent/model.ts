@@ -3,55 +3,53 @@ import { google } from "@ai-sdk/google";
 /**
  * Where the models come from.
  *
- * Google Gemini by default, called directly with the project's own API key
+ * Google Gemini, called directly with the project's own API key
  * (`GOOGLE_GENERATIVE_AI_API_KEY`) rather than through a gateway. Direct
  * instantiation also happens to be the only path where the embedding
  * `outputDimensionality` option is actually honoured — routing the same model
  * through a gateway silently returns full-width vectors.
  *
- * This is the only file that knows which provider is in use. Swapping to
- * another one — Sarvam for Indian-language voice, say — means changing these
- * constants and nothing else; that was tested against a local Ollama model and
- * held, though the local path is gone now that we have settled on Gemini.
+ * This is the only file that knows which provider is in use, and it no longer
+ * knows *which* model: that is a per-brand decision, and the catalogue of
+ * available ones is `models.ts`. Swapping provider — Sarvam for
+ * Indian-language voice, say — means changing the two constructors below and
+ * nothing else.
  */
 
 /**
- * The model that answers a live customer turn.
+ * How hard the model is allowed to think.
  *
- * Flash rather than Pro: retrieval has already done the hard part, so the
- * model is composing a grounded reply under a person's patience, not solving
- * a problem. `gemini-3.5-flash-lite` is the cheaper, faster step down if
- * containment holds at that level — worth measuring before assuming.
+ * Gemini 3.x takes a level; there is no `"none"`, and passing one throws a Zod
+ * error from the AI SDK. The 2.5 line took a token budget instead, which is
+ * one of the reasons the catalogue is 3.x-only.
  */
-export const TURN_MODEL = google("gemini-3.6-flash");
+export type ThinkingLevel = "minimal" | "low" | "medium" | "high";
+
+/** The model that answers, whichever one this brand is on. */
+export const languageModel = (modelId: string) => google(modelId);
 
 /**
- * The model that writes handoff briefs and replay evaluations. Off the
- * critical path, so it is allowed to think harder.
- */
-export const ANALYSIS_MODEL = google("gemini-3.6-flash");
-
-/**
- * Thinking depth, per path. Gemini 3.6 Flash defaults to medium; a live turn
- * does not need it and a customer is waiting.
- */
-export const TURN_THINKING = "low" as const;
-export const ANALYSIS_THINKING = "high" as const;
-
-/**
- * Provider options for a live turn, passed at both call sites so the thinking
- * setting cannot drift between the console and the tuning preview.
+ * Provider options for a call at a given thinking depth.
+ *
+ * A function rather than a constant so the depth travels with the model it was
+ * chosen for, and the two cannot drift apart between call sites.
  *
  * Worth knowing before reaching for this on a phone call: on the batch API
  * `minimal` and `low` both measured 18–25s to first token, which is why voice
  * goes through the Live API instead. See docs/VOICE.md.
  */
-export const TURN_OPTIONS = {
-  google: { thinkingConfig: { thinkingLevel: TURN_THINKING } },
-} as const;
+export const thinkingOptions = (level: ThinkingLevel) =>
+  ({ google: { thinkingConfig: { thinkingLevel: level } } }) as const;
 
 /* ─── Embeddings ───────────────────────────────────────────────────────── */
 
+/**
+ * Not a per-brand choice, and not one to make casually.
+ *
+ * Every stored vector was written by this model at this width; changing either
+ * does not change a setting, it invalidates the index. Documents would have to
+ * be re-embedded before retrieval meant anything again.
+ */
 export const EMBEDDING_MODEL = google.textEmbedding("gemini-embedding-001");
 
 /**

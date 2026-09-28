@@ -13,7 +13,7 @@
 export const RULE_FIELDS = [
   { key: "tier", label: "Tier", kind: "text" },
   { key: "segment", label: "Segment", kind: "text" },
-  { key: "ltv_pence", label: "Lifetime value (pence)", kind: "number" },
+  { key: "ltv_paise", label: "Lifetime value (paise)", kind: "number" },
   { key: "days_since_contact", label: "Days since last contact", kind: "number" },
   { key: "contacts_30d", label: "Contacts in 30 days", kind: "number" },
   { key: "service_failures_90d", label: "Service failures in 90 days", kind: "number" },

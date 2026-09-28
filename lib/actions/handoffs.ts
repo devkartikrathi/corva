@@ -3,6 +3,7 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { checkAuthority } from "@/lib/agent/authority";
+import { assignHandoff } from "@/lib/agent/routing";
 import { loadAgentConfig } from "@/lib/agent/config";
 import { getConsoleContext } from "@/lib/auth/context";
 import { assertCan } from "@/lib/auth/permissions";
@@ -36,6 +37,9 @@ export async function acceptHandoff(handoffId: string) {
       status: "accepted",
       acceptedAt: new Date(),
       acceptedByMembershipId: session.membershipId,
+      // Whoever it was ringing at, it is now theirs — clearing this is what
+      // stops the alert firing again on the next poll.
+      routedToMembershipId: session.membershipId,
     })
     .where(eq(s.handoffs.id, handoffId));
 
@@ -55,6 +59,73 @@ export async function acceptHandoff(handoffId: string) {
 
   revalidatePath("/app/handoffs");
   revalidatePath("/app");
+  revalidatePath("/app/live");
+
+  return { conversationId: handoff.conversationId };
+}
+
+/**
+ * Pass on a handoff that is ringing at you.
+ *
+ * Declining is not refusing the customer — it re-routes, and the person who
+ * declined is recorded so the next choice cannot be them again. If there is
+ * nobody else free the handoff stays in the queue unassigned, which is honest:
+ * a customer waiting for a team that is all busy is a staffing fact, not
+ * something to hide by assigning it to someone who said no.
+ */
+export async function declineHandoff(handoffId: string) {
+  const { session, brand } = await getConsoleContext();
+  assertCan(session.actor, "calls.handle", { brandId: brand.id });
+
+  const [handoff] = await db
+    .select()
+    .from(s.handoffs)
+    .where(and(eq(s.handoffs.id, handoffId), eq(s.handoffs.brandId, brand.id)))
+    .limit(1);
+  if (!handoff) throw new Error("No such handoff in this brand.");
+  if (handoff.status !== "waiting") throw new Error("That handoff is no longer waiting.");
+
+  const declinedBy = new Set([...((handoff.declinedBy ?? []) as string[]), session.membershipId]);
+  await db
+    .update(s.handoffs)
+    .set({ declinedBy: [...declinedBy], routedToMembershipId: null, routedAt: null, routingReason: null })
+    .where(eq(s.handoffs.id, handoffId));
+
+  const routing = await assignHandoff(handoffId);
+
+  await audit({
+    orgId: session.orgId,
+    brandId: brand.id,
+    actorId: session.membershipId,
+    actorName: session.name,
+    action: "handoff.declined",
+    target: handoffId,
+    meta: { rerouted_to: routing?.name ?? null },
+  });
+
+  revalidatePath("/app/handoffs");
+  revalidatePath("/app");
+
+  return { reroutedTo: routing?.name ?? null };
+}
+
+/**
+ * Set whether you can be handed a call.
+ *
+ * A person's own statement, never inferred from activity: someone at their
+ * desk writing a report is not available, and someone who has not clicked in
+ * ten minutes may well be mid-call. Routing reads this before it reads
+ * anything else.
+ */
+export async function setAvailability(availability: "available" | "busy" | "offline") {
+  const { session } = await getConsoleContext();
+
+  await db
+    .update(s.memberships)
+    .set({ availability, lastActiveAt: new Date() })
+    .where(eq(s.memberships.id, session.membershipId));
+
+  revalidatePath("/app", "layout");
 }
 
 /**
@@ -85,10 +156,24 @@ export async function approveHandoffDecision(handoffId: string, approve: boolean
     )
     .limit(1);
 
-  const amountPence = refused[0]?.amountPence ?? 0;
-  assertCan(session.actor, "actions.approve_above_ceiling", { brandId: brand.id, amountPence });
+  const amountPaise = refused[0]?.amountPaise ?? 0;
 
-  if (approve && refused[0]) {
+  /**
+   * A closure is a different question, so it takes a different permission.
+   *
+   * Approving above a ceiling is spending money and is Owner-or-Manager work.
+   * Confirming that the AI was right to say no spends nothing — and gating it
+   * on the money capability would mean the one person who actually heard the
+   * call could not sign off their own outcome. Anyone who can take a call can
+   * confirm a closure.
+   */
+  if (handoff.kind === "closure_approval") {
+    assertCan(session.actor, "calls.handle", { brandId: brand.id });
+  } else {
+    assertCan(session.actor, "actions.approve_above_ceiling", { brandId: brand.id, amountPaise });
+  }
+
+  if (approve && refused[0] && handoff.kind !== "closure_approval") {
     const config = await loadAgentConfig(brand.id);
     // Record the human's approval as its own action rather than rewriting the
     // refusal — the transcript should show that the AI declined and a person
@@ -97,12 +182,12 @@ export async function approveHandoffDecision(handoffId: string, approve: boolean
       conversationId: handoff.conversationId,
       action: refused[0].action,
       label: `${refused[0].label} — approved by ${session.name}`,
-      amountPence: refused[0].amountPence,
+      amountPaise: refused[0].amountPaise,
       allowed: true,
     });
 
     if (config) {
-      const decision = checkAuthority(config, refused[0].action, amountPence ?? undefined);
+      const decision = checkAuthority(config, refused[0].action, amountPaise ?? undefined);
       if (decision.allowed) {
         // The AI could have done this itself; the ceiling has since moved.
         await audit({
@@ -117,19 +202,40 @@ export async function approveHandoffDecision(handoffId: string, approve: boolean
     }
   }
 
+  const isClosure = handoff.kind === "closure_approval";
+
   await db
     .update(s.handoffs)
     .set({
       status: "resolved",
-      resolution: approve ? "approved" : "declined",
+      resolution: isClosure
+        ? approve
+          ? "confirmed"
+          : "should have said yes"
+        : approve
+          ? "approved"
+          : "declined",
       acceptedByMembershipId: session.membershipId,
       acceptedAt: handoff.acceptedAt ?? new Date(),
+      routedToMembershipId: session.membershipId,
     })
     .where(eq(s.handoffs.id, handoffId));
 
+  /**
+   * A confirmed closure stays the AI's.
+   *
+   * Recording it as `human_resolved` would quietly move a contained
+   * conversation into the uncontained column every time someone signed one
+   * off — which would make the containment figure a measure of how diligently
+   * managers review, rather than of how much the AI finished.
+   */
   await db
     .update(s.conversations)
-    .set({ status: "resolved", outcome: "human_resolved", handledBy: session.name })
+    .set(
+      isClosure && approve
+        ? { status: "resolved" as const }
+        : { status: "resolved" as const, outcome: "human_resolved" as const, handledBy: session.name },
+    )
     .where(eq(s.conversations.id, handoff.conversationId));
 
   await audit({
@@ -137,9 +243,15 @@ export async function approveHandoffDecision(handoffId: string, approve: boolean
     brandId: brand.id,
     actorId: session.membershipId,
     actorName: session.name,
-    action: approve ? "handoff.approved" : "handoff.declined",
+    action: isClosure
+      ? approve
+        ? "closure.confirmed"
+        : "closure.disputed"
+      : approve
+        ? "handoff.approved"
+        : "handoff.declined",
     target: handoffId,
-    meta: { amountPence },
+    meta: { amountPaise, kind: handoff.kind },
   });
 
   revalidatePath("/app/handoffs");

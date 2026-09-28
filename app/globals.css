@@ -138,6 +138,29 @@ button {
   }
 }
 
+/* The transfer alert arriving. Short and vertical — it should read as
+   something landing in the corner, not as an animation. */
+@keyframes cv-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes cv-rise {
+    from,
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

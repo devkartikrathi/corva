@@ -52,7 +52,7 @@ export async function rollUpUsage(days = 2): Promise<{ rows: number; days: numbe
       handoffs: sql<number>`count(*) filter (where ${s.conversations.contained} is false)::int`,
       aiSeconds: sql<number>`coalesce(sum(${s.conversations.durationSeconds}) filter (where ${s.conversations.contained}), 0)::int`,
       humanSeconds: sql<number>`coalesce(sum(${s.conversations.durationSeconds}) filter (where ${s.conversations.contained} is false), 0)::int`,
-      costPence: sql<number>`coalesce(sum(${s.conversations.costPence}), 0)`,
+      costPaise: sql<number>`coalesce(sum(${s.conversations.costPaise}), 0)`,
     })
     .from(s.conversations)
     .innerJoin(s.brands, eq(s.brands.id, s.conversations.brandId))
@@ -74,7 +74,7 @@ export async function rollUpUsage(days = 2): Promise<{ rows: number; days: numbe
       handoffs: g.handoffs,
       aiMinutes,
       humanMinutes,
-      costPence: Math.round(Number(g.costPence)),
+      costPaise: Math.round(Number(g.costPaise)),
     };
   });
 
@@ -90,7 +90,7 @@ export async function rollUpUsage(days = 2): Promise<{ rows: number; days: numbe
           handoffs: sql`excluded.handoffs`,
           aiMinutes: sql`excluded.ai_minutes`,
           humanMinutes: sql`excluded.human_minutes`,
-          costPence: sql`excluded.cost_pence`,
+          costPaise: sql`excluded.cost_paise`,
         },
       });
   }
@@ -270,9 +270,10 @@ export async function backfillCosts(limit = 2000): Promise<{ priced: number }> {
       channel: s.conversations.channel,
       duration: s.conversations.durationSeconds,
       contained: s.conversations.contained,
+      modelId: s.conversations.modelId,
     })
     .from(s.conversations)
-    .where(eq(s.conversations.costPence, 0))
+    .where(eq(s.conversations.costPaise, 0))
     .limit(limit);
 
   if (pending.length === 0) return { priced: 0 };
@@ -293,7 +294,7 @@ export async function backfillCosts(limit = 2000): Promise<{ priced: number }> {
     byConversation.set(t.conversationId, list);
   }
 
-  const values: { id: string; pence: number; breakdown: unknown }[] = [];
+  const values: { id: string; paise: number; breakdown: unknown }[] = [];
   for (const c of pending) {
     const rows = byConversation.get(c.id) ?? [];
     if (rows.length === 0) continue;
@@ -322,10 +323,13 @@ export async function backfillCosts(limit = 2000): Promise<{ priced: number }> {
       usage.humanSeconds = Math.round(c.duration / 3);
     }
 
-    const cost = priceUsage(usage);
+    // Rows from before the choice existed carry no model, and price at the
+    // default's rates — which is the right answer for a reconstruction that is
+    // already marked `estimated`.
+    const cost = priceUsage(usage, c.modelId);
     values.push({
       id: c.id,
-      pence: cost.pence,
+      paise: cost.paise,
       breakdown: { usage, lines: cost.lines, estimated: true },
     });
   }
@@ -333,13 +337,13 @@ export async function backfillCosts(limit = 2000): Promise<{ priced: number }> {
   for (let i = 0; i < values.length; i += 400) {
     const batch = values.slice(i, i + 400);
     const rows = sql.join(
-      batch.map((v) => sql`(${v.id}::uuid, ${v.pence}::real, ${JSON.stringify(v.breakdown)}::jsonb)`),
+      batch.map((v) => sql`(${v.id}::uuid, ${v.paise}::real, ${JSON.stringify(v.breakdown)}::jsonb)`),
       sql`, `,
     );
     await db.execute(sql`
       UPDATE ${s.conversations} AS c
-      SET cost_pence = v.pence, cost_breakdown = v.breakdown
-      FROM (VALUES ${rows}) AS v(id, pence, breakdown)
+      SET cost_paise = v.paise, cost_breakdown = v.breakdown
+      FROM (VALUES ${rows}) AS v(id, paise, breakdown)
       WHERE c.id = v.id
     `);
   }

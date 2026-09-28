@@ -21,6 +21,8 @@ export type TenantSession = {
   name: string;
   email: string;
   role: Role;
+  /** Whether they have said they can be handed a call right now. */
+  availability: "available" | "busy" | "offline";
   /** Null means every brand in the org. */
   brandIds: string[] | null;
   actor: Actor;
@@ -96,6 +98,7 @@ export const getTenantSession = cache(async (): Promise<TenantSession | null> =>
     name: row.membership.name,
     email: row.membership.email,
     role: row.membership.role,
+    availability: row.membership.availability,
     brandIds,
     actor: { role: row.membership.role, brandIds },
   };

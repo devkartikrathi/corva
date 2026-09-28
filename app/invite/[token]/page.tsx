@@ -83,7 +83,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
             : membership.role === "admin"
               ? "Everything except billing — channels, documents, the agent and people."
               : membership.role === "manager"
-                ? "Handle calls, approve above-ceiling actions up to £500, publish documents, propose agent changes, and invite your own team."
+                ? "Handle calls, approve above-ceiling actions up to ₹50,000, publish documents, propose agent changes, and invite your own team."
                 : membership.role === "agent"
                   ? "Handle calls and handoffs, read the customers you are scoped to, and draft documents."
                   : "Read conversations, customers and analytics, and export transcripts. No live calls."}

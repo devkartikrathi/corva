@@ -1,13 +1,6 @@
 import Link from "next/link";
-import {
-  DeltaRow,
-  Kicker,
-  OutlineButton,
-  ScreenHeader,
-  SectionTitle,
-  Tag,
-} from "@/components/ui";
-import { getConsoleContext } from "@/lib/auth/context";
+import { DeltaRow, Kicker, OutlineButton, ScreenHeader, ScreenRefusal, SectionTitle, Tag } from "@/components/ui";
+import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { RuleBuilder } from "@/components/RuleBuilder";
 import { WeightDial } from "@/components/WeightDial";
 import { getScoringModel } from "@/lib/queries/segments";
@@ -23,8 +16,19 @@ import { rescore } from "@/lib/actions/workspace";
 import { ActionButton, ActionToggle } from "@/components/ActionButton";
 
 export default async function SegmentsPage() {
-  const { brand } = await getConsoleContext();
-  const { weights, rules, segments, distribution, simulation, alerts, scoredCount } =
+  const { brand, denied } = await guardScreen("scoring.edit");
+  // The nav withholds this screen; this is what makes withholding it true.
+  if (denied) {
+    return (
+      <ScreenRefusal
+        title="Segments & rules"
+        reason={refusalReason(denied)}
+        next="A customer's score, and the rules that moved it, are on their profile."
+      />
+    );
+  }
+
+  const { weights, rules, segments, distribution, simulation, alerts, scoredCount, customerCount } =
     await getScoringModel(brand.id);
 
   return (
@@ -202,7 +206,15 @@ export default async function SegmentsPage() {
             <Kicker>Simulation</Kicker>
             <div style={{ marginTop: 12, fontSize: 12, color: "var(--color-neutral-800)" }}>
               What your rules do to the model, across {scoredCount} scored customer
-              {scoredCount === 1 ? "" : "s"}:
+              {scoredCount === 1 ? "" : "s"}
+              {customerCount > scoredCount && (
+                <>
+                  {" "}
+                  of {customerCount} — the rest have never been scored, so no rule has
+                  reached them yet
+                </>
+              )}
+              :
             </div>
             <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
               {simulation.map((sim) => (

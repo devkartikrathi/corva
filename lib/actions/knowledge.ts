@@ -35,7 +35,7 @@ async function scoped(documentId: string, brandId: string) {
  *
  * Paragraphs, because that is how policies are written and how they are
  * quoted back — a fixed token window would cut "the agent may apply up to
- * £50" away from the condition that qualifies it.
+ * ₹5,000" away from the condition that qualifies it.
  */
 function chunk(body: string): { anchor: string | null; content: string }[] {
   const paragraphs = body

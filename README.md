@@ -9,6 +9,9 @@ take over when it hits a limit, and tune the limits themselves. Every screen is 
 showing *why* — why a customer scored 92, why the AI stopped talking, why an intent still
 needs a person.
 
+Built for India: every figure is rupees, stored as paise and printed with Indian grouping
+(₹12,49,500, not ₹1,249,500). `lib/money.ts` is the only place that decides how money reads.
+
 ```bash
 npm run dev     # http://localhost:3000
 npm run build
@@ -38,7 +41,8 @@ button work.
 | `/app/conversations` | Conversation archive with per-turn provenance |
 | `/app/conversations/[id]` | Permalink into the archive |
 | `/app/customers` | Customer table — filters, sort, paging, CSV export |
-| `/app/customers/[id]` | Customer 360 — score rationale, record, notes, consent |
+| `/app/customers/[id]` | Customer 360 — score rationale and history, record, notes, consent |
+| `/app/performance` | Team performance — per-agent handling, ratings, ownership |
 | `/app/segments` | Axis weights, override rules, distribution, model alerts |
 | `/app/knowledge` | Knowledge base, coverage gaps, AI-readiness score |
 | `/app/knowledge/[id]` | Document editor with revisions and a retrieval preview |
@@ -48,8 +52,79 @@ button work.
 | `/app/setup` | Brands, channels, hours, integrations, privacy, audit log |
 | `/app/search` | Across customers, conversations, documents and people |
 
-`/app/customer-360` resolves to whoever is at the top of the priority queue, rather than
-pinning the nav to an id that may not exist in a given workspace.
+There is one way into a customer, not two: the list is the entry point and a row takes you to
+the profile. (A second nav item, "Customer 360", used to resolve to whoever was top of the
+priority queue — but a nav entry that lands somewhere different every time you press it is not
+navigation.)
+
+### Two jobs, one console
+
+The tenant console is two different jobs behind one URL, and which one you get is the role you
+hold — enforced server-side, not hidden with CSS.
+
+| | Agent | Manager / Owner |
+| --- | --- | --- |
+| Customers | the accounts they hold, or are mid-conversation with | every account, and who holds it |
+| Conversations | their customers' | the brand's |
+| Command centre | *their* priority queue | the brand's |
+| Team performance | not in the nav, and refuses on the URL | who is carrying what, and how well |
+| Transfer alert | yes | yes |
+
+An Agent's `customers.read` grant is `assigned`; everyone above them holds it `full`. The
+scope is derived from that grant rather than from the role name (`lib/auth/scope.ts`), so a
+new role with an `assigned` grant is scoped without touching a screen. "Theirs" is one SQL
+predicate in `lib/queries/scoping.ts` — the accounts they own *plus* the ones they are
+actually talking to, because somebody who has just taken a transferred call has a
+relationship with that customer whether or not anyone has set an owner yet.
+
+The profile switcher in the bottom-left corner exists so you can see both. It is demo-mode
+only — with Clerk on, identity comes from the signed-in user and the cookie is never read —
+and it substitutes *who is asking*, never what they may do.
+
+Hiding a screen is not withholding it, so every gated screen opens with `guardScreen()`
+(`lib/auth/screen.ts`), which reads the same matrix `lib/nav.ts` reads and applies the same
+rule: a grant of `none` closes the screen, anything above it lets you in. The sidebar cannot
+offer a screen that refuses, and typing the URL cannot reach one the sidebar withheld — an
+Analyst is bounced off `/app/live`, a Manager off `/app/segments`. The test is `grant` and
+not `allowed` on purpose: `read_only` is a refusal to *write*, and a screen you may read but
+not change is exactly an Analyst's job. A refusal names the reason and points at where that
+person's version of the answer lives, because they usually got there from a stale bookmark
+or a role that changed under them.
+
+### When the AI hands over
+
+The design queued a handoff and left it there. A queue is a screen you have to be looking at,
+which on a live call is far too late — so a transfer now rings at a named person:
+
+1. whoever is already talking to that customer, if they are free
+2. whoever owns the account
+3. free, highest rated, lightest queue — in that order
+
+`lib/agent/routing.ts` chooses; `components/TransferAlert.tsx` interrupts whatever screen
+they are on with three facts and two buttons. Passing on re-routes and records who passed, so
+it is not offered straight back. If nobody is free the handoff waits unassigned rather than
+landing on someone who said they could not take it.
+
+The card leads on one line — what the customer wants and where it stuck — because reading a
+brief is what you do *after* you have taken the line and said hello. That line is
+`conversations.live_summary`: written by the model when a handoff is raised, refreshed as a
+conversation moves, and rate-limited so an open console cannot turn it into a billing line
+(`lib/agent/summary.ts`).
+
+### The other way a "no" can end
+
+An authority ceiling used to have one exit: refuse, and queue a human. But a customer who is
+told no and accepts it is a real and common outcome, and it left no trace at all — nothing
+was spent, nobody was queued, so nothing reached anyone.
+
+So a refusal now offers exactly two options and waits: a colleague who can decide, or leaving
+it where it is. If they take the second, the agent thanks them, closes, and writes a
+`closure_approval` handoff — same queue, different question. Somebody confirms it was right,
+or records that it was not. One row is the difference between a refusal being policy and a
+refusal being a habit nobody noticed.
+
+Both paths exist on both channels: `close_with_agreement` is a tool in `lib/agent/respond.ts`
+and in `lib/voice/session.ts`.
 
 ### `/operator/*` — the platform operator console (`Corva Operator Console.dc.html`)
 
@@ -59,12 +134,20 @@ never tenant transcripts, unless a company grants time-boxed, audited access.
 
 | Route | Screen |
 | --- | --- |
-| `/operator` | Fleet — every tenant, health-sorted, with the open incident |
+| `/operator` | Fleet — every tenant, health-sorted, and the open incident to act on |
 | `/operator/companies/[slug]` | Company detail — usage, brands, AI health, flags, billing |
 | `/operator/quality` | Cross-tenant failure classes and patterns worth fixing centrally |
 | `/operator/revenue` | MRR, plan mix, at-risk accounts, unit economics |
 | `/operator/reliability` | Regions, dependencies, incident timeline and updates |
 | `/operator/testing` | Voice playground — talk to a tenant's agent over Gemini Live |
+
+The fleet's incident card is where an operator first learns something is wrong, so both things
+you do about it happen there rather than one screen further on: post an update, or fail the
+region over. Failing over moves *traffic* and not residency — `organizations.region` is where
+a tenant's data lives, and a latency incident is not consent to move it — so the region's
+state changes, the tenant rows do not, and the incident gets an update recording where traffic
+went and how many companies moved. Posting expands the same form the Reliability page uses,
+because there should be one incident update form and two places to reach it.
 
 ## Layout
 
@@ -84,17 +167,25 @@ components/
   TopBar.tsx
   filters.tsx                   URL-driven chips, tabs, sort headers, pagers
   ActionButton.tsx              a button that runs a server action and shows refusals
+  TransferAlert.tsx             the AI asking for you, by name
   VoicePlayground.tsx           mic capture and playback for /operator/testing
   ui.tsx                        light primitives — Kicker, Bar, Tag, buttons, Th, …
+                                ScreenRefusal — what a screen you may not open says
   operator-ui.tsx               dark primitives — DarkKicker, DarkBar, KpiCell, …
 lib/
   db/                           schema, seed and the maintenance scripts
   agent/                        retrieval, guardrails, authority, the turn pipeline
+                                routing.ts — who a transferred call rings at
+                                summary.ts — the one line, for whoever takes over
+  auth/                         session, the role matrix, and the per-screen gate
+                                screen.ts — the check every gated page opens with
+                                scope.ts — whose customers "theirs" means
   queries/                      read models, one module per surface
   actions/                      server actions, each re-checking the capability
   voice/                        the Gemini Live session and its cost guards
+  money.ts                      rupees, paise, and Indian digit grouping
   marketing.ts                  landing page content
-  nav.ts                        console nav groups and the profile href
+  nav.ts                        console nav groups, filtered by capability
   config.ts                     the designs' declared props, made real
 scripts/
   voice-server.ts               the Gemini Live bridge (npm run voice)
@@ -148,13 +239,23 @@ tenants, four brands, a 60-day conversation history, an eleven-axis scoring mode
 attributed override rules, and a knowledge base embedded into pgvector.
 
 ```bash
+npm run db:reset           # drops public *and* drizzle's migration ledger
 npm run db:migrate         # schema
 npm run db:seed            # tenants, customers, documents, agent versions
-npm run db:embed           # embed the chunks — retrieval returns nothing until you do
 npm run db:conversations   # transcripts, citations, handoffs
 npm run db:rescore         # let the override rules see the new history
+npm run db:embed           # embed the chunks — retrieval returns nothing until you do
 npm run db:doctor          # checks the database, the key, and the live agent version
 ```
+
+`npm run check:sql` touches no database. It asserts how this drizzle instance
+renders an interpolated column, because that differs by position and a query
+that gets it wrong returns wrong numbers rather than an error — see the note on
+`db` in [lib/db/index.ts](lib/db/index.ts).
+
+The order matters and the script names do not say so: `db:conversations` needs customers and
+a live agent version, and `db:rescore` needs the conversation history or every score comes
+out model-only.
 
 The agent is real: `lib/agent/respond.ts` retrieves, checks the escalation triggers,
 generates with every action gated by the authority table, and persists the turn with its

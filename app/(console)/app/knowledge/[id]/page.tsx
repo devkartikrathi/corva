@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Kicker, LinkAction, ScreenHeader, Tag } from "@/components/ui";
+import { Kicker, LinkAction, ScreenHeader, ScreenRefusal, Tag } from "@/components/ui";
 import { ActionButton } from "@/components/ActionButton";
 import { DocumentEditor } from "@/components/DocumentEditor";
-import { getConsoleContext } from "@/lib/auth/context";
+import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { can } from "@/lib/auth/permissions";
 import {
   createDocument,
@@ -23,7 +23,17 @@ import { getKnowledge } from "@/lib/queries/workspace";
  */
 export default async function DocumentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { session, brand } = await getConsoleContext();
+  const { session, brand, denied } = await guardScreen("documents.publish");
+  // The nav withholds this screen; this is what makes withholding it true.
+  if (denied) {
+    return (
+      <ScreenRefusal
+        title="Document"
+        reason={refusalReason(denied)}
+        next="Answers cite the document they came from, on every call in the archive."
+      />
+    );
+  }
 
   const record = await getDocument(id).catch(() => null);
   if (!record) notFound();

@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { Bar, Kicker, LinkAction, LiveDot, PrimaryButton } from "@/components/ui";
+import { Bar, Kicker, LinkAction, LiveDot, PrimaryButton, ScreenRefusal } from "@/components/ui";
 import { ActionButton } from "@/components/ActionButton";
 import { CallComposer } from "@/components/CallComposer";
 import { LiveRefresh } from "@/components/LiveRefresh";
-import { getConsoleContext } from "@/lib/auth/context";
+import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { loadAgentConfig } from "@/lib/agent/config";
-import { formatPence } from "@/lib/agent/authority";
+import { formatRupees } from "@/lib/money";
 import { getLiveCall } from "@/lib/queries/conversations";
 import { normalise, type RawParams } from "@/lib/params";
 import {
@@ -23,7 +23,18 @@ export default async function LiveCallPage({
 }: {
   searchParams: Promise<RawParams>;
 }) {
-  const { session, brand } = await getConsoleContext();
+  const { session, brand, denied } = await guardScreen("calls.handle");
+  // The nav withholds this screen; this is what makes withholding it true.
+  if (denied) {
+    return (
+      <ScreenRefusal
+        title="Live calls"
+        reason={refusalReason(denied)}
+        next="Finished calls are in the archive."
+      />
+    );
+  }
+
   const params = normalise(await searchParams);
   const call = await getLiveCall(brand.id, params.call);
 
@@ -61,9 +72,9 @@ export default async function LiveCallPage({
     label: a.label,
     value: a.blocked
       ? "blocked"
-      : a.ceilingPence === null
+      : a.ceilingPaise === null
         ? "unlimited"
-        : `up to ${formatPence(a.ceilingPence)}`,
+        : `up to ${formatRupees(a.ceilingPaise, { decimals: "auto" })}`,
     blocked: a.blocked,
   }));
 
@@ -188,6 +199,40 @@ export default async function LiveCallPage({
           ) : null}
         </div>
       </div>
+
+      {/*
+        The one line, directly under the call bar.
+        The transcript below is the truth and it is right there — but reading
+        twenty turns is not something anyone does while a customer waits on the
+        line, and this screen's whole job is the moment somebody arrives
+        mid-call and has to say a first sentence that makes sense.
+      */}
+      {call.summary && (
+        <div
+          style={{
+            padding: "10px 24px",
+            borderBottom: "1px solid var(--color-neutral-300)",
+            background: "var(--color-accent-100)",
+            display: "flex",
+            alignItems: "baseline",
+            gap: 12,
+          }}
+        >
+          <span
+            style={{
+              fontSize: 9.5,
+              fontWeight: 700,
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "var(--color-accent-700)",
+              flexShrink: 0,
+            }}
+          >
+            {call.ended ? "What happened" : "Where this is"}
+          </span>
+          <span style={{ fontSize: 13.5, lineHeight: 1.45 }}>{call.summary}</span>
+        </div>
+      )}
 
       {call.otherLive.length > 1 && (
         <div
@@ -379,7 +424,26 @@ export default async function LiveCallPage({
                   {t.label}
                 </div>
                 <div>
-                  <div style={{ fontSize: 13.5, lineHeight: 1.5 }}>{t.body}</div>
+                  {/*
+                    A system turn is an event, not speech — a transfer, a
+                    guardrail stopping the AI, a call ending. Setting it in the
+                    same face as the conversation makes a reader parse it as
+                    something somebody said, which is the one thing it is not.
+                  */}
+                  <div
+                    style={
+                      t.isSystem
+                        ? {
+                            fontSize: 12,
+                            lineHeight: 1.5,
+                            fontStyle: "italic",
+                            color: "var(--color-neutral-700)",
+                          }
+                        : { fontSize: 13.5, lineHeight: 1.5 }
+                    }
+                  >
+                    {t.body}
+                  </div>
                   {t.citations.length > 0 && (
                     <div style={{ marginTop: 7, display: "flex", gap: 6, flexWrap: "wrap" }}>
                       <span

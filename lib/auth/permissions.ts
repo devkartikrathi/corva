@@ -4,6 +4,7 @@
  * form the server can enforce, and the screen renders itself from here rather
  * than from a second copy.
  */
+import { formatRupees } from "@/lib/money";
 
 export const ROLES = ["owner", "admin", "manager", "agent", "analyst"] as const;
 export type Role = (typeof ROLES)[number];
@@ -27,6 +28,7 @@ export const CAPABILITIES = [
   "transcripts.export",
   "people.manage",
   "billing.manage",
+  "team.performance",
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 
@@ -36,7 +38,7 @@ export type Capability = (typeof CAPABILITIES)[number];
  *   full        — without qualification
  *   assigned    — only for brands the membership is scoped to
  *   read_only   — may see it, may not change it
- *   limited     — allowed up to a bound; see `approvalCeilingPence`
+ *   limited     — allowed up to a bound; see `approvalCeilingPaise`
  *   propose     — may draft a change, may not publish it
  *   draft       — may create, may not publish
  *   own_team    — only over people they manage
@@ -63,15 +65,24 @@ export const MATRIX: Record<Capability, Record<Role, Grant>> = {
   "transcripts.export": { owner: "full", admin: "full", manager: "full", agent: "none", analyst: "full" },
   "people.manage": { owner: "full", admin: "full", manager: "own_team", agent: "none", analyst: "none" },
   "billing.manage": { owner: "full", admin: "none", manager: "none", agent: "none", analyst: "none" },
+  /**
+   * How well named colleagues are doing.
+   *
+   * A Manager's job, an Analyst's to report on, and nobody else's. An Agent is
+   * deliberately `none` rather than read-only: a league table you are on is
+   * not information, it is pressure, and it is not what this screen is for.
+   */
+  "team.performance": { owner: "full", admin: "full", manager: "full", agent: "none", analyst: "read_only" },
 };
 
 /** The words the Team screen prints for each grant, per capability. */
 export const GRANT_LABELS: Partial<Record<Capability, Partial<Record<Grant, string>>>> = {
   "customers.read": { full: "Full", assigned: "Assigned brand", read_only: "Read-only" },
-  "actions.approve_above_ceiling": { full: "Any", limited: "Up to £500", none: "No" },
+  "actions.approve_above_ceiling": { full: "Any", limited: "Up to ₹50,000", none: "No" },
   "agent.edit": { propose: "Propose only" },
   "documents.publish": { draft: "Draft only" },
   "people.manage": { own_team: "Own team" },
+  "team.performance": { full: "Full", read_only: "Read-only", none: "No" },
 };
 
 const DEFAULT_LABELS: Record<Grant, string> = {
@@ -96,8 +107,8 @@ export function grantWeight(grant: Grant): "yes" | "partial" | "no" {
   return "partial";
 }
 
-/** What a Manager may sign off without an Owner. */
-export const MANAGER_APPROVAL_CEILING_PENCE = 50_000;
+/** What a Manager may sign off without an Owner: ₹50,000. */
+export const MANAGER_APPROVAL_CEILING_PAISE = 50_00_000;
 
 /* ─── The check ────────────────────────────────────────────────────────── */
 
@@ -111,7 +122,7 @@ export type CheckOptions = {
   /** Which brand the action touches, when it touches one. */
   brandId?: string;
   /** For approvals, the amount at stake. */
-  amountPence?: number;
+  amountPaise?: number;
   /** True when the caller intends to publish rather than draft. */
   publishing?: boolean;
 };
@@ -141,12 +152,12 @@ export function can(actor: Actor, capability: Capability, options: CheckOptions 
       return { allowed: false, grant, reason: "Read-only." };
 
     case "limited": {
-      const amount = options.amountPence ?? 0;
-      if (amount > MANAGER_APPROVAL_CEILING_PENCE) {
+      const amount = options.amountPaise ?? 0;
+      if (amount > MANAGER_APPROVAL_CEILING_PAISE) {
         return {
           allowed: false,
           grant,
-          reason: `Above the ${ROLE_LABELS[actor.role]} ceiling of £${(MANAGER_APPROVAL_CEILING_PENCE / 100).toLocaleString()}.`,
+          reason: `Above the ${ROLE_LABELS[actor.role]} ceiling of ${formatRupees(MANAGER_APPROVAL_CEILING_PAISE)}.`,
         };
       }
       return { allowed: true, grant };

@@ -2,11 +2,13 @@ import Link from "next/link";
 import { Kicker, LinkAction, OutlineButton, PrimaryButton, ScreenTitle, Tag } from "@/components/ui";
 import { ActiveFilters, Chip, Pager, SearchBox, Tab, TabStrip } from "@/components/filters";
 import { ReviewForm } from "@/components/ReviewForm";
-import { formatCost } from "@/lib/pricing";
+import { formatCost } from "@/lib/money";
 import { ExportButton } from "@/components/ExportButton";
 import { SaveViewButton } from "@/components/SaveViewButton";
-import { saveView } from "@/lib/actions/workspace";
+import { RemoveViewButton } from "@/components/RemoveViewButton";
+import { deleteView, saveView } from "@/lib/actions/workspace";
 import { getConsoleContext } from "@/lib/auth/context";
+import { customerScope } from "@/lib/auth/scope";
 import { href, intOf, listOf, normalise, type RawParams } from "@/lib/params";
 import { exportTranscript, reviewConversation } from "@/lib/actions/conversations";
 import {
@@ -74,8 +76,13 @@ export default async function ConversationsPage({
   const params = normalise(await searchParams);
   const ctx = { pathname: PATH, params };
 
+  // An Agent's archive is their own customers' conversations. Applied here,
+  // not offered as a filter — see lib/auth/scope.ts.
+  const scope = customerScope(session.actor, session.membershipId, brand.id);
+
   const [result, stats, facets, views] = await Promise.all([
     listConversations(brand.id, {
+      ownedBy: scope.kind === "own" ? scope.membershipId : undefined,
       q: params.q,
       channel: listOf(params, "channel"),
       outcome: listOf(params, "outcome"),
@@ -147,6 +154,7 @@ export default async function ConversationsPage({
         ))}
         {!currentView && <Tab label="Custom" href={PATH} current />}
         <SaveViewButton surface="conversations" query={params} onSave={saveView} />
+        {currentView && <RemoveViewButton view={currentView} onDelete={deleteView} />}
       </TabStrip>
 
       {/* Filter bar */}
@@ -393,13 +401,18 @@ export default async function ConversationsPage({
                   Cost to serve
                 </Kicker>
                 <div style={{ marginTop: 4, fontSize: 13, fontWeight: 700 }}>
-                  {detail!.cost.pence > 0 ? formatCost(detail!.cost.pence) : "—"}
+                  {detail!.cost.paise > 0 ? formatCost(detail!.cost.paise) : "—"}
                 </div>
+                {detail!.cost.model && (
+                  <div style={{ marginTop: 3, fontSize: 10.5, color: "var(--color-neutral-500)" }}>
+                    on {detail!.cost.model}
+                  </div>
+                )}
                 {detail!.cost.lines.length > 0 && (
                   <div style={{ marginTop: 4, fontSize: 10.5, color: "var(--color-neutral-700)", lineHeight: 1.5 }}>
                     {detail!.cost.lines.map((l) => (
                       <span key={l.label} style={{ display: "block" }}>
-                        {l.label} {formatCost(l.pence)}
+                        {l.label} {formatCost(l.paise)}
                         <span style={{ color: "var(--color-neutral-500)" }}>
                           {" "}
                           · {l.units.toLocaleString("en-GB")} {l.unit}
@@ -461,7 +474,19 @@ export default async function ConversationsPage({
                   <Speaker label={t.label} ai={t.speaker === "ai"} />
                 )}
                 <div>
-                  <span style={{ fontSize: 13.5, lineHeight: 1.5 }}>
+                  {/* An event in the call, not a line anybody spoke. */}
+                  <span
+                    style={
+                      t.speaker === "system"
+                        ? {
+                            fontSize: 12,
+                            lineHeight: 1.5,
+                            fontStyle: "italic",
+                            color: "var(--color-neutral-700)",
+                          }
+                        : { fontSize: 13.5, lineHeight: 1.5 }
+                    }
+                  >
                     {t.authorName ? `${t.authorName}: ` : ""}
                     {t.body}
                   </span>

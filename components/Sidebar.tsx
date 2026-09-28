@@ -7,29 +7,61 @@ import type { NavItem } from "@/lib/nav";
 
 export type BrandOption = { id: string; name: string; initials: string; isLive: boolean };
 
+export type ProfileOption = {
+  id: string;
+  name: string;
+  role: string;
+  availability: "available" | "busy" | "offline";
+  rating: number | null;
+};
+
+const AVAILABILITY: Record<ProfileOption["availability"], { label: string; colour: string }> = {
+  available: { label: "Available", colour: "var(--color-accent)" },
+  busy: { label: "On a call", colour: "var(--color-neutral-700)" },
+  offline: { label: "Offline", colour: "var(--color-neutral-400)" },
+};
+
 export function Sidebar({
   brand,
   brands,
   orgName,
   userName,
   userRole,
+  membershipId,
+  availability,
+  profiles,
+  canSwitchProfile,
+  canTakeCalls,
   counts,
   groups,
   onSwitchBrand,
+  onSwitchProfile,
+  onSetAvailability,
 }: {
   brand: BrandOption;
   brands: BrandOption[];
   orgName: string;
   userName: string;
   userRole: string;
+  membershipId: string;
+  availability: ProfileOption["availability"];
+  /** Everyone this workspace could be looked at as. Demo mode only. */
+  profiles: ProfileOption[];
+  canSwitchProfile: boolean;
+  /** Whether this role can be handed a customer at all. */
+  canTakeCalls: boolean;
   counts: { live: number; waiting: number };
   /** Already filtered to what this role may reach — see lib/nav.ts. */
   groups: { label: string; items: NavItem[] }[];
   onSwitchBrand: (brandId: string) => Promise<void>;
+  onSwitchProfile: (membershipId: string) => Promise<void>;
+  onSetAvailability: (availability: ProfileOption["availability"]) => Promise<void>;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [whoOpen, setWhoOpen] = useState(false);
   const [switching, startSwitch] = useTransition();
+  const [changingWho, startWho] = useTransition();
 
   return (
     <aside
@@ -261,35 +293,203 @@ export function Sidebar({
         ))}
       </nav>
 
-      <div
-        style={{
-          borderTop: "2px solid var(--color-divider)",
-          padding: "12px 16px",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-        }}
-      >
-        <span
-          style={{
-            width: 26,
-            height: 26,
-            border: "2px solid var(--color-text)",
-            fontWeight: 700,
-            fontSize: 11,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          {userName.split(/\s+/).slice(0, 2).map((w) => w[0]).join("")}
-        </span>
-        <span style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ display: "block", fontSize: 12, fontWeight: 700 }}>{userName}</span>
-          <span style={{ display: "block", fontSize: 10.5, color: "var(--color-neutral-700)" }}>
-            {userRole}
-          </span>
-        </span>
+      {/*
+        Who you are, and whether you can be handed a call.
+
+        The switcher is the honest way to show that this console is two
+        different jobs: a Manager sees the whole brand and how the team is
+        doing; an Agent sees the customers they hold and the calls the AI hands
+        them. Describing that is unconvincing — swapping between the two in a
+        click is not. It only exists in demo mode; with Clerk on, this is a
+        plain name and a role, because you are already somebody.
+      */}
+      <div style={{ position: "relative", borderTop: "2px solid var(--color-divider)" }}>
+        {whoOpen && canSwitchProfile && (
+          <ul
+            role="listbox"
+            aria-label="Look at the console as"
+            style={{
+              position: "absolute",
+              insetInline: 0,
+              bottom: "100%",
+              zIndex: 40,
+              margin: 0,
+              padding: 0,
+              listStyle: "none",
+              background: "var(--color-bg)",
+              border: "2px solid var(--color-text)",
+              boxShadow: "0 -8px 24px rgba(0,0,0,0.12)",
+              maxHeight: 320,
+              overflowY: "auto",
+            }}
+          >
+            <li
+              style={{
+                padding: "8px 14px 6px",
+                fontSize: 9.5,
+                fontWeight: 700,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: "var(--color-neutral-500)",
+                borderBottom: "1px solid var(--color-neutral-300)",
+              }}
+            >
+              Look at this as
+            </li>
+            {profiles.map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={p.id === membershipId}
+                  className="hov-raise"
+                  onClick={() => {
+                    setWhoOpen(false);
+                    if (p.id === membershipId) return;
+                    startWho(async () => {
+                      await onSwitchProfile(p.id);
+                    });
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "8px 14px",
+                    textAlign: "left",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 9,
+                    fontSize: 12.5,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      flexShrink: 0,
+                      background: AVAILABILITY[p.availability].colour,
+                    }}
+                  />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span
+                      style={{
+                        display: "block",
+                        fontWeight: p.id === membershipId ? 700 : 500,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {p.name}
+                    </span>
+                    <span style={{ display: "block", fontSize: 10.5, color: "var(--color-neutral-700)" }}>
+                      {p.role[0].toUpperCase()}
+                      {p.role.slice(1)}
+                      {p.rating !== null && ` · ${p.rating.toFixed(1)}★`}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div style={{ padding: "10px 16px 12px" }}>
+          <button
+            type="button"
+            className={canSwitchProfile ? "hov-raise" : undefined}
+            onClick={canSwitchProfile ? () => setWhoOpen((v) => !v) : undefined}
+            aria-expanded={canSwitchProfile ? whoOpen : undefined}
+            aria-haspopup={canSwitchProfile ? "listbox" : undefined}
+            disabled={!canSwitchProfile || changingWho}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              textAlign: "left",
+              cursor: canSwitchProfile ? (changingWho ? "progress" : "pointer") : "default",
+              opacity: changingWho ? 0.6 : 1,
+            }}
+          >
+            <span
+              style={{
+                width: 26,
+                height: 26,
+                border: "2px solid var(--color-text)",
+                fontWeight: 700,
+                fontSize: 11,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              {userName.split(/\s+/).slice(0, 2).map((w) => w[0]).join("")}
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {userName}
+              </span>
+              <span style={{ display: "block", fontSize: 10.5, color: "var(--color-neutral-700)" }}>
+                {userRole}
+              </span>
+            </span>
+            {canSwitchProfile && (
+              <span style={{ fontSize: 10, color: "var(--color-neutral-700)" }}>
+                {whoOpen ? "▾" : "▴"}
+              </span>
+            )}
+          </button>
+
+          {/*
+            Availability is stated, never inferred. Someone at their desk
+            writing a report is not available, and someone who has not clicked
+            in ten minutes may well be mid-call — so routing reads what the
+            person said, not what the console guessed.
+          */}
+          {canTakeCalls && (
+            <div style={{ marginTop: 9, display: "flex", gap: 3 }}>
+              {(["available", "busy", "offline"] as const).map((state) => {
+                const on = availability === state;
+                return (
+                  <button
+                    key={state}
+                    type="button"
+                    aria-pressed={on}
+                    disabled={changingWho}
+                    onClick={() =>
+                      startWho(async () => {
+                        await onSetAvailability(state);
+                      })
+                    }
+                    style={{
+                      flex: 1,
+                      fontSize: 9.5,
+                      fontWeight: 700,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      padding: "4px 2px",
+                      border: `1px solid ${on ? "var(--color-text)" : "var(--color-neutral-400)"}`,
+                      background: on ? "var(--color-text)" : "transparent",
+                      color: on ? "var(--color-bg)" : "var(--color-neutral-700)",
+                      cursor: changingWho ? "progress" : "pointer",
+                    }}
+                  >
+                    {AVAILABILITY[state].label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </aside>
   );

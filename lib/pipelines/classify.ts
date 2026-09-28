@@ -1,7 +1,9 @@
 import { asc, eq } from "drizzle-orm";
 import { generateObject } from "ai";
 import { z } from "zod";
-import { ANALYSIS_MODEL, ANALYSIS_THINKING } from "@/lib/agent/model";
+import { languageModel, thinkingOptions } from "@/lib/agent/model";
+import { resolveModel } from "@/lib/agent/models";
+import { recordModelCall } from "@/lib/agent/quota";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { scoreUtterance } from "./sentiment";
@@ -76,9 +78,19 @@ export async function classifyConversation(conversationId: string): Promise<Clas
     .from(s.conversationActions)
     .where(eq(s.conversationActions.conversationId, conversationId));
 
-  const { object } = await generateObject({
-    model: ANALYSIS_MODEL,
-    providerOptions: { google: { thinkingConfig: { thinkingLevel: ANALYSIS_THINKING } } },
+  // The brand's current model, not the one that served the conversation: this
+  // is a request being spent now, and it comes out of today's ration for
+  // whichever model the brand is on today.
+  const [brand] = await db
+    .select({ modelId: s.brands.modelId })
+    .from(s.brands)
+    .where(eq(s.brands.id, conversation.brandId))
+    .limit(1);
+  const model = resolveModel(brand?.modelId);
+
+  const { object, usage } = await generateObject({
+    model: languageModel(model.id),
+    providerOptions: thinkingOptions(model.thinking.analysis),
     schema: Classification,
     system:
       "You label finished customer-service conversations for a support console. Be literal: " +
@@ -95,6 +107,8 @@ export async function classifyConversation(conversationId: string): Promise<Clas
       ...turns.map((t) => `${t.authorName ?? t.speaker}: ${t.body}`),
     ].join("\n"),
   });
+
+  await recordModelCall(model.id, usage);
 
   return object;
 }

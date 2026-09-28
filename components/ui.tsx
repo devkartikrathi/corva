@@ -370,3 +370,32 @@ export function ChartLegend({ style }: { style?: CSSProperties }) {
     </span>
   );
 }
+
+/**
+ * What a screen shows to someone whose role does not open it.
+ *
+ * A refusal that names the reason and points somewhere useful, rather than a
+ * 403 or — worse — a redirect that makes the console feel broken. The person
+ * did nothing wrong: they followed a link, or kept a bookmark from before
+ * their role changed.
+ */
+export function ScreenRefusal({
+  title,
+  reason,
+  next,
+}: {
+  title: string;
+  reason: string;
+  /** Where this person's version of the answer actually lives. */
+  next?: string;
+}) {
+  return (
+    <section style={{ padding: "24px 24px 0" }}>
+      <ScreenHeader
+        kicker="Not your screen"
+        title={title}
+        lede={[reason, next].filter(Boolean).join(" ")}
+      />
+    </section>
+  );
+}

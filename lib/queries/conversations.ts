@@ -1,7 +1,12 @@
 import { and, asc, desc, eq, gte, ilike, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
+import { alias } from "drizzle-orm/pg-core";
+import { formatRupees } from "@/lib/money";
+import { resolveModel } from "@/lib/agent/models";
 import { latestScores } from "./scoring";
+import { fallbackSummary } from "@/lib/agent/summary";
+import { conversationIsTheirs } from "./scoping";
 import { stillLive } from "./live-data";
 
 /**
@@ -19,8 +24,7 @@ const N_400 = "var(--color-neutral-400)";
 const N_700 = "var(--color-neutral-700)";
 const N_800 = "var(--color-neutral-800)";
 
-export const money = (pence: number) =>
-  `£${(pence / 100).toLocaleString("en-GB", { maximumFractionDigits: 0 })}`;
+export const money = (paise: number) => formatRupees(paise);
 
 /** "6m 12s" — how the queue counts a wait. */
 export function waited(since: Date): string {
@@ -230,6 +234,15 @@ export async function getLiveCall(brandId: string, conversationId?: string) {
       conversation.durationSeconds ??
         Math.floor((Date.now() - conversation.startedAt.getTime()) / 1000),
     ),
+    /**
+     * One line about what is happening, for somebody arriving mid-call.
+     *
+     * Read rather than generated — a page render must never turn into a model
+     * call. `respondStream` and the escalation path keep it current; this
+     * falls back through the archive summary and the intent so a colleague
+     * taking the line is never shown nothing at all.
+     */
+    summary: fallbackSummary(conversation),
     /** True while the AI is still the one answering. */
     aiHolding: !conversation.handledBy,
     heldBy: conversation.handledBy,
@@ -259,7 +272,7 @@ export async function getLiveCall(brandId: string, conversationId?: string) {
       id: r.id,
       ref: r.ref ?? r.kind,
       line: r.label,
-      status: [r.status, r.amountPence !== null ? money(r.amountPence) : null].filter(Boolean).join(" · "),
+      status: [r.status, r.amountPaise !== null ? money(r.amountPaise) : null].filter(Boolean).join(" · "),
       // A rescheduled or disputed record is the reason for most calls.
       urgent: /reschedul|disput|overdue|failed/i.test(r.status ?? ""),
     })),
@@ -283,7 +296,7 @@ export async function getLiveCall(brandId: string, conversationId?: string) {
       elapsed: clock(Math.floor((Date.now() - c.startedAt.getTime()) / 1000)),
     })),
     facts: [
-      { label: "Lifetime value", value: customer ? money(customer.ltvPence) : "—", hot: false },
+      { label: "Lifetime value", value: customer ? money(customer.ltvPaise) : "—", hot: false },
       {
         label: "Churn risk",
         value: signalBy.has("churn_risk")
@@ -301,6 +314,9 @@ export async function getLiveCall(brandId: string, conversationId?: string) {
 
 /* ─── The handoff queue ────────────────────────────────────────────────── */
 
+/** The second alias onto `memberships`, for "who is it ringing at". */
+const routed = alias(s.memberships, "routed_member");
+
 export async function listHandoffs(
   brandId: string,
   status: "waiting" | "accepted" | "resolved" | "all" = "waiting",
@@ -311,11 +327,15 @@ export async function listHandoffs(
       conversation: s.conversations,
       customer: s.customers,
       acceptedBy: s.memberships.name,
+      routedTo: routed.name,
     })
     .from(s.handoffs)
     .innerJoin(s.conversations, eq(s.conversations.id, s.handoffs.conversationId))
     .leftJoin(s.customers, eq(s.customers.id, s.conversations.customerId))
     .leftJoin(s.memberships, eq(s.memberships.id, s.handoffs.acceptedByMembershipId))
+    // Two joins onto the same table: who took it, and who it is ringing at.
+    // They are different questions and a waiting handoff only answers one.
+    .leftJoin(routed, eq(routed.id, s.handoffs.routedToMembershipId))
     .where(
       and(
         eq(s.handoffs.brandId, brandId),
@@ -350,10 +370,15 @@ export async function listHandoffs(
       brief: r.handoff.brief as Record<string, never>,
       channel: `${channelLabel(r.conversation.channel)}${isLive ? " · live" : ""}`,
       priority,
-      value: r.customer ? money(r.customer.ltvPence) : "—",
+      value: r.customer ? money(r.customer.ltvPaise) : "—",
       urgent,
       status: r.handoff.status,
+      kind: r.handoff.kind,
+      /** The one line, for anyone deciding whether to pick this up. */
+      headline: r.handoff.headline ?? r.conversation.liveSummary ?? r.conversation.summary,
       acceptedBy: r.acceptedBy,
+      routedTo: r.routedTo,
+      routingReason: r.handoff.routingReason,
       resolution: r.handoff.resolution,
       edge: urgent ? ACCENT : N_400,
       waitColor: urgent ? ACCENT_700 : N_700,
@@ -416,6 +441,13 @@ export type ArchiveFilters = {
   reviewed?: "yes" | "no";
   /** "only" for rehearsals alone, "exclude" to hide them. Default shows both. */
   test?: "only" | "exclude";
+  /**
+   * Narrow to one person's conversations — theirs, or their customers'.
+   *
+   * Not a filter in the rail sense: it is applied because of who is asking,
+   * and there is no way to clear it. See lib/queries/scoping.ts.
+   */
+  ownedBy?: string;
   sort?: string;
   page?: number;
   pageSize?: number;
@@ -450,6 +482,7 @@ export async function listConversations(brandId: string, filters: ArchiveFilters
       where.push(gte(s.conversations.startedAt, new Date(Date.now() - days * 864e5)));
     }
   }
+  if (filters.ownedBy) where.push(conversationIsTheirs(filters.ownedBy));
   if (filters.test === "only") where.push(eq(s.conversations.isTest, true));
   if (filters.test === "exclude") where.push(eq(s.conversations.isTest, false));
   if (filters.reviewed === "yes") where.push(isNotNull(s.conversations.reviewScore));
@@ -593,15 +626,21 @@ export async function getConversation(brandId: string, conversationId: string) {
   }
 
   const cost = (row.conversation.costBreakdown ?? {}) as {
-    lines?: { label: string; units: number; unit: string; pence: number }[];
+    lines?: { label: string; units: number; unit: string; paise: number }[];
   };
 
   return {
     conversation: row.conversation,
     customer: row.customer,
     cost: {
-      pence: row.conversation.costPence,
+      paise: row.conversation.costPaise,
       lines: cost.lines ?? [],
+      /**
+       * Which model produced this, and therefore which rates the lines above
+       * were priced at. Null on anything that predates the choice — printed as
+       * nothing rather than as a guess.
+       */
+      model: row.conversation.modelId ? resolveModel(row.conversation.modelId).label : null,
     },
     turns: turnRows.map((t) => ({
       id: t.id,

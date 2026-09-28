@@ -1,3 +1,4 @@
+import { formatRupees } from "@/lib/money";
 import type { AgentConfig, AuthorityLimit } from "./config";
 
 /**
@@ -16,7 +17,7 @@ export type AuthorityDecision =
 export function checkAuthority(
   config: AgentConfig,
   action: string,
-  amountPence?: number,
+  amountPaise?: number,
 ): AuthorityDecision {
   const limit = config.authority.find((a) => a.action === action);
 
@@ -40,23 +41,16 @@ export function checkAuthority(
     };
   }
 
-  if (limit.ceilingPence !== null && (amountPence ?? 0) > limit.ceilingPence) {
+  if (limit.ceilingPaise !== null && (amountPaise ?? 0) > limit.ceilingPaise) {
     return {
       allowed: false,
       limit,
-      reason: `${limit.label} is capped at ${formatPence(limit.ceilingPence)} without approval.`,
+      reason: `${limit.label} is capped at ${formatRupees(limit.ceilingPaise, { decimals: "auto" })} without approval.`,
       escalateTo: limit.escalateTo,
     };
   }
 
   return { allowed: true, limit };
-}
-
-export function formatPence(pence: number): string {
-  return `£${(pence / 100).toLocaleString("en-GB", {
-    minimumFractionDigits: pence % 100 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  })}`;
 }
 
 /** How the authority table reads in the system prompt. */
@@ -66,10 +60,10 @@ export function describeAuthority(config: AgentConfig): string {
       if (a.blocked) {
         return `- ${a.label}: BLOCKED. You may not do this. ${a.escalateTo ? `Only ${a.escalateTo} can.` : ""}`.trim();
       }
-      if (a.ceilingPence === null) {
+      if (a.ceilingPaise === null) {
         return `- ${a.label}: no limit.`;
       }
-      return `- ${a.label}: up to ${formatPence(a.ceilingPence)}. Above that, ${a.escalateTo ?? "a human"} must approve.`;
+      return `- ${a.label}: up to ${formatRupees(a.ceilingPaise, { decimals: "auto" })}. Above that, ${a.escalateTo ?? "a human"} must approve.`;
     })
     .join("\n");
 }

@@ -1,4 +1,4 @@
-import { Bar, OutlineButton, ScreenHeader, SectionTitle } from "@/components/ui";
+import { Bar, OutlineButton, ScreenHeader, ScreenRefusal, SectionTitle } from "@/components/ui";
 import { ActionButton } from "@/components/ActionButton";
 import {
   AddBrand,
@@ -7,7 +7,7 @@ import {
   HoursRow,
   PrivacyForm,
 } from "@/components/SetupControls";
-import { getConsoleContext } from "@/lib/auth/context";
+import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { can } from "@/lib/auth/permissions";
 import {
   createBrand,
@@ -57,7 +57,18 @@ function StatusPill({ children, live }: { children: string; live: boolean }) {
 }
 
 export default async function SetupPage() {
-  const { session, brand: currentBrand } = await getConsoleContext();
+  const { session, brand: currentBrand, denied } = await guardScreen("people.manage");
+  // The nav withholds this screen; this is what makes withholding it true.
+  if (denied) {
+    return (
+      <ScreenRefusal
+        title="Setup & channels"
+        reason={refusalReason(denied)}
+        next="Which channels are live shows on the command centre."
+      />
+    );
+  }
+
   const setup = await getSetup(session.orgId, currentBrand.id);
   const { brands, brand, channels, hours, afterHours, privacy, audit, integrations, usage, org } =
     setup;
@@ -328,7 +339,7 @@ export default async function SetupPage() {
                 {(org?.plan ?? "trial").replace(/^./, (c) => c.toUpperCase())}
               </span>
               <span style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
-                £0.31 per resolved conversation · unlimited seats
+                ₹27 per resolved conversation · unlimited seats
               </span>
             </div>
 

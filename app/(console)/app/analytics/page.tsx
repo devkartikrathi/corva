@@ -14,6 +14,7 @@ import { ExportCsvButton } from "@/components/ExportCsvButton";
 import { getConsoleContext } from "@/lib/auth/context";
 import { exportAnalyticsCsv } from "@/lib/actions/analytics";
 import { intOf, normalise, type RawParams } from "@/lib/params";
+import { formatCost } from "@/lib/money";
 import {
   agentPerformance,
   getBrandMetrics,
@@ -30,7 +31,7 @@ const WINDOWS = [
   { value: "26", label: "26 weeks" },
 ];
 
-const money = (pence: number) => `£${(pence / 100).toFixed(2)}`;
+
 const clock = (secs: number) =>
   secs >= 60 ? `${Math.floor(secs / 60)}m ${secs % 60}s` : `${secs}s`;
 
@@ -76,17 +77,17 @@ export default async function AnalyticsPage({
     },
     {
       label: "Cost per contact",
-      value: money(m.costPerContactPence),
-      delta: money(m.costTotalPence),
+      value: formatCost(m.costPerContactPaise),
+      delta: formatCost(m.costTotalPaise),
       note: "spent in this window",
       deltaColor: "var(--color-neutral-800)",
     },
     {
       label: "Cost of escalation",
       value: m.escalated
-        ? money(Math.round(m.costEscalatedPence / m.escalated))
+        ? formatCost(Math.round(m.costEscalatedPaise / m.escalated))
         : "—",
-      delta: m.contained ? money(Math.round(m.costContainedPence / m.contained)) : "—",
+      delta: m.contained ? formatCost(Math.round(m.costContainedPaise / m.contained)) : "—",
       note: "each, against contained",
       deltaColor: "var(--color-accent-700)",
     },

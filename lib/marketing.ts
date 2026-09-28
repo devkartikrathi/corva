@@ -15,7 +15,7 @@ export const logos = ["Aurelius", "Northmoor", "Kessel & Co", "Vantage"] as cons
 export const heroWave = [40, 70, 100, 55, 85, 30, 65, 95, 45, 75, 35, 60, 90, 50, 25, 70, 40, 80] as const;
 
 export const knownFacts = [
-  { label: "Lifetime value", value: "£14,280", hot: false },
+  { label: "Lifetime value", value: "₹12,49,500", hot: false },
   { label: "Open orders", value: "2", hot: false },
   { label: "Reschedules", value: "3 this month", hot: true },
   { label: "Last NPS", value: "4 · detractor", hot: false },
@@ -23,7 +23,7 @@ export const knownFacts = [
 ] as const;
 
 export const nextActions = [
-  { label: "Waive install fee (£85)", state: "Needs Manager", hot: true },
+  { label: "Waive install fee (₹7,500)", state: "Needs Manager", hot: true },
   { label: "Fixed AM slot · Thu", state: "Auto-approved", hot: false },
   { label: "Flag account for retention", state: "1 click", hot: false },
 ] as const;
@@ -113,7 +113,7 @@ export const platformCards = [
 export const plans = [
   {
     name: "Studio",
-    price: "£0.42",
+    price: "₹36",
     unit: " / conversation",
     blurb: "One brand, one helpline, the full customer record. For teams under ten.",
     features: [
@@ -127,7 +127,7 @@ export const plans = [
   },
   {
     name: "Operator",
-    price: "£0.31",
+    price: "₹27",
     unit: " / conversation",
     blurb: "Up to five brands, custom scoring weights, and the full tuning workbench.",
     features: [

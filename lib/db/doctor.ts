@@ -7,7 +7,9 @@
  */
 import "./script-env";
 import { sql } from "drizzle-orm";
-import { EMBEDDING_DIMENSIONS, TURN_MODEL } from "@/lib/agent/model";
+import { EMBEDDING_DIMENSIONS, languageModel } from "@/lib/agent/model";
+import { DEFAULT_MODEL_ID, resolveModel } from "@/lib/agent/models";
+import { recordModelCall } from "@/lib/agent/quota";
 import { embedQuery } from "@/lib/agent/retrieval";
 import { db } from "./index";
 import * as s from "./schema";
@@ -77,11 +79,18 @@ async function main() {
 
   try {
     const { generateText } = await import("ai");
-    const { text } = await generateText({
-      model: TURN_MODEL,
+    // The default only. Pinging every model in the catalogue would spend a
+    // request from each one's daily allowance to prove the key works once.
+    const model = resolveModel(DEFAULT_MODEL_ID);
+    const { text, usage } = await generateText({
+      model: languageModel(model.id),
       prompt: "Reply with the single word: ready",
     });
-    ok(`turn model replied "${text.trim().slice(0, 20)}"`);
+    // The health check spends a request like anything else, and a doctor that
+    // quietly ate one while reporting all-clear would be the wrong kind of
+    // reassuring.
+    await recordModelCall(model.id, usage);
+    ok(`${model.id} replied "${text.trim().slice(0, 20)}"`);
   } catch (e) {
     fail(`turn model call failed — ${(e as Error).message}`);
   }

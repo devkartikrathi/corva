@@ -1,9 +1,14 @@
 import Link from "next/link";
-import { Kicker, LinkAction, ScreenHeader, Tag } from "@/components/ui";
+import { Kicker, LinkAction, ScreenHeader, ScreenRefusal, Tag } from "@/components/ui";
 import { Tab, TabStrip } from "@/components/filters";
-import { getConsoleContext } from "@/lib/auth/context";
+import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { handoffCounts, getHandoffTranscript, listHandoffs } from "@/lib/queries/conversations";
-import { acceptHandoff, approveHandoffDecision, reassignHandoff } from "@/lib/actions/handoffs";
+import {
+  acceptHandoff,
+  approveHandoffDecision,
+  declineHandoff,
+  reassignHandoff,
+} from "@/lib/actions/handoffs";
 import { getTeam } from "@/lib/queries/workspace";
 import { href, normalise, type RawParams } from "@/lib/params";
 import { ActionButton } from "@/components/ActionButton";
@@ -19,6 +24,7 @@ const TABS = [
 ] as const;
 
 type Brief = {
+  headline?: string;
   wants?: string;
   alreadyDid?: { ok: boolean; text: string }[];
   decision?: string;
@@ -32,7 +38,18 @@ export default async function HandoffsPage({
 }: {
   searchParams: Promise<RawParams>;
 }) {
-  const { session, brand } = await getConsoleContext();
+  const { session, brand, denied } = await guardScreen("calls.handle");
+  // The nav withholds this screen; this is what makes withholding it true.
+  if (denied) {
+    return (
+      <ScreenRefusal
+        title="Handoffs"
+        reason={refusalReason(denied)}
+        next="Finished calls are in the archive."
+      />
+    );
+  }
+
   const params = normalise(await searchParams);
   const status = (TABS.find((t) => t.key === params.status)?.key ?? "waiting") as
     | "waiting"
@@ -78,6 +95,15 @@ export default async function HandoffsPage({
   // the live console lands on the right brief.
   const selected = handoffs.find((h) => h.id === params.handoff) ?? handoffs[0];
   const brief = (selected.brief ?? {}) as Brief;
+  /**
+   * A closure is not an escalation with a different label.
+   *
+   * Nothing is owed and nobody is waiting on the line: the AI said no, the
+   * customer accepted it, and this row exists so a person sees that happened.
+   * The screen says so rather than asking someone to work it out from a brief
+   * whose "decision" is a question about the past.
+   */
+  const isClosure = selected.kind === "closure_approval";
   const briefTranscript = await getHandoffTranscript(selected.conversationId);
   const briefDidAlready = brief.alreadyDid ?? [];
 
@@ -136,6 +162,9 @@ export default async function HandoffsPage({
                   {h.wait}
                 </span>
               </div>
+              {/* The headline, not the trigger. "Sentiment below −0.40" tells
+                  you a rule fired; it does not tell you what the call is
+                  about, which is the only thing that helps you choose. */}
               <div
                 style={{
                   marginTop: 5,
@@ -144,7 +173,7 @@ export default async function HandoffsPage({
                   lineHeight: 1.4,
                 }}
               >
-                {h.reason}
+                {h.headline ?? h.reason}
               </div>
               <div style={{ marginTop: 7, display: "flex", gap: 8, alignItems: "center" }}>
                 <Tag bg={h.tagBg} fg={h.tagFg} padding="3px 6px">
@@ -153,9 +182,24 @@ export default async function HandoffsPage({
                 <span style={{ fontSize: 11, color: "var(--color-neutral-700)" }}>
                   P{h.priority} · {h.value}
                 </span>
-                {h.acceptedBy && (
+                {h.kind === "closure_approval" && (
+                  <span
+                    style={{
+                      fontSize: 9.5,
+                      fontWeight: 700,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      border: "1px solid var(--color-neutral-400)",
+                      padding: "2px 5px",
+                      color: "var(--color-neutral-700)",
+                    }}
+                  >
+                    Sign-off
+                  </span>
+                )}
+                {(h.acceptedBy ?? h.routedTo) && (
                   <span style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--color-neutral-700)" }}>
-                    {h.acceptedBy}
+                    {h.acceptedBy ?? `→ ${h.routedTo}`}
                   </span>
                 )}
               </div>
@@ -176,7 +220,9 @@ export default async function HandoffsPage({
             }}
           >
             <div style={{ flex: 1 }}>
-              <Kicker color="var(--color-accent-700)">Brief · written by the AI</Kicker>
+              <Kicker color={isClosure ? "var(--color-neutral-700)" : "var(--color-accent-700)"}>
+                {isClosure ? "Closed by agreement · needs a sign-off" : "Brief · written by the AI"}
+              </Kicker>
               <h2
                 style={{
                   margin: "8px 0 0",
@@ -196,6 +242,16 @@ export default async function HandoffsPage({
                 {" · "}Priority {selected.priority} · {selected.value} lifetime value
                 {selected.resolution && ` · ${selected.resolution}`}
               </div>
+              {/* Who it is ringing at, and why routing picked them. A queue
+                  that chooses a person and never says why is a queue people
+                  work around rather than trust. */}
+              {selected.status === "waiting" && (
+                <div style={{ marginTop: 5, fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+                  {selected.routedTo
+                    ? `Ringing at ${selected.routedTo}${selected.routingReason ? ` · ${selected.routingReason}` : ""}`
+                    : "Not routed to anyone — nobody was available, so it is open to whoever is free"}
+                </div>
+              )}
             </div>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
               <LinkAction href={`/app/live?call=${selected.conversationId}`} size={12}>
@@ -215,7 +271,20 @@ export default async function HandoffsPage({
                   }}
                   pendingLabel="Taking…"
                 >
-                  Accept &amp; take the line
+                  {isClosure ? "Take the review" : "Accept & take the line"}
+                </ActionButton>
+              )}
+              {selected.status === "waiting" && selected.routedTo && (
+                <ActionButton
+                  variant="outline"
+                  pendingLabel="Passing…"
+                  style={{ fontSize: 11.5, padding: "8px 12px", border: "1px solid var(--color-text)" }}
+                  action={async () => {
+                    "use server";
+                    await declineHandoff(selected.id);
+                  }}
+                >
+                  Pass on
                 </ActionButton>
               )}
             </div>
@@ -229,7 +298,7 @@ export default async function HandoffsPage({
             }}
           >
             <div style={{ padding: "18px 24px", borderRight: "1px solid var(--color-neutral-300)" }}>
-              <Kicker>What the customer wants</Kicker>
+              <Kicker>{isClosure ? "What the customer asked for" : "What the customer wants"}</Kicker>
               <p
                 style={{
                   margin: "10px 0 0",
@@ -241,7 +310,9 @@ export default async function HandoffsPage({
                 {brief.wants ?? "—"}
               </p>
 
-              <Kicker style={{ marginTop: 16 }}>What the AI already did</Kicker>
+              <Kicker style={{ marginTop: 16 }}>
+                {isClosure ? "How it was handled" : "What the AI already did"}
+              </Kicker>
               <div
                 style={{
                   marginTop: 10,
@@ -268,7 +339,7 @@ export default async function HandoffsPage({
             </div>
 
             <div style={{ padding: "18px 24px" }}>
-              <Kicker>The one decision left</Kicker>
+              <Kicker>{isClosure ? "The one thing to confirm" : "The one decision left"}</Kicker>
               <div style={{ marginTop: 10, border: "2px solid var(--color-text)", padding: "13px 15px" }}>
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>{brief.decision ?? "—"}</div>
                 <div
@@ -287,10 +358,10 @@ export default async function HandoffsPage({
                       "use server";
                       await approveHandoffDecision(selected.id, true);
                     }}
-                    pendingLabel="Approving…"
+                    pendingLabel={isClosure ? "Confirming…" : "Approving…"}
                     style={{ fontSize: 11.5, padding: "9px 12px" }}
                   >
-                    Approve
+                    {isClosure ? "That was right" : "Approve"}
                   </ActionButton>
                   <ActionButton
                     variant="outline"
@@ -298,16 +369,22 @@ export default async function HandoffsPage({
                       "use server";
                       await approveHandoffDecision(selected.id, false);
                     }}
-                    pendingLabel="Declining…"
-                    confirm="Decline this decision and close the handoff?"
+                    pendingLabel={isClosure ? "Flagging…" : "Declining…"}
+                    confirm={
+                      isClosure
+                        ? "Record that we should have said yes to this? The conversation stays closed; the decision is logged against your name."
+                        : "Decline this decision and close the handoff?"
+                    }
                     style={{ fontSize: 11.5, padding: "8px 12px", border: "1px solid var(--color-text)" }}
                   >
-                    Decline
+                    {isClosure ? "We should have said yes" : "Decline"}
                   </ActionButton>
                 </div>
               </div>
 
-              <Kicker style={{ marginTop: 16 }}>Suggested opening line</Kicker>
+              <Kicker style={{ marginTop: 16 }}>
+                {isClosure ? "If you do call them back" : "Suggested opening line"}
+              </Kicker>
               <p
                 style={{
                   margin: "10px 0 0",

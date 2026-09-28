@@ -1,7 +1,4 @@
-import { can, type Actor, type Capability } from "./auth/permissions";
-
-/** Resolves to whoever is at the top of the priority queue. */
-export const PROFILE_HREF = "/app/customer-360";
+import { can, type Actor, type Capability, type Role } from "./auth/permissions";
 
 export type NavItem = {
   href: string;
@@ -17,6 +14,15 @@ export type NavItem = {
    */
   capability?: Capability;
   badge?: { count: "live" | "waiting"; accent: boolean };
+  /**
+   * A different word for the same screen, for roles that see a different
+   * slice of it.
+   *
+   * An Agent's customer list is the customers they hold, not the brand's — so
+   * calling it "All customers" on their screen would be a small lie in the one
+   * place the console is meant to be plainest about scope.
+   */
+  labelByRole?: Partial<Record<Role, string>>;
 };
 
 export const navGroups: { label: string; items: NavItem[] }[] = [
@@ -33,8 +39,21 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: "Customers",
     items: [
-      { href: "/app/customers", label: "All customers", capability: "customers.read" },
-      { href: PROFILE_HREF, label: "Customer 360", capability: "customers.read" },
+      /**
+       * One way in, not two.
+       *
+       * There was a "Customer 360" nav item beside this one that resolved to
+       * whoever was top of the priority queue. It was the same screen you
+       * reach by clicking any row here, and a nav entry that lands somewhere
+       * different every time you press it is not navigation — so the list is
+       * the entry point and the profile is where a row takes you.
+       */
+      {
+        href: "/app/customers",
+        label: "All customers",
+        capability: "customers.read",
+        labelByRole: { agent: "My customers" },
+      },
       // The model itself, not one customer's score — the "why this number"
       // breakdown a manager needs lives on the profile instead.
       { href: "/app/segments", label: "Segments & rules", capability: "scoring.edit" },
@@ -51,6 +70,15 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: "Workspace",
     items: [
+      /**
+       * How the people are doing, as opposed to how the AI is doing.
+       *
+       * Gated on its own capability rather than on `people.manage`, because
+       * these are two different questions: administering a workspace is not
+       * the same as being allowed to see how well a named colleague handles a
+       * call, and an Agent should not be reading a league table they are on.
+       */
+      { href: "/app/performance", label: "Team performance", capability: "team.performance" },
       { href: "/app/team", label: "Team & roles", capability: "people.manage" },
       /**
        * Setup is gated on `people.manage` rather than `billing.manage`, which
@@ -75,13 +103,15 @@ export function visibleNavGroups(actor: Actor) {
   return navGroups
     .map((group) => ({
       label: group.label,
-      items: group.items.filter((item) => {
-        if (!item.capability) return true;
-        // `allowed: false` with a grant of read_only or propose still means
-        // "you may look", which is a reason to show the screen.
-        const decision = can(actor, item.capability);
-        return decision.grant !== "none";
-      }),
+      items: group.items
+        .filter((item) => {
+          if (!item.capability) return true;
+          // `allowed: false` with a grant of read_only or propose still means
+          // "you may look", which is a reason to show the screen.
+          const decision = can(actor, item.capability);
+          return decision.grant !== "none";
+        })
+        .map((item) => ({ ...item, label: item.labelByRole?.[actor.role] ?? item.label })),
     }))
     .filter((group) => group.items.length > 0);
 }

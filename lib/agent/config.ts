@@ -13,7 +13,7 @@ import * as s from "@/lib/db/schema";
 export type AuthorityLimit = {
   action: string;
   label: string;
-  ceilingPence: number | null;
+  ceilingPaise: number | null;
   blocked: boolean;
   escalateTo: string | null;
 };
@@ -30,6 +30,15 @@ export type AgentConfig = {
   brandId: string;
   brandName: string;
   agentName: string;
+  /**
+   * The model this brand's agent answers on, resolved from the brand row.
+   *
+   * Part of the config rather than a global, so every path that already loads
+   * a config — a live turn, a voice session, a brief, a test preview — gets
+   * the brand's choice without a second lookup, and none of them can be the
+   * one place that forgets.
+   */
+  modelId: string;
   persona: string;
   tone: Record<string, number>;
   authority: AuthorityLimit[];
@@ -75,12 +84,13 @@ export async function loadAgentConfig(
     brandId: row.brand.id,
     brandName: row.brand.name,
     agentName: row.brand.agentName ?? "the assistant",
+    modelId: row.brand.modelId,
     persona: row.version.persona,
     tone: (row.version.tone ?? {}) as Record<string, number>,
     authority: authority.map((a) => ({
       action: a.action,
       label: a.label,
-      ceilingPence: a.ceilingPence,
+      ceilingPaise: a.ceilingPaise,
       blocked: a.blocked,
       escalateTo: a.escalateTo,
     })),

@@ -22,6 +22,8 @@ const OUTPUT_RATE = 24000;
 type Event =
   | { kind: "heard"; text: string }
   | { kind: "said"; text: string }
+  /** A person on the console, typing. The playground has no voice for them. */
+  | { kind: "human"; name: string; text: string }
   | { kind: "tool"; name: string; summary: string; allowed: boolean; detail?: string }
   | { kind: "system"; text: string };
 
@@ -31,17 +33,21 @@ export function VoicePlayground({
   bridgeUrl,
   brands,
   callers,
-  costPerMinutePence,
+  liveModels,
+  costPerMinutePaise,
 }: {
   bridgeUrl: string;
   brands: { slug: string; name: string; agentName: string | null }[];
   /** Who you can ring in as, per brand. An empty choice is an unknown number. */
   callers: Record<string, { id: string; name: string; detail: string }[]>;
-  costPerMinutePence: number;
+  /** The speech-to-speech models a call can be placed on. */
+  liveModels: { id: string; label: string; blurb: string }[];
+  costPerMinutePaise: number;
 }) {
   const [status, setStatus] = useState<Status>("idle");
   const [brandSlug, setBrandSlug] = useState(brands[0]?.slug ?? "");
   const [callerId, setCallerId] = useState("");
+  const [liveModel, setLiveModel] = useState(liveModels[0]?.id ?? "");
   const [countsInMetrics, setCountsInMetrics] = useState(false);
   const [events, setEvents] = useState<Event[]>([]);
   const [session, setSession] = useState<{
@@ -50,6 +56,7 @@ export function VoicePlayground({
     version: number;
     customer: string | null;
     capSeconds: number;
+    liveModel?: string;
     conversationId?: string;
   } | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -63,6 +70,8 @@ export function VoicePlayground({
   const playCtx = useRef<AudioContext | null>(null);
   const playAt = useRef(0);
   const talkingRef = useRef(false);
+  /** A person has the line, so no answer is coming from the AI. */
+  const heldRef = useRef(false);
   const log = useRef<HTMLDivElement | null>(null);
 
   const push = (e: Event) => setEvents((prev) => [...prev, e]);
@@ -121,6 +130,7 @@ export function VoicePlayground({
     setError(null);
     setEvents([]);
     setElapsed(0);
+    heldRef.current = false;
     setStatus("connecting");
 
     try {
@@ -139,7 +149,13 @@ export function VoicePlayground({
 
     socket.onopen = () =>
       socket.send(
-        JSON.stringify({ type: "start", brandSlug, customerId: callerId || null, countsInMetrics }),
+        JSON.stringify({
+          type: "start",
+          brandSlug,
+          customerId: callerId || null,
+          countsInMetrics,
+          liveModel,
+        }),
       );
 
     socket.onmessage = (e) => {
@@ -173,6 +189,20 @@ export function VoicePlayground({
       } else if (m.type === "tool") {
         setStatus("thinking");
         push({ kind: "tool", name: m.name, summary: m.summary, allowed: m.allowed, detail: m.detail });
+      } else if (m.type === "held") {
+        // Cut what is already queued, not just what arrives next — the bridge
+        // stops sending, but a second of scheduled audio would still play.
+        void playCtx.current?.close();
+        playCtx.current = null;
+        playAt.current = 0;
+        heldRef.current = true;
+        setStatus("ready");
+        push({ kind: "system", text: `${m.by} took the line. The AI has stopped replying.` });
+      } else if (m.type === "released") {
+        heldRef.current = false;
+        push({ kind: "system", text: "Handed back to the AI." });
+      } else if (m.type === "human") {
+        push({ kind: "human", name: m.name, text: m.text });
       } else if (m.type === "interrupted") {
         push({ kind: "system", text: "You interrupted — it stopped." });
         playAt.current = 0;
@@ -223,7 +253,7 @@ export function VoicePlayground({
     if (!talkingRef.current) return;
     talkingRef.current = false;
     setTalking(false);
-    setStatus("thinking");
+    setStatus(heldRef.current ? "ready" : "thinking");
     ws.current?.send(JSON.stringify({ type: "end_turn" }));
   };
 
@@ -252,7 +282,7 @@ export function VoicePlayground({
   const live = status !== "idle" && status !== "closed";
   const cap = session?.capSeconds ?? 180;
   const remaining = Math.max(0, cap - elapsed);
-  const cost = ((elapsed / 60) * costPerMinutePence) / 100;
+  const cost = ((elapsed / 60) * costPerMinutePaise) / 100;
 
   const STATUS_TEXT: Record<Status, string> = {
     idle: "Not connected",
@@ -297,7 +327,7 @@ export function VoicePlayground({
               <span style={{ color: remaining < 30 ? "var(--color-accent-400)" : undefined }}>
                 {remaining}s left
               </span>
-              <span>≈ £{cost.toFixed(3)}</span>
+              <span>≈ ₹{cost.toFixed(2)}</span>
             </span>
           )}
         </div>
@@ -343,6 +373,25 @@ export function VoicePlayground({
                     {e.summary}
                     {e.detail && <span style={{ color: "var(--color-neutral-500)" }}> · {e.detail}</span>}
                   </div>
+                </div>
+              );
+            }
+            if (e.kind === "human") {
+              return (
+                <div key={i} style={{ display: "grid", gridTemplateColumns: "70px 1fr", gap: 12 }}>
+                  <span
+                    style={{
+                      fontSize: 9.5,
+                      fontWeight: 700,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      color: "var(--color-bg)",
+                      paddingTop: 3,
+                    }}
+                  >
+                    {e.name.split(" ")[0]}
+                  </span>
+                  <span style={{ fontSize: 13.5, lineHeight: 1.5, color: "var(--color-bg)" }}>{e.text}</span>
                 </div>
               );
             }
@@ -468,6 +517,38 @@ export function VoicePlayground({
           </p>
         </div>
 
+        <div>
+          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--color-neutral-500)" }}>
+            Voice model
+          </div>
+          <select
+            value={liveModel}
+            onChange={(e) => setLiveModel(e.target.value)}
+            disabled={live}
+            aria-label="Voice model"
+            style={{
+              marginTop: 8,
+              width: "100%",
+              border: "1px solid var(--color-neutral-600)",
+              background: "transparent",
+              color: "var(--color-bg)",
+              padding: "7px 9px",
+              fontSize: 12.5,
+              fontFamily: "inherit",
+              borderRadius: 0,
+            }}
+          >
+            {liveModels.map((m) => (
+              <option key={m.id} value={m.id} style={{ color: "var(--color-text)" }}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+          <p style={{ margin: "8px 0 0", fontSize: 11, color: "var(--color-neutral-500)", lineHeight: 1.5 }}>
+            {liveModels.find((m) => m.id === liveModel)?.blurb}
+          </p>
+        </div>
+
         <label
           style={{
             display: "flex",
@@ -532,7 +613,14 @@ export function VoicePlayground({
             </div>
             <div>Agent <b style={{ color: "var(--color-bg)" }}>{session.agent} v{session.version}</b></div>
             {session.customer && <div>Caller record <b style={{ color: "var(--color-bg)" }}>{session.customer}</b></div>}
-            <div>Persona, ceilings and guardrails come from the Tuning screen.</div>
+            {session.liveModel && (
+              <div>
+                On{" "}
+                <b style={{ color: "var(--color-bg)" }}>
+                  {liveModels.find((m) => m.id === session.liveModel)?.label ?? session.liveModel}
+                </b>
+              </div>
+            )}
             {session.conversationId && (
               <a
                 href={`/app/live?call=${session.conversationId}`}

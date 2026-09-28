@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import type { OnboardingResult } from "@/lib/actions/onboarding";
+import type { ModelOption } from "@/lib/queries/models";
+import { ModelPicker } from "@/components/ModelPicker";
 
 /**
  * Creating a company.
@@ -12,9 +14,9 @@ import type { OnboardingResult } from "@/lib/actions/onboarding";
  */
 const PLANS = [
   { value: "trial", label: "Trial — no charge" },
-  { value: "studio", label: "Studio — £29/seat" },
-  { value: "operator", label: "Operator — £39/seat" },
-  { value: "enterprise", label: "Enterprise — £55/seat + £1,200" },
+  { value: "studio", label: "Studio — ₹2,499/seat" },
+  { value: "operator", label: "Operator — ₹3,499/seat" },
+  { value: "enterprise", label: "Enterprise — ₹4,999/seat + ₹99,000" },
 ];
 
 const REGIONS = ["eu-west-2", "eu-west-1", "us-east-1", "ap-southeast-2"];
@@ -42,6 +44,7 @@ const labelStyle: React.CSSProperties = {
 
 export function OnboardCompany({
   onOnboard,
+  models,
 }: {
   onOnboard: (input: {
     companyName: string;
@@ -51,7 +54,9 @@ export function OnboardCompany({
     brandName: string;
     ownerName: string;
     ownerEmail: string;
+    modelId: string;
   }) => Promise<OnboardingResult>;
+  models: ModelOption[];
 }) {
   const [companyName, setCompanyName] = useState("");
   const [brandName, setBrandName] = useState("");
@@ -60,6 +65,9 @@ export function OnboardCompany({
   const [seats, setSeats] = useState("5");
   const [ownerName, setOwnerName] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
+  // Whichever model still has room today leads the list, so the default is the
+  // one that will actually answer rather than the one that reads best.
+  const [modelId, setModelId] = useState(models[0]?.id ?? "");
   const [result, setResult] = useState<OnboardingResult | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -237,6 +245,15 @@ export function OnboardCompany({
         </label>
       </div>
 
+      <div style={{ borderTop: "1px solid var(--color-neutral-800)", paddingTop: 14 }}>
+        <ModelPicker
+          options={models}
+          value={modelId}
+          onChange={setModelId}
+          label="Model this brand answers on"
+        />
+      </div>
+
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 4 }}>
         <button
           type="button"
@@ -255,6 +272,7 @@ export function OnboardCompany({
                     brandName,
                     ownerName,
                     ownerEmail,
+                    modelId,
                   }),
                 );
               } catch (e) {

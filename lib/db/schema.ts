@@ -61,6 +61,26 @@ export const outcomeEnum = pgEnum("outcome", [
 
 export const handoffStatusEnum = pgEnum("handoff_status", ["waiting", "accepted", "resolved", "reassigned"]);
 
+/**
+ * Why a human was pulled in.
+ *
+ * `escalation` is the AI hitting a limit. `closure_approval` is the opposite
+ * and is the reason this column exists: the customer was told no, accepted it,
+ * and the conversation ended by agreement. Nothing is owed, but a person still
+ * has to see that it happened and sign it off — otherwise "the AI talked them
+ * out of a refund" is a decision nobody ever reviews.
+ */
+export const handoffKindEnum = pgEnum("handoff_kind", ["escalation", "closure_approval"]);
+
+/**
+ * Whether a person can take a call right now.
+ *
+ * Set by the person, not inferred from activity: someone at their desk writing
+ * a report is not available, and someone who has not clicked in ten minutes
+ * may well be on a call.
+ */
+export const availabilityEnum = pgEnum("availability", ["available", "busy", "offline"]);
+
 export const docStatusEnum = pgEnum("doc_status", ["draft", "published", "archived", "missing"]);
 
 export const agentVersionStatusEnum = pgEnum("agent_version_status", ["draft", "live", "retired"]);
@@ -78,7 +98,7 @@ export const organizations = pgTable("organizations", {
   region: text("region").notNull().default("eu-west-2"),
   /** Denormalised for the operator fleet table; recomputed nightly. */
   healthScore: integer("health_score"),
-  mrrPence: integer("mrr_pence").notNull().default(0),
+  mrrPaise: integer("mrr_paise").notNull().default(0),
   seatCount: integer("seat_count").notNull().default(0),
   renewsAt: timestamp("renews_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -100,6 +120,17 @@ export const brands = pgTable(
     location: text("location"),
     /** The name the AI answers to on this brand's line. */
     agentName: text("agent_name"),
+    /**
+     * Which model answers for this brand.
+     *
+     * An operational choice as much as a quality one — the free tier meters
+     * requests per day per model, so a brand in demo can sit on the roomy
+     * model and move up when it starts carrying traffic. Chosen at onboarding,
+     * changed from the account screen, and always one of `lib/agent/models.ts`
+     * (an id that has since been retired resolves back to the default rather
+     * than failing a call).
+     */
+    modelId: text("model_id").notNull().default("gemini-3.5-flash"),
     /** IANA zone the business hours below are expressed in. */
     timezone: text("timezone").notNull().default("Europe/London"),
     /** What happens outside business hours: "ai", "voicemail", "closed". */
@@ -133,6 +164,23 @@ export const memberships = pgTable(
     invitedByName: text("invited_by_name"),
     /** Null means every brand in the org; otherwise see membershipBrands. */
     allBrands: boolean("all_brands").notNull().default(false),
+    /**
+     * Whether this person can be handed a call right now.
+     *
+     * Routing reads it before it reads anything else — a five-star agent who
+     * is offline is not a candidate, however good they are.
+     */
+    availability: availabilityEnum("availability").notNull().default("offline"),
+    /**
+     * How well they handle a handed-over call, 0–5.
+     *
+     * Seeded from their review history and recomputed from it; held on the row
+     * because routing sorts on it on every escalation and a subquery over the
+     * whole conversation table to pick one agent is not a trade worth making.
+     */
+    rating: real("rating"),
+    /** Intents they are the right person for, e.g. ["refunds", "trade"]. */
+    specialities: text("specialities").array().notNull().default([]),
     invitedAt: timestamp("invited_at", { withTimezone: true }),
     lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -215,15 +263,28 @@ export const customers = pgTable(
     location: text("location"),
     segment: text("segment"),
     tier: text("tier"),
+    /**
+     * The person who holds this account.
+     *
+     * Null is not "unassigned by accident" — it is the AI handling the customer
+     * on its own, which is a real and common state in this product. It is also
+     * what the console scopes an Agent's screens by: an Agent sees the
+     * customers that are theirs, a Manager sees everyone's and who has them.
+     */
+    ownerMembershipId: uuid("owner_membership_id").references(() => memberships.id, {
+      onDelete: "set null",
+    }),
+    /** The owner's name, denormalised for lists and CSV exports. */
     owner: text("owner"),
     customerSince: timestamp("customer_since", { withTimezone: true }),
     /** When their contract next renews. Feeds the "renewal window" rules. */
     renewsAt: timestamp("renews_at", { withTimezone: true }),
-    ltvPence: integer("ltv_pence").notNull().default(0),
+    ltvPaise: integer("ltv_paise").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("customers_brand_idx").on(t.brandId),
+    index("customers_owner_idx").on(t.ownerMembershipId),
     index("customers_phone_idx").on(t.phone),
     uniqueIndex("customers_brand_ref_idx").on(t.brandId, t.externalRef),
   ],
@@ -447,7 +508,7 @@ export const authorityLimits = pgTable(
     action: text("action").notNull(),
     label: text("label").notNull(),
     /** Null with `blocked` false means unlimited. */
-    ceilingPence: integer("ceiling_pence"),
+    ceilingPaise: integer("ceiling_paise"),
     blocked: boolean("blocked").notNull().default(false),
     /** Who can approve above the ceiling: "manager", "owner", "human", null. */
     escalateTo: text("escalate_to"),
@@ -490,6 +551,19 @@ export const conversations = pgTable(
     outcome: outcomeEnum("outcome"),
     /** Which agent configuration handled it, for replay and attribution. */
     agentVersionId: uuid("agent_version_id").references(() => agentVersions.id, { onDelete: "set null" }),
+    /**
+     * Which model actually answered, recorded when the first turn is served.
+     *
+     * Pinned here rather than read back off the brand, for the same reason
+     * `agentVersionId` is: the brand's choice can change tomorrow, and this
+     * conversation's cost was priced at the rates of the model that really ran
+     * it. It is also the column that makes "did the cheap model hold up?" a
+     * question the archive can answer instead of a hunch.
+     *
+     * Null on rows written before the choice existed, and on any conversation
+     * that never reached the model.
+     */
+    modelId: text("model_id"),
     handledBy: text("handled_by"),
     sentimentStart: real("sentiment_start"),
     sentimentEnd: real("sentiment_end"),
@@ -510,14 +584,14 @@ export const conversations = pgTable(
      */
     isTest: boolean("is_test").notNull().default(false),
     /**
-     * What this conversation cost to serve, in pence.
+     * What this conversation cost to serve, in paise.
      *
      * Measured rather than estimated — real tokens, real audio seconds, real
      * human handling time — and accumulated as the conversation happens rather
      * than inferred from its duration afterwards. Denormalised onto the row
      * because every spending question starts by summing it.
      */
-    costPence: real("cost_pence").notNull().default(0),
+    costPaise: real("cost_paise").notNull().default(0),
     /**
      * The components behind that number, in the same shape `customerScores`
      * keeps its breakdown: a cost nobody can open up is one people stop
@@ -529,6 +603,18 @@ export const conversations = pgTable(
      * by the classification job when a conversation closes, not by a person.
      */
     summary: text("summary"),
+    /**
+     * The same thing, but for a call that is still happening.
+     *
+     * `summary` is written once, at the end, and is the archive's. This one is
+     * rewritten as the conversation moves, and exists because of the moment
+     * this product is actually built around: a colleague is being handed a
+     * live customer and has seconds, not minutes, to know what is going on.
+     * Reading twenty turns of transcript is not that.
+     */
+    liveSummary: text("live_summary"),
+    /** When `liveSummary` was last rewritten, so it is not redone every poll. */
+    liveSummaryAt: timestamp("live_summary_at", { withTimezone: true }),
     reviewScore: integer("review_score"),
     reviewerName: text("reviewer_name"),
     reviewNote: text("review_note"),
@@ -578,7 +664,7 @@ export const turnCitations = pgTable(
     chunkId: uuid("chunk_id").references(() => documentChunks.id, { onDelete: "set null" }),
     /** Cosine similarity at retrieval time, 0–1. */
     confidence: real("confidence"),
-    /** The policy check the answer passed, e.g. "Goodwill ceiling £50". */
+    /** The policy check the answer passed, e.g. "Goodwill ceiling ₹5,000". */
     checkLabel: text("check_label"),
     quote: text("quote"),
   },
@@ -595,7 +681,7 @@ export const conversationActions = pgTable(
       .references(() => conversations.id, { onDelete: "cascade" }),
     action: text("action").notNull(),
     label: text("label").notNull(),
-    amountPence: integer("amount_pence"),
+    amountPaise: integer("amount_paise"),
     atSeconds: integer("at_seconds"),
     /** False when it was refused for exceeding a ceiling. */
     allowed: boolean("allowed").notNull().default(true),
@@ -615,10 +701,35 @@ export const handoffs = pgTable(
     brandId: uuid("brand_id")
       .notNull()
       .references(() => brands.id, { onDelete: "cascade" }),
+    kind: handoffKindEnum("kind").notNull().default("escalation"),
     reason: text("reason").notNull(),
     /** { wants, alreadyDid[], decision, openingLine, sensitivities }. */
     brief: jsonb("brief").notNull().default({}),
+    /** One line, for the transfer alert. The brief is what you read after. */
+    headline: text("headline"),
     status: handoffStatusEnum("status").notNull().default("waiting"),
+    /**
+     * Who it is ringing at.
+     *
+     * A queue nobody is named on is a queue everybody assumes someone else is
+     * working. Routing picks one person and puts them here; until they accept
+     * or decline, the handoff is waiting *at them* rather than waiting in
+     * general, and that is what the alert on their screen is showing.
+     */
+    routedToMembershipId: uuid("routed_to_membership_id").references(() => memberships.id, {
+      onDelete: "set null",
+    }),
+    routedAt: timestamp("routed_at", { withTimezone: true }),
+    /** Why routing chose them — shown in the alert, so it is never a mystery. */
+    routingReason: text("routing_reason"),
+    /**
+     * Membership ids that have already passed on this one.
+     *
+     * Kept so re-routing does not offer it straight back to the person who
+     * just declined it, which is the obvious failure of any round-robin that
+     * only remembers the current holder.
+     */
+    declinedBy: jsonb("declined_by").notNull().default([]),
     waitingSince: timestamp("waiting_since", { withTimezone: true }).notNull().defaultNow(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     acceptedByMembershipId: uuid("accepted_by_membership_id").references(() => memberships.id, {
@@ -626,7 +737,12 @@ export const handoffs = pgTable(
     }),
     resolution: text("resolution"),
   },
-  (t) => [index("handoffs_brand_status_idx").on(t.brandId, t.status, t.waitingSince)],
+  (t) => [
+    index("handoffs_brand_status_idx").on(t.brandId, t.status, t.waitingSince),
+    // The alert polls this on every open console, so it is the one index that
+    // has to hold up under the console being left open all day.
+    index("handoffs_routed_idx").on(t.routedToMembershipId, t.status),
+  ],
 );
 
 /* ─── Audit ────────────────────────────────────────────────────────────── */
@@ -859,7 +975,7 @@ export const customerRecords = pgTable(
     ref: text("ref"),
     label: text("label").notNull(),
     status: text("status"),
-    amountPence: integer("amount_pence"),
+    amountPaise: integer("amount_paise"),
     /** Which integration it came from, so a stale mirror is attributable. */
     sourceSystem: text("source_system"),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1003,9 +1119,44 @@ export const usageDaily = pgTable(
     aiMinutes: integer("ai_minutes").notNull().default(0),
     humanMinutes: integer("human_minutes").notNull().default(0),
     /** What the traffic cost Corva to serve, for unit economics. */
-    costPence: integer("cost_pence").notNull().default(0),
+    costPaise: integer("cost_paise").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.orgId, t.day] })],
+);
+
+/**
+ * How much of each model's daily ration has been spent.
+ *
+ * Not scoped to a tenant, deliberately: the free tier meters the API key, so
+ * every brand on the platform draws from the same twenty requests. A per-org
+ * counter would have shown four tenants comfortably inside their allowance on
+ * the morning the whole key stopped answering.
+ *
+ * The declared ceiling lives in `lib/agent/models.ts` and drifts; this is the
+ * half we actually know. Together they are "18 of 20 used" — which is the
+ * question someone about to run a test call is really asking.
+ */
+export const modelUsageDaily = pgTable(
+  "model_usage_daily",
+  {
+    /**
+     * "YYYY-MM-DD" in the provider's timezone, not ours.
+     *
+     * A quota resets on Google's clock, and counting by our midnight would
+     * report a fresh allowance for hours after it actually renewed — or worse,
+     * the other way round. Text rather than a date column because the value is
+     * computed in one place (`lib/agent/quota.ts`) and must not be re-coerced
+     * into some other zone on the way in or out.
+     */
+    day: text("day").notNull(),
+    modelId: text("model_id").notNull(),
+    /** What the quota is actually counted in. */
+    requests: integer("requests").notNull().default(0),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.modelId] })],
 );
 
 /** A tenant's recurring revenue at the close of one month. */
@@ -1017,7 +1168,7 @@ export const mrrSnapshots = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     /** The first of the month it describes. */
     month: timestamp("month", { withTimezone: true }).notNull(),
-    mrrPence: integer("mrr_pence").notNull().default(0),
+    mrrPaise: integer("mrr_paise").notNull().default(0),
     seatCount: integer("seat_count").notNull().default(0),
     plan: planEnum("plan").notNull(),
   },

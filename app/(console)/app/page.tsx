@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   Bar,
   Kicker,
@@ -16,6 +17,7 @@ import { ActionButton } from "@/components/ActionButton";
 import { LiveRefresh } from "@/components/LiveRefresh";
 import { takeOverCall } from "@/lib/actions/conversations";
 import { getConsoleContext } from "@/lib/auth/context";
+import { customerScope } from "@/lib/auth/scope";
 import { hourlyVolume } from "@/lib/queries/analytics";
 import { docGaps, headlineStats, liveCalls, needsHuman, scoreMovers } from "@/lib/queries/command";
 import { priorityQueue } from "@/lib/queries/customers";
@@ -24,10 +26,23 @@ import { listSavedViews } from "@/lib/queries/views";
 export default async function CommandCenterPage() {
   const { session, brand } = await getConsoleContext();
 
+  /**
+   * An Agent's landing screen is their own book.
+   *
+   * The brand-wide panels below stay — containment and the day's volume are
+   * context everyone benefits from, and hiding them would leave an Agent
+   * unable to tell a quiet morning from a broken helpline. What changes is the
+   * queue: "who needs me next" is a different list depending on who is asking,
+   * and showing an Agent the whole brand's priority order is showing them
+   * mostly other people's accounts.
+   */
+  const scope = customerScope(session.actor, session.membershipId, brand.id);
+  const mine = scope.kind === "own";
+
   const [stats, live, queue, waiting, gaps, movers, volume, views] = await Promise.all([
     headlineStats(brand.id),
     liveCalls(brand.id),
-    priorityQueue(brand.id),
+    priorityQueue(brand.id, { ownedBy: mine ? scope.membershipId : undefined }),
     needsHuman(brand.id),
     docGaps(brand.id),
     scoreMovers(brand.id),
@@ -46,7 +61,10 @@ export default async function CommandCenterPage() {
           gap: 24,
         }}
       >
-        <ScreenTitle kicker={brand.name} title="Command center" />
+        <ScreenTitle
+          kicker={mine ? `${brand.name} · your accounts` : brand.name}
+          title="Command center"
+        />
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           <LiveRefresh active={live.length > 0 || waiting.length > 0} />
           <span style={{ fontSize: 11, color: "var(--color-neutral-700)" }}>Saved views</span>
@@ -58,7 +76,7 @@ export default async function CommandCenterPage() {
               </OutlineButton>
             ))}
           <PrimaryButton href="/app/customers" style={{ fontWeight: 600 }}>
-            All customers →
+            {mine ? "My customers →" : "All customers →"}
           </PrimaryButton>
         </div>
       </div>
@@ -211,17 +229,25 @@ export default async function CommandCenterPage() {
               </div>
 
               <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                <ActionButton
-                  variant="primary"
-                  pendingLabel="Joining…"
-                  style={{ fontSize: 11, padding: "7px 10px" }}
-                  action={async () => {
-                    "use server";
-                    await takeOverCall(c.id);
-                  }}
-                >
-                  Take the line
-                </ActionButton>
+                {c.heldBy ? (
+                  <span style={{ fontSize: 11, color: "var(--color-neutral-700)" }}>
+                    Held by <b style={{ color: "var(--color-text)" }}>{c.heldBy}</b>
+                  </span>
+                ) : (
+                  <ActionButton
+                    variant="primary"
+                    pendingLabel="Joining…"
+                    style={{ fontSize: 11, padding: "7px 10px" }}
+                    action={async () => {
+                      "use server";
+                      await takeOverCall(c.id);
+                      // Taking the line means talking on it, and the composer is on the call screen.
+                      redirect(`/app/live?call=${c.id}`);
+                    }}
+                  >
+                    Take the line
+                  </ActionButton>
+                )}
                 <Link
                   href={`/app/live?call=${c.id}`}
                   className="hov-invert"
@@ -250,12 +276,14 @@ export default async function CommandCenterPage() {
         <div style={{ borderRight: "2px solid var(--color-divider)" }}>
           {/* Priority queue */}
           <div style={{ padding: "16px 24px 12px", display: "flex", alignItems: "baseline", gap: 12 }}>
-            <SectionTitle>Priority queue</SectionTitle>
+            <SectionTitle>{mine ? "Your priority queue" : "Priority queue"}</SectionTitle>
             <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-              Blended score · brand overrides applied
+              {mine
+                ? "Your accounts, by blended score"
+                : "Blended score · brand overrides applied"}
             </span>
             <LinkAction href="/app/customers" style={{ marginLeft: "auto" }}>
-              All customers →
+              {mine ? "My customers →" : "All customers →"}
             </LinkAction>
           </div>
 
