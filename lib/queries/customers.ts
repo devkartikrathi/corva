@@ -267,37 +267,6 @@ function countBy(values: (string | null)[]) {
     .map(([value, count]) => ({ value, count }));
 }
 
-/** The priority queue on the command center — the top of the same list. */
-export async function priorityQueue(
-  brandId: string,
-  { limit = 6, ownedBy }: { limit?: number; ownedBy?: string } = {},
-) {
-  const { rows: customers } = await listCustomers(brandId, { pageSize: limit, ownedBy });
-  const scores = await latestScores(customers.map((c) => c.id));
-
-  return customers.map((c) => {
-    const breakdown = scores.get(c.id)?.breakdown as
-      | { contributions?: { axisLabel: string; contribution: number }[]; rules?: { name: string }[] }
-      | undefined;
-
-    // "Why it's high" is the top contributing axis plus any rule that fired —
-    // the same arithmetic the profile shows, compressed to a line.
-    const top = (breakdown?.contributions ?? []).slice(0, 2).map((x) => x.axisLabel.toLowerCase());
-    const rule = breakdown?.rules?.[0]?.name;
-    const why = [top.join(" · "), rule && `rule "${rule}"`].filter(Boolean).join(" · ") || "—";
-
-    return {
-      ...c,
-      why,
-      value: c.ltv,
-      pBar: pct(c.priority),
-      action: c.flag === "On call" ? "Call now" : c.flag === "Payment" ? "Payment nudge" : c.flag,
-      actionBg: c.flagBg,
-      actionFg: c.flagFg,
-    };
-  });
-}
-
 /**
  * One customer's full record, for Customer 360.
  *

@@ -1,297 +1,126 @@
 import Link from "next/link";
-import {
-  DarkAccentButton,
-  DarkBar,
-  DarkKicker,
-  DarkOutlineButton,
-  DarkTag,
-  DarkTh,
-  KpiCell,
-  OperatorHeader,
-} from "@/components/operator-ui";
-import { DarkChip, DarkPager, DarkSearchBox, DarkSortTh } from "@/components/operator-filters";
-import { FleetIncidentActions } from "@/components/FleetIncidentActions";
-import { failOverRegion, postIncidentUpdate } from "@/lib/actions/operator";
-import { getFleet, getReliability, platformLoad } from "@/lib/queries/operator";
-import { href, intOf, listOf, normalise, type RawParams } from "@/lib/params";
+import { DarkTh, KpiCell, OperatorHeader } from "@/components/operator-ui";
+import { requireStaff } from "@/lib/auth/context";
+import { DEMO_MODE } from "@/lib/auth/mode";
+import { listBusinesses } from "@/lib/queries/operator";
 
-const PATH = "/operator";
-/** The four cuts of the fleet an operator actually works from. */
-const SEGMENTS = [
-  { value: "at_risk", label: "At risk" },
-  { value: "trialling", label: "Trialling" },
-  { value: "enterprise", label: "Enterprise" },
-  { value: "healthy", label: "Healthy" },
-];
+/**
+ * Every business on Corva.
+ *
+ * The three questions staff actually ask of this list: can it take a call
+ * (does it have an AI and a number), is anyone calling, and are those calls
+ * turning into leads. Each row ends in the two things you do next — ring it,
+ * or open its console.
+ */
+export default async function BusinessesPage() {
+  await requireStaff();
+  const businesses = await listBusinesses();
 
-export default async function FleetPage({
-  searchParams,
-}: {
-  searchParams: Promise<RawParams>;
-}) {
-  const params = normalise(await searchParams);
-  const ctx = { pathname: PATH, params };
+  const answering = businesses.filter((b) => b.canAnswer).length;
+  const conversations = businesses.reduce((n, b) => n + b.conversations7d, 0);
+  const leads = businesses.reduce((n, b) => n + b.leads7d, 0);
+  const live = businesses.reduce((n, b) => n + b.live, 0);
 
-  const [fleet, ops, load] = await Promise.all([
-    getFleet({
-      q: params.q,
-      plan: listOf(params, "plan"),
-      region: listOf(params, "region"),
-      segment: params.segment,
-      sort: params.sort,
-      page: intOf(params, "page", 1, 1),
-    }),
-    getReliability(),
-    platformLoad(),
-  ]);
-
-  const { tenants, kpis: fleetKpis, needsAttention: needsCorva, facets } = fleet;
+  const link = { color: "var(--color-accent-400)", fontWeight: 700, fontSize: 11.5 } as const;
 
   return (
     <section>
       <OperatorHeader
-        kicker="All companies on Corva"
-        title="Fleet"
-        lede="Every tenant, what they're using, and whether their AI is behaving. Customer data stays inside each workspace — you see health, not transcripts, unless a company grants access."
+        kicker={`${businesses.length} businesses · ${answering} answering calls`}
+        title="Businesses"
+        lede="Every business on Corva, whether its AI can take a call, and whether calls are turning into leads."
       >
-        <DarkSearchBox ctx={ctx} placeholder="Find a company" width={200} />
-        <DarkOutlineButton href="/operator/quality">Quality</DarkOutlineButton>
-        <DarkAccentButton href="/operator/onboarding">Onboard a company</DarkAccentButton>
+        <Link
+          href="/operator/onboarding"
+          className="hov-accent-dark"
+          style={{ fontSize: 12, fontWeight: 700, background: "var(--color-accent)", color: "var(--color-bg)", padding: "10px 14px" }}
+        >
+          + Add a business
+        </Link>
       </OperatorHeader>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(6, 1fr)",
-          borderBottom: "2px solid var(--color-neutral-700)",
-        }}
-      >
-        {fleetKpis.map((k) => (
-          <KpiCell
-            key={k.label}
-            label={k.label}
-            value={k.value}
-            delta={k.delta}
-            deltaColor={k.deltaColor}
-            note={k.note}
-          />
-        ))}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", borderBottom: "2px solid var(--color-neutral-700)" }}>
+        <KpiCell label="Answering calls" value={`${answering} of ${businesses.length}`} note="an AI and a number" />
+        <KpiCell label="Live right now" value={String(live)} note="calls and chats in progress" />
+        <KpiCell label="Conversations · 7 days" value={String(conversations)} note="including test calls" />
+        <KpiCell label="Leads · 7 days" value={String(leads)} note="mostly captured by the AI" last />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 348px" }}>
-        <div style={{ borderRight: "2px solid var(--color-neutral-700)" }}>
-          <div
-            style={{
-              padding: "12px 24px",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              background: "var(--color-neutral-900)",
-              borderBottom: "1px solid var(--color-neutral-800)",
-            }}
-          >
-            <Link
-              href={href(PATH, {}, {})}
-              style={{
-                fontSize: 11,
-                fontWeight: 700,
-                background: params.segment || params.q ? "transparent" : "var(--color-bg)",
-                color: params.segment || params.q ? "var(--color-neutral-300)" : "var(--color-text)",
-                border: "1px solid var(--color-bg)",
-                padding: "4px 9px",
-              }}
-            >
-              All {fleet.fleetSize}
-            </Link>
-            {SEGMENTS.map((seg) => (
-              <DarkChip
-                key={seg.value}
-                ctx={ctx}
-                paramKey="segment"
-                value={seg.value}
-                label={seg.value === "at_risk" ? `At risk ${facets.atRisk}` : seg.label}
-              />
-            ))}
-            <span style={{ width: 1, height: 16, background: "var(--color-neutral-700)" }} />
-            {facets.plans.map((f) => (
-              <DarkChip
-                key={f.value}
-                ctx={ctx}
-                paramKey="plan"
-                value={f.value}
-                label={`${f.value} ${f.count}`}
-                multi
-              />
-            ))}
-            <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--color-neutral-500)" }}>
-              {fleet.total} compan{fleet.total === 1 ? "y" : "ies"} ·{" "}
-              {params.sort ? params.sort.replace(":", " ") : "health, worst first"}
-            </span>
-          </div>
-
-          <table
-            style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, tableLayout: "fixed" }}
-          >
-            <thead>
-              <tr style={{ borderBottom: "2px solid var(--color-neutral-700)" }}>
-                <DarkSortTh ctx={ctx} field="name" padding="9px 24px">Company</DarkSortTh>
-                <DarkTh width="12%">Plan</DarkTh>
-                <DarkTh width="13%">Conv. / 30d</DarkTh>
-                <DarkTh width="13%">Containment</DarkTh>
-                <DarkSortTh ctx={ctx} field="health" width="15%">AI health</DarkSortTh>
-                <DarkSortTh ctx={ctx} field="mrr" width="12%">MRR</DarkSortTh>
-                <DarkTh width="16%" padding="9px 24px">Flag</DarkTh>
-              </tr>
-            </thead>
-            <tbody>
-              {tenants.map((t) => (
-                <tr
-                  key={t.slug}
-                  className="hov-dark"
-                  style={{ borderBottom: "1px solid var(--color-neutral-800)" }}
-                >
-                  <td style={{ padding: "11px 24px" }}>
-                    <Link
-                      href={`/operator/companies/${t.slug}`}
-                      style={{ textAlign: "left", color: "var(--color-bg)" }}
-                    >
-                      <b style={{ fontSize: 13 }}>{t.name}</b>
-                      <span style={{ display: "block", fontSize: 11, color: "var(--color-neutral-500)" }}>
-                        {t.meta}
-                      </span>
-                    </Link>
-                  </td>
-                  <td style={{ padding: "11px 10px", color: "var(--color-neutral-300)" }}>{t.plan}</td>
-                  <td style={{ padding: "11px 10px" }}>{t.conv}</td>
-                  <td style={{ padding: "11px 10px" }}>{t.containment}</td>
-                  <td style={{ padding: "11px 10px" }}>
-                    <DarkBar width={t.healthBar} color={t.healthColor} />
-                    <span style={{ fontSize: 10.5, color: "var(--color-neutral-500)" }}>{t.health}</span>
-                  </td>
-                  <td style={{ padding: "11px 10px", fontWeight: 700 }}>{t.mrr}</td>
-                  <td style={{ padding: "11px 24px" }}>
-                    <DarkTag bg={t.tagBg} fg={t.tagFg}>
-                      {t.flag}
-                    </DarkTag>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {tenants.length === 0 && (
-            <p style={{ padding: "28px 24px", fontSize: 12.5, color: "var(--color-neutral-400)" }}>
-              No company matches.{" "}
-              <Link href={PATH} style={{ fontWeight: 700, color: "var(--color-accent-400)" }}>
-                Clear the filters
-              </Link>
-              .
-            </p>
-          )}
-          <DarkPager ctx={ctx} page={fleet.page} pageSize={fleet.pageSize} total={fleet.total} />
-        </div>
-
-        {/* Right rail */}
-        <div>
-          <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-neutral-700)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span
-                style={{
-                  width: 7,
-                  height: 7,
-                  background: "var(--color-accent)",
-                  display: "block",
-                  animation: "cv-pulse 1.6s ease-in-out infinite",
-                }}
-              />
-              <DarkKicker color="var(--color-bg)">Open incident</DarkKicker>
-            </div>
-            <div style={{ marginTop: 12, border: "2px solid var(--color-accent)", padding: "12px 13px" }}>
-              <b style={{ fontSize: 13 }}>{ops.openIncident?.title ?? "No open incident"}</b>
-              <div
-                style={{
-                  marginTop: 6,
-                  fontSize: 12,
-                  color: "var(--color-neutral-300)",
-                  lineHeight: 1.45,
-                }}
-              >
-                {ops.openIncident?.note ?? "Every region is healthy."}
-              </div>
-              {ops.openIncident && (
-                <FleetIncidentActions
-                  incidentId={ops.openIncident.id}
-                  regionScoped={ops.openIncident.regionKey !== null}
-                  onFailOver={failOverRegion}
-                  onPost={postIncidentUpdate}
-                />
-              )}
-            </div>
-          </div>
-
-          <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-neutral-700)" }}>
-            <DarkKicker>Needs a human at Corva</DarkKicker>
-            <div
-              style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 11, fontSize: 12 }}
-            >
-              {needsCorva.length === 0 && (
-                <span style={{ color: "var(--color-neutral-400)" }}>
-                  Every tenant is above the health threshold.
-                </span>
-              )}
-              {needsCorva.map((n) => (
-                <Link
-                  key={n.slug}
-                  href={`/operator/companies/${n.slug}`}
-                  style={{
-                    borderLeft: `3px solid ${n.urgent ? "var(--color-accent)" : "var(--color-neutral-600)"}`,
-                    paddingLeft: 10,
-                  }}
-                >
-                  <b style={{ color: "var(--color-bg)" }}>{n.name}</b>
-                  <div style={{ color: "var(--color-neutral-400)", marginTop: 3, lineHeight: 1.45 }}>
-                    {n.note}
-                  </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+        <thead>
+          <tr style={{ borderBottom: "2px solid var(--color-neutral-700)" }}>
+            <DarkTh padding="10px 24px">Business</DarkTh>
+            <DarkTh width={170}>Number</DarkTh>
+            <DarkTh width={190}>AI assistant</DarkTh>
+            <DarkTh width={80}>Team</DarkTh>
+            <DarkTh width={170}>Last 7 days</DarkTh>
+            <DarkTh width={220} padding="10px 24px 10px 10px">
+              {" "}
+            </DarkTh>
+          </tr>
+        </thead>
+        <tbody>
+          {businesses.map((b) => (
+            <tr key={`${b.orgSlug}-${b.brandId}`} className="hov-dark" style={{ borderBottom: "1px solid var(--color-neutral-800)", verticalAlign: "top" }}>
+              <td style={{ padding: "12px 24px" }}>
+                <Link href={`/operator/companies/${b.orgSlug}`} style={{ color: "var(--color-bg)" }}>
+                  <b style={{ fontSize: 13 }}>{b.orgName}</b>
                 </Link>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ padding: "16px 20px" }}>
-            <DarkKicker>Platform load · last 24h</DarkKicker>
-            <div
-              style={{
-                marginTop: 14,
-                display: "flex",
-                alignItems: "flex-end",
-                gap: 3,
-                height: 76,
-                borderBottom: "1px solid var(--color-neutral-700)",
-              }}
-            >
-              {load.map((l, i) => (
-                <span
-                  key={i}
-                  title={`${l.n} conversation${l.n === 1 ? "" : "s"}`}
-                  style={{ flex: 1, display: "block", background: l.color, height: l.h }}
-                />
-              ))}
-            </div>
-            <div
-              style={{
-                marginTop: 7,
-                display: "flex",
-                justifyContent: "space-between",
-                fontSize: 10.5,
-                color: "var(--color-neutral-500)",
-              }}
-            >
-              <span>00:00</span>
-              <span>peak 1,842 concurrent</span>
-              <span>now</span>
-            </div>
-          </div>
-        </div>
-      </div>
+                <span style={{ display: "block", fontSize: 11, color: "var(--color-neutral-500)" }}>
+                  {b.brandName && b.brandName !== b.orgName ? `${b.brandName} · ` : ""}
+                  {b.industry} · added {b.createdAt.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                </span>
+              </td>
+              <td style={{ padding: "12px 10px" }}>
+                {b.phone ? (
+                  <b style={{ color: "var(--color-bg)" }}>{b.phone}</b>
+                ) : (
+                  <span style={{ color: "var(--color-accent-400)" }}>No number</span>
+                )}
+              </td>
+              <td style={{ padding: "12px 10px" }}>
+                {b.agentName ? (
+                  <>
+                    <b style={{ color: "var(--color-bg)" }}>{b.agentName}</b>
+                    <span style={{ display: "block", fontSize: 11, color: "var(--color-neutral-500)" }}>
+                      {b.model} · {b.docs} doc{b.docs === 1 ? "" : "s"}
+                    </span>
+                  </>
+                ) : (
+                  <span style={{ color: "var(--color-accent-400)" }}>Not set up</span>
+                )}
+              </td>
+              <td style={{ padding: "12px 10px", color: "var(--color-neutral-300)" }}>{b.people}</td>
+              <td style={{ padding: "12px 10px", color: "var(--color-neutral-300)" }}>
+                {b.conversations7d} conversation{b.conversations7d === 1 ? "" : "s"}
+                <span style={{ display: "block", fontSize: 11, color: "var(--color-neutral-500)" }}>
+                  {b.leads7d} lead{b.leads7d === 1 ? "" : "s"} · {b.openFollowUps} follow-up{b.openFollowUps === 1 ? "" : "s"} open
+                  {b.live > 0 && <b style={{ color: "var(--color-accent-400)" }}> · {b.live} live</b>}
+                </span>
+              </td>
+              <td style={{ padding: "12px 24px 12px 10px", textAlign: "right", whiteSpace: "nowrap" }}>
+                {b.canAnswer && b.phone && (
+                  <Link href={`/operator/testing?dial=${encodeURIComponent(b.phone)}`} style={link}>
+                    Call
+                  </Link>
+                )}
+                {DEMO_MODE && b.brandId && (
+                  <>
+                    <span style={{ color: "var(--color-neutral-700)" }}> · </span>
+                    <Link href={`/operator/open?brand=${b.brandId}&next=/app`} style={link}>
+                      Open console
+                    </Link>
+                  </>
+                )}
+                <span style={{ color: "var(--color-neutral-700)" }}> · </span>
+                <Link href={`/operator/companies/${b.orgSlug}`} style={{ ...link, color: "var(--color-neutral-300)" }}>
+                  Details
+                </Link>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </section>
   );
 }

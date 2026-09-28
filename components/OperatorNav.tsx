@@ -4,13 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const TABS = [
-  { href: "/operator", label: "Fleet" },
-  { href: "/operator/onboarding", label: "Onboarding" },
-  { href: "/operator/companies/aurelius-group", label: "Company detail" },
-  { href: "/operator/quality", label: "AI quality" },
-  { href: "/operator/revenue", label: "Revenue & plans" },
-  { href: "/operator/reliability", label: "Reliability" },
-  { href: "/operator/testing", label: "Voice testing" },
+  { href: "/operator", label: "Businesses" },
+  { href: "/operator/onboarding", label: "Add a business" },
+  { href: "/operator/testing", label: "Test calls" },
 ];
 
 export function OperatorNav() {
@@ -25,10 +21,9 @@ export function OperatorNav() {
       }}
     >
       {TABS.map((t) => {
-        // Any company page keeps the "Company detail" tab lit.
-        const active = t.href.startsWith("/operator/companies")
-          ? pathname.startsWith("/operator/companies")
-          : pathname === t.href;
+        // A business's own page belongs to the Businesses tab.
+        const active =
+          t.href === "/operator" ? pathname === "/operator" || pathname.startsWith("/operator/companies") : pathname === t.href;
         return (
           <Link
             key={t.href}

@@ -3,7 +3,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getConsoleContext } from "@/lib/auth/context";
-import { requireStaff } from "@/lib/auth/context";
 import { assertCan } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
@@ -16,7 +15,6 @@ import { recordModelCall } from "@/lib/agent/quota";
 import { systemPrompt } from "@/lib/agent/respond";
 import { retrieve } from "@/lib/agent/retrieval";
 import { rescoreBrand } from "@/lib/queries/scoring";
-import { validateClauses, type Clause } from "@/lib/rules";
 
 /** Publish the draft agent version, retiring the one it replaces. */
 export async function publishAgentVersion() {
@@ -78,33 +76,6 @@ export async function toggleTrigger(triggerId: string, enabled: boolean) {
   revalidatePath("/app/tuning");
 }
 
-
-/** Enable or disable a priority rule, then rescore. */
-export async function toggleRule(ruleId: string, enabled: boolean) {
-  const { session, brand } = await getConsoleContext();
-  assertCan(session.actor, "scoring.edit", { brandId: brand.id });
-
-  await db
-    .update(s.priorityRules)
-    .set({ enabled })
-    .where(and(eq(s.priorityRules.id, ruleId), eq(s.priorityRules.brandId, brand.id)));
-
-  await rescoreBrand(brand.id);
-
-  await db.insert(s.auditLog).values({
-    orgId: session.orgId,
-    brandId: brand.id,
-    actorType: "user",
-    actorId: session.membershipId,
-    actorName: session.name,
-    action: enabled ? "rule.enabled" : "rule.disabled",
-    target: ruleId,
-  });
-
-  revalidatePath("/app/segments");
-  revalidatePath("/app");
-}
-
 /** Recompute every score for the current brand. */
 export async function rescore() {
   const { session, brand } = await getConsoleContext();
@@ -161,109 +132,6 @@ export async function draftFromGap(gapId: string) {
 
   revalidatePath("/app/knowledge");
   return doc.id;
-}
-
-/* ─── Operator ─────────────────────────────────────────────────────────── */
-
-/**
- * Request time-boxed read access to a tenant.
- *
- * This is the only way staff reach tenant content, and it is a row with an
- * expiry that lands in the tenant's own audit log — not a flag on a session.
- */
-export async function requestSupportAccess(orgSlug: string, reason: string, minutes = 60) {
-  const { staff } = await requireStaff();
-
-  const [org] = await db
-    .select()
-    .from(s.organizations)
-    .where(eq(s.organizations.slug, orgSlug))
-    .limit(1);
-  if (!org) throw new Error("No such company.");
-  if (!reason.trim()) throw new Error("A reason is required.");
-
-  const [grant] = await db
-    .insert(s.supportGrants)
-    .values({
-      orgId: org.id,
-      staffId: staff.staffId,
-      reason: reason.trim(),
-      expiresAt: new Date(Date.now() + minutes * 60_000),
-    })
-    .returning();
-
-  // Written to the tenant's log, not ours — that is what makes it visible.
-  await db.insert(s.auditLog).values({
-    orgId: org.id,
-    actorType: "staff",
-    actorId: staff.staffId,
-    actorName: staff.name,
-    action: "support_access.granted",
-    target: `${minutes} minutes`,
-    meta: { reason: reason.trim() },
-  });
-
-  revalidatePath(`/operator/companies/${orgSlug}`);
-  return grant.id;
-}
-
-/** End a support grant before it expires. */
-export async function revokeSupportAccess(grantId: string) {
-  const { staff } = await requireStaff();
-
-  const [grant] = await db
-    .select()
-    .from(s.supportGrants)
-    .where(eq(s.supportGrants.id, grantId))
-    .limit(1);
-  if (!grant) throw new Error("No such grant.");
-
-  await db
-    .update(s.supportGrants)
-    .set({ revokedAt: new Date() })
-    .where(eq(s.supportGrants.id, grantId));
-
-  await db.insert(s.auditLog).values({
-    orgId: grant.orgId,
-    actorType: "staff",
-    actorId: staff.staffId,
-    actorName: staff.name,
-    action: "support_access.revoked",
-  });
-
-  revalidatePath("/operator");
-}
-
-/** Turn a platform capability on or off for one tenant. */
-export async function setOrgFeatureFlag(orgSlug: string, flagKey: string, enabled: boolean) {
-  const { staff } = await requireStaff();
-  if (!staff.isAdmin) throw new Error("Only platform admins can change feature flags.");
-
-  const [org] = await db
-    .select()
-    .from(s.organizations)
-    .where(eq(s.organizations.slug, orgSlug))
-    .limit(1);
-  if (!org) throw new Error("No such company.");
-
-  await db
-    .insert(s.orgFeatureFlags)
-    .values({ orgId: org.id, flagKey, enabled })
-    .onConflictDoUpdate({
-      target: [s.orgFeatureFlags.orgId, s.orgFeatureFlags.flagKey],
-      set: { enabled },
-    });
-
-  await db.insert(s.auditLog).values({
-    orgId: org.id,
-    actorType: "staff",
-    actorId: staff.staffId,
-    actorName: staff.name,
-    action: enabled ? "feature_flag.enabled" : "feature_flag.disabled",
-    target: flagKey,
-  });
-
-  revalidatePath(`/operator/companies/${orgSlug}`);
 }
 
 /* ─── Editing the agent ────────────────────────────────────────────────── */
@@ -479,7 +347,6 @@ export async function removeNeverRule(ruleId: string) {
   revalidatePath("/app/tuning");
 }
 
-
 /** Throw away the draft and go back to what is live. */
 export async function discardDraft() {
   const { session, brand } = await getConsoleContext();
@@ -680,109 +547,6 @@ export async function previewReply(message: string, modelId?: string) {
   };
 }
 
-/* ─── Priority rules and segments ──────────────────────────────────────── */
-
-export async function createRule(input: {
-  name: string;
-  effect: number;
-  clauses: Clause[];
-  actions: string[];
-}) {
-  const { session, brand } = await getConsoleContext();
-  assertCan(session.actor, "scoring.edit", { brandId: brand.id });
-
-  const name = input.name.trim();
-  if (!name) throw new Error("A rule needs a name — it is printed next to every score it moves.");
-  if (!Number.isFinite(input.effect) || Math.abs(input.effect) > 50) {
-    throw new Error("An override is between −50 and +50 points.");
-  }
-  validateClauses(input.clauses);
-
-  const [{ max }] = await db
-    .select({ max: sql<number>`coalesce(max(${s.priorityRules.ordinal}), -1)` })
-    .from(s.priorityRules)
-    .where(eq(s.priorityRules.brandId, brand.id));
-
-  await db.insert(s.priorityRules).values({
-    brandId: brand.id,
-    name,
-    condition: { all: input.clauses },
-    effect: input.effect,
-    actions: input.actions.map((kind) => ({ kind })),
-    authorName: session.name,
-    ordinal: Number(max) + 1,
-  });
-
-  await db.insert(s.auditLog).values({
-    orgId: session.orgId,
-    brandId: brand.id,
-    actorType: "user",
-    actorId: session.membershipId,
-    actorName: session.name,
-    action: "priority_rule.created",
-    target: name,
-    meta: { effect: input.effect },
-  });
-
-  // Rules that never take effect are worse than no rules, so the population is
-  // rescored immediately rather than at the next nightly run.
-  await rescoreBrand(brand.id);
-  revalidatePath("/app/segments");
-  revalidatePath("/app/customers");
-  revalidatePath("/app");
-}
-
-export async function deleteRule(ruleId: string) {
-  const { session, brand } = await getConsoleContext();
-  assertCan(session.actor, "scoring.edit", { brandId: brand.id });
-
-  const [rule] = await db
-    .select()
-    .from(s.priorityRules)
-    .where(and(eq(s.priorityRules.id, ruleId), eq(s.priorityRules.brandId, brand.id)))
-    .limit(1);
-  if (!rule) throw new Error("No such rule in this brand.");
-
-  await db.delete(s.priorityRules).where(eq(s.priorityRules.id, ruleId));
-
-  await db.insert(s.auditLog).values({
-    orgId: session.orgId,
-    brandId: brand.id,
-    actorType: "user",
-    actorId: session.membershipId,
-    actorName: session.name,
-    action: "priority_rule.deleted",
-    target: rule.name,
-  });
-
-  await rescoreBrand(brand.id);
-  revalidatePath("/app/segments");
-  revalidatePath("/app/customers");
-  revalidatePath("/app");
-}
-
-
-
-/** Mark a model alert as read, so the panel is a queue and not a wall. */
-export async function acknowledgeAlert(alertId: string) {
-  const { session, brand } = await getConsoleContext();
-  assertCan(session.actor, "scoring.edit", { brandId: brand.id });
-
-  const [alert] = await db
-    .select()
-    .from(s.modelAlerts)
-    .where(and(eq(s.modelAlerts.id, alertId), eq(s.modelAlerts.brandId, brand.id)))
-    .limit(1);
-  if (!alert) throw new Error("No such alert.");
-
-  await db
-    .update(s.modelAlerts)
-    .set({ status: "acknowledged", acknowledgedByName: session.name, acknowledgedAt: new Date() })
-    .where(eq(s.modelAlerts.id, alertId));
-
-  revalidatePath("/app/segments");
-}
-
 /* ─── Saved views ──────────────────────────────────────────────────────── */
 
 /**
@@ -858,49 +622,4 @@ export async function deleteView(viewId: string) {
 
   await db.delete(s.savedViews).where(eq(s.savedViews.id, viewId));
   revalidatePath(view.surface === "customers" ? "/app/customers" : "/app/conversations");
-}
-
-/* ─── Scoring model ────────────────────────────────────────────────────── */
-
-/**
- * Change how much an axis counts.
- *
- * Rescoring immediately is the point: a weight that does not move the queue
- * until some nightly job runs is a control nobody can learn from. The cost is
- * one pass over the brand's customers, which is bounded and fast.
- */
-export async function setAxisWeight(axisKey: string, weight: number) {
-  const { session, brand } = await getConsoleContext();
-  assertCan(session.actor, "scoring.edit", { brandId: brand.id });
-
-  if (!Number.isFinite(weight) || weight < 0 || weight > 2) {
-    throw new Error("A weight runs from 0 to 2.");
-  }
-
-  const [axis] = await db.select().from(s.scoringAxes).where(eq(s.scoringAxes.key, axisKey)).limit(1);
-  if (!axis) throw new Error("No such scoring axis.");
-
-  await db
-    .insert(s.brandAxisWeights)
-    .values({ brandId: brand.id, axisKey, weight })
-    .onConflictDoUpdate({
-      target: [s.brandAxisWeights.brandId, s.brandAxisWeights.axisKey],
-      set: { weight },
-    });
-
-  await db.insert(s.auditLog).values({
-    orgId: session.orgId,
-    brandId: brand.id,
-    actorType: "user",
-    actorId: session.membershipId,
-    actorName: session.name,
-    action: "scoring.weight_changed",
-    target: axis.label,
-    meta: { weight },
-  });
-
-  await rescoreBrand(brand.id);
-  revalidatePath("/app/segments");
-  revalidatePath("/app/customers");
-  revalidatePath("/app");
 }

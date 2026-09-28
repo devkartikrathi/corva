@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-o
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
-import { LEAD_STAGES, OPEN_STAGES, industryFor, type LeadStage } from "@/lib/business/industries";
+import { LEAD_STAGES, OPEN_STAGES, industryFor } from "@/lib/business/industries";
 
 /**
  * Reads for the CRM screens: leads, follow-ups, and who on the team can own
@@ -84,16 +84,6 @@ export function pipeline(leads: LeadRow[], industryKey: string) {
       leads: inStage,
     };
   });
-}
-
-export async function getLead(brandId: string, leadId: string) {
-  const [row] = await db
-    .select({ lead: s.leads, ownerName: owner.name })
-    .from(s.leads)
-    .leftJoin(owner, eq(owner.id, s.leads.ownerMembershipId))
-    .where(and(eq(s.leads.id, leadId), eq(s.leads.brandId, brandId)))
-    .limit(1);
-  return row ? { ...row.lead, ownerName: row.ownerName } : null;
 }
 
 export type FollowUpWindow = "overdue" | "today" | "upcoming" | "done";
@@ -212,5 +202,3 @@ export async function crmSnapshot(brandId: string, scope: Scope) {
     followUps: counts,
   };
 }
-
-export const isOpenStage = (stage: LeadStage) => OPEN_STAGES.includes(stage);

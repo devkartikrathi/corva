@@ -121,30 +121,6 @@ export async function getBrandMetrics(brandId: string, window?: { from: Date; to
   };
 }
 
-/** Contacts per hour today, split AI vs human, for the volume chart. */
-export async function hourlyVolume(brandId: string) {
-  const rows = await db
-    .select({ startedAt: s.conversations.startedAt, contained: s.conversations.contained })
-    .from(s.conversations)
-    .where(and(eq(s.conversations.brandId, brandId), realTraffic()));
-
-  const buckets = Array.from({ length: 14 }, () => ({ ai: 0, human: 0 }));
-  for (const r of rows) {
-    // 08:00 → 21:00, the window the chart labels.
-    const hour = r.startedAt.getHours();
-    if (hour < 8 || hour > 21) continue;
-    const bucket = buckets[hour - 8];
-    if (r.contained === false) bucket.human++;
-    else bucket.ai++;
-  }
-
-  const peak = Math.max(1, ...buckets.map((b) => b.ai + b.human));
-  return buckets.map((b) => ({
-    ai: `${Math.round((b.ai / peak) * 90)}%`,
-    human: `${Math.round((b.human / peak) * 90)}%`,
-  }));
-}
-
 /**
  * Weekly containment for the analytics chart.
  *

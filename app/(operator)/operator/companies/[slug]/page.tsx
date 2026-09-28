@@ -1,449 +1,167 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import {
-  DarkAccentButton,
-  DarkBar,
-  DarkKicker,
-  DarkOutlineButton,
-  DarkSectionTitle,
-  DarkStatRow,
-} from "@/components/operator-ui";
-import { ActionButton, ActionToggle } from "@/components/ActionButton";
-import { AccountNoteForm, BrandModelControl, SupportAccessRequest } from "@/components/OperatorForms";
-import { operatorConfig } from "@/lib/config";
-import { addAccountNote, setBrandModel } from "@/lib/actions/operator";
-import { requestSupportAccess, revokeSupportAccess, setOrgFeatureFlag } from "@/lib/actions/workspace";
-import { getTenantDetail } from "@/lib/queries/operator";
+import { DarkKicker, DarkSectionTitle, OperatorHeader } from "@/components/operator-ui";
+import { BrandModelControl, NumberControl, RemoveBusiness } from "@/components/OperatorForms";
+import { requireStaff } from "@/lib/auth/context";
+import { DEMO_MODE } from "@/lib/auth/mode";
+import { removeBusiness, setBrandModel, setBusinessNumber } from "@/lib/actions/operator";
+import { getBusiness } from "@/lib/queries/operator";
 import { modelOptions } from "@/lib/queries/models";
+import { formatPhone } from "@/lib/business/phone";
 
-export default async function CompanyDetailPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
+/**
+ * One business, from Corva's side.
+ *
+ * What staff need to support it: the number it answers on, which model it
+ * runs on, what its AI knows, who is on the team, and what has happened on it
+ * lately. Changing the number or the model is here; everything the business
+ * decides for itself — persona, limits, documents — is in its own console.
+ */
+export default async function BusinessPage({ params }: { params: Promise<{ slug: string }> }) {
+  await requireStaff();
   const { slug } = await params;
-  const detail = await getTenantDetail(slug);
-  if (!detail) notFound();
+  const [business, models] = await Promise.all([getBusiness(slug), modelOptions()]);
+  if (!business) notFound();
+  const { org, brands, people, recent, staffActivity } = business;
 
-  // Which models exist, what they cost, and how much of each is left today —
-  // the last part is why this is fetched per request rather than baked in.
-  const models = await modelOptions();
-
-  const {
-    org,
-    brands: tenantBrands,
-    usage: tenantUsage,
-    conversations,
-    flags: featureFlags,
-    support,
-    billing: tenantBilling,
-    notes: accountNotes,
-    staffActivity,
-  } = detail;
-
-  const identity = [
-    `${tenantBrands.length} brand${tenantBrands.length === 1 ? "" : "s"} · ${org.seatCount} seats`,
-    `Customer since ${org.createdAt.toLocaleDateString("en-GB", { month: "short", year: "numeric" })}`,
-    `${org.region} residency`,
-    org.renewsAt
-      ? `Renews ${org.renewsAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`
-      : null,
-  ].filter(Boolean) as string[];
-
-  const supportAccess = [
-    {
-      label: "Current grant",
-      value: support.current
-        ? `expires ${support.current.expiresAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`
-        : "None",
-    },
-    {
-      label: "Last grant",
-      value: support.last
-        ? support.last.grantedAt.toLocaleDateString("en-GB", { day: "numeric", month: "short" })
-        : "Never",
-    },
-    { label: "Reason required", value: "Yes" },
-  ];
-
-  const initials = org.name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase();
+  const block = { padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-800)" } as const;
+  const muted = { fontSize: 11.5, color: "var(--color-neutral-500)" } as const;
 
   return (
     <section>
-      {/* Identity */}
-      <div
-        style={{
-          padding: "20px 24px",
-          borderBottom: "2px solid var(--color-neutral-700)",
-          display: "flex",
-          alignItems: "flex-start",
-          gap: 20,
-        }}
+      <OperatorHeader
+        kicker={`${brands[0]?.industryLabel ?? "Business"} · added ${org.createdAt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}`}
+        title={org.name}
       >
-        <span
-          style={{
-            width: 50,
-            height: 50,
-            background: "var(--color-bg)",
-            color: "var(--color-text)",
-            fontWeight: 800,
-            fontSize: 17,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-          }}
-        >
-          {initials}
-        </span>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <h1 style={{ margin: 0, fontWeight: 800, fontSize: 27, letterSpacing: "-0.028em", lineHeight: 1 }}>
-              {org.name}
-            </h1>
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                background: "var(--color-accent)",
-                color: "var(--color-bg)",
-                padding: "4px 8px",
-              }}
-            >
-              {org.plan} plan
-            </span>
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                border: "1px solid var(--color-neutral-600)",
-                padding: "3px 8px",
-                color: "var(--color-neutral-300)",
-              }}
-            >
-              Health {org.healthScore ?? "—"}
-            </span>
-          </div>
-          <div
-            style={{
-              marginTop: 8,
-              display: "flex",
-              gap: 18,
-              fontSize: 12.5,
-              color: "var(--color-neutral-400)",
-              flexWrap: "wrap",
-            }}
+        {brands[0]?.phone && (
+          <Link
+            href={`/operator/testing?dial=${encodeURIComponent(brands[0].phone)}`}
+            className="hov-accent-dark"
+            style={{ fontSize: 12, fontWeight: 700, background: "var(--color-accent)", color: "var(--color-bg)", padding: "10px 14px" }}
           >
-            {identity.map((f) => (
-              <span key={f}>{f}</span>
-            ))}
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <DarkAccentButton>Request support access</DarkAccentButton>
-          <DarkOutlineButton>Open a ticket</DarkOutlineButton>
-        </div>
-      </div>
+            Call {formatPhone(brands[0].phone)}
+          </Link>
+        )}
+        {DEMO_MODE && brands[0] && (
+          <Link
+            href={`/operator/open?brand=${brands[0].id}&next=/app`}
+            className="hov-invert-dark"
+            style={{ fontSize: 12, fontWeight: 700, border: "2px solid var(--color-bg)", padding: "8px 14px", color: "var(--color-bg)" }}
+          >
+            Open their console
+          </Link>
+        )}
+      </OperatorHeader>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 340px" }}>
-        {/* Usage & brands */}
-        <div style={{ borderRight: "1px solid var(--color-neutral-800)" }}>
-          <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-800)" }}>
-            <DarkSectionTitle style={{ marginBottom: 14 }}>Usage</DarkSectionTitle>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, fontSize: 12.5 }}>
-              <div>
-                <div style={{ display: "flex", gap: 10 }}>
-                  <span style={{ flex: 1, color: "var(--color-neutral-400)" }}>
-                    Conversations recorded
-                  </span>
-                  <b>{conversations.toLocaleString("en-GB")}</b>
-                </div>
-                <DarkBar
-                  width={`${Math.min(100, conversations)}%`}
-                  color="var(--color-accent)"
-                  style={{ marginTop: 5 }}
-                />
-              </div>
-              {tenantUsage.map((u) => (
-                <DarkStatRow key={u.label} label={u.label} value={u.value} />
-              ))}
-            </div>
-          </div>
-
-          <div style={{ padding: "18px 24px" }}>
-            <DarkSectionTitle style={{ marginBottom: 14 }}>Brands</DarkSectionTitle>
-            {tenantBrands.map((b) => (
-              <div
-                key={b.name}
-                style={{
-                  padding: "11px 0",
-                  borderTop: "1px solid var(--color-neutral-800)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  fontSize: 12.5,
-                }}
-              >
-                <b style={{ flex: 1 }}>{b.name}</b>
-                <span style={{ color: "var(--color-neutral-500)" }}>{b.conv}</span>
-                <span style={{ width: 54, textAlign: "right", color: b.color, fontWeight: 700 }}>
-                  {b.containment}
-                </span>
-                <span
-                  style={{
-                    width: 66,
-                    textAlign: "right",
-                    fontSize: 11,
-                    color: "var(--color-neutral-500)",
-                  }}
-                >
-                  {b.agent}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ padding: "18px 24px", borderTop: "1px solid var(--color-neutral-800)" }}>
-            <DarkSectionTitle style={{ marginBottom: 6 }}>Model</DarkSectionTitle>
-            <p
-              style={{
-                margin: "0 0 14px",
-                fontSize: 11.5,
-                color: "var(--color-neutral-500)",
-                lineHeight: 1.5,
-              }}
-            >
-              Ours to set, not theirs. The daily allowance is shared across every tenant on the
-              key, so a brand that is only being demonstrated does not need the model a brand
-              taking real calls does.
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-              {tenantBrands.map((b) => (
-                <BrandModelControl
-                  key={b.id}
-                  orgSlug={slug}
-                  brandId={b.id}
-                  brandName={b.name}
-                  models={models}
-                  current={b.modelId}
-                  onChange={setBrandModel}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Health & flags */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr" }}>
         <div style={{ borderRight: "2px solid var(--color-neutral-700)" }}>
-          <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-800)" }}>
-            <DarkSectionTitle style={{ marginBottom: 14 }}>AI health</DarkSectionTitle>
-            <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-              {tenantBilling.map((h) => (
-                <DarkStatRow
-                  key={h.label}
-                  label={h.label}
-                  value={h.value}
-                  valueColor={h.hot ? "var(--color-accent-400)" : undefined}
-                />
-              ))}
-            </div>
-            <div
-              style={{
-                marginTop: 14,
-                padding: "11px 13px",
-                background: "var(--color-neutral-900)",
-                borderLeft: "3px solid var(--color-accent)",
-                fontSize: 12,
-                color: "var(--color-neutral-300)",
-                lineHeight: 1.45,
-              }}
-            >
-              You are seeing health and configuration only. Transcripts and customer records stay
-              inside this workspace unless they grant time-boxed access, which is written to their
-              audit log.
-            </div>
-          </div>
-
-          <div style={{ padding: "18px 24px" }}>
-            <DarkSectionTitle style={{ marginBottom: 14 }}>Feature flags</DarkSectionTitle>
-            <div style={{ display: "flex", flexDirection: "column", gap: 11, fontSize: 12.5 }}>
-              {featureFlags.map((f) => (
-                <div
-                  key={f.key}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    paddingBottom: 10,
-                    borderBottom: "1px solid var(--color-neutral-800)",
-                  }}
-                >
-                  <span style={{ flex: 1 }}>
-                    <b>{f.name}</b>
-                    <span style={{ display: "block", fontSize: 11, color: "var(--color-neutral-500)" }}>
-                      {f.note}
-                    </span>
-                  </span>
-                  <ActionToggle
-                    dark
-                    on={f.on}
-                    label={f.name}
-                    action={async (next) => {
-                      "use server";
-                      await setOrgFeatureFlag(org.slug, f.key, next);
-                    }}
+          {brands.map((b) => (
+            <div key={b.id} style={block}>
+              <DarkSectionTitle>
+                {b.name} · {b.agentName ?? "no assistant"}
+              </DarkSectionTitle>
+              <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                <div>
+                  <DarkKicker>Phone number</DarkKicker>
+                  <div style={{ marginTop: 8 }}>
+                    <NumberControl
+                      current={b.phone ? formatPhone(b.phone) : null}
+                      onSave={async (number) => {
+                        "use server";
+                        await setBusinessNumber(org.slug, b.id, number);
+                      }}
+                    />
+                  </div>
+                  <p style={{ ...muted, margin: "6px 0 0" }}>Calls to this number reach {b.agentName ?? "this business"}.</p>
+                </div>
+                <div>
+                  <BrandModelControl
+                    orgSlug={org.slug}
+                    brandId={b.id}
+                    brandName={b.name}
+                    models={models}
+                    current={b.modelId}
+                    onChange={setBrandModel}
                   />
                 </div>
+              </div>
+
+              <div style={{ marginTop: 18 }}>
+                <DarkKicker>What the AI knows</DarkKicker>
+                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 5, fontSize: 12.5 }}>
+                  {b.docs.length === 0 && <span style={muted}>No documents — it can only offer callbacks.</span>}
+                  {b.docs.map((d) => (
+                    <span key={d.id}>
+                      <b>{d.title}</b>{" "}
+                      <span style={muted}>
+                        · {d.status}
+                        {d.source ? ` · from ${d.source}` : ""}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <div style={block}>
+            <DarkSectionTitle>Recent conversations</DarkSectionTitle>
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 9, fontSize: 12.5 }}>
+              {recent.length === 0 && <span style={muted}>Nobody has called yet.</span>}
+              {recent.map((c) => (
+                <div key={c.id} style={{ display: "flex", gap: 12 }}>
+                  <span style={{ width: 110, ...muted }}>
+                    {c.startedAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+                  </span>
+                  <span style={{ flex: 1 }}>
+                    <b>{c.customer}</b> <span style={muted}>· {c.channel.replace("_", " ")} · {c.status.replace("_", " ")}{c.isTest ? " · test" : ""}</span>
+                    {c.summary && <span style={{ display: "block", ...muted, color: "var(--color-neutral-300)" }}>{c.summary}</span>}
+                  </span>
+                </div>
               ))}
             </div>
           </div>
         </div>
 
-        {/* Support access, billing, notes */}
         <div>
-          {operatorConfig.showSupportAccessGuard && (
-            <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-neutral-700)" }}>
-              <DarkKicker>Support access</DarkKicker>
-              <div
-                style={{
-                  marginTop: 12,
-                  fontSize: 12,
-                  color: "var(--color-neutral-300)",
-                  lineHeight: 1.5,
-                }}
-              >
-                You cannot read a company&rsquo;s transcripts or customer records by default. Access is
-                requested, time-boxed, visible to their Owner, and written to their audit log.
-              </div>
-              <div
-                style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 9, fontSize: 12 }}
-              >
-                {supportAccess.map((s) => (
-                  <DarkStatRow key={s.label} label={s.label} value={s.value} />
-                ))}
-              </div>
-              <div style={{ marginTop: 12 }}>
-                {support.current ? (
-                  <ActionButton
-                    variant="dark-outline"
-                    pendingLabel="Revoking…"
-                    style={{ width: "100%", fontSize: 11.5 }}
-                    action={async () => {
-                      "use server";
-                      await revokeSupportAccess(support.current!.id);
-                    }}
-                  >
-                    Revoke access now
-                  </ActionButton>
-                ) : (
-                  <SupportAccessRequest orgSlug={org.slug} onRequest={requestSupportAccess} />
-                )}
-              </div>
-            </div>
-          )}
-
-          <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-neutral-700)" }}>
-            <DarkKicker>Billing</DarkKicker>
-            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 9, fontSize: 12 }}>
-              {tenantBilling.map((b) => (
-                <DarkStatRow
-                  key={b.label}
-                  label={b.label}
-                  value={b.value}
-                  valueColor={b.hot ? "var(--color-accent-400)" : undefined}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div style={{ padding: "16px 20px" }}>
-            <DarkKicker>Account notes</DarkKicker>
-            <div
-              style={{
-                marginTop: 12,
-                display: "flex",
-                flexDirection: "column",
-                gap: 11,
-                fontSize: 12,
-                color: "var(--color-neutral-400)",
-              }}
-            >
-              {accountNotes.length === 0 && <span>Nothing written about this account yet.</span>}
-              {accountNotes.map((n) => (
-                <div
-                  key={n.id}
-                  style={{
-                    borderLeft: `3px solid ${n.urgent ? "var(--color-accent)" : "var(--color-neutral-700)"}`,
-                    paddingLeft: 10,
-                  }}
-                >
-                  <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-                    <b style={{ color: "var(--color-bg)" }}>{n.author}</b>
-                    <span style={{ fontSize: 10.5 }}>{n.when}</span>
-                    <span
-                      style={{
-                        marginLeft: "auto",
-                        fontSize: 9.5,
-                        fontWeight: 700,
-                        letterSpacing: "0.08em",
-                        textTransform: "uppercase",
-                        color: n.urgent ? "var(--color-accent-400)" : "var(--color-neutral-500)",
-                      }}
-                    >
-                      {n.kind}
-                    </span>
-                  </div>
-                  <div style={{ marginTop: 4, lineHeight: 1.5, color: "var(--color-neutral-300)" }}>
-                    {n.body}
-                  </div>
+          <div style={block}>
+            <DarkSectionTitle>Team</DarkSectionTitle>
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8, fontSize: 12.5 }}>
+              {people.map((p) => (
+                <div key={p.id} style={{ display: "flex", gap: 10 }}>
+                  <b style={{ flex: 1 }}>{p.name}</b>
+                  <span style={muted}>{p.role}</span>
+                  <span style={{ ...muted, width: 60, textAlign: "right" }}>{p.status === "active" ? p.availability : p.status}</span>
                 </div>
               ))}
             </div>
-            <div style={{ marginTop: 14 }}>
-              <AccountNoteForm orgSlug={org.slug} onAdd={addAccountNote} />
-            </div>
-            <p
-              style={{
-                marginTop: 12,
-                fontSize: 11,
-                color: "var(--color-neutral-500)",
-                lineHeight: 1.45,
-              }}
-            >
-              Internal to Corva. Nothing here is written to the tenant&rsquo;s audit log — an entry
-              saying &ldquo;Corva wrote a note about you&rdquo; with no content is worse than silence.
-            </p>
           </div>
 
-          <div style={{ padding: "16px 20px", borderTop: "2px solid var(--color-neutral-700)" }}>
-            <DarkKicker>What this tenant can see us doing</DarkKicker>
-            <div
-              style={{
-                marginTop: 12,
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-                fontSize: 12,
-                color: "var(--color-neutral-400)",
-              }}
-            >
-              {staffActivity.length === 0 && (
-                <span>Nothing. No Corva staff action has touched this workspace.</span>
-              )}
+          <div style={block}>
+            <DarkSectionTitle>What Corva staff did</DarkSectionTitle>
+            <p style={{ ...muted, margin: "6px 0 0" }}>The same rows the business sees in its own audit log.</p>
+            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 7, fontSize: 12 }}>
+              {staffActivity.length === 0 && <span style={muted}>Nothing yet.</span>}
               {staffActivity.map((a) => (
-                <div key={a.id}>
-                  <b style={{ color: "var(--color-bg)" }}>{a.when}</b> — {a.who} · {a.what}
+                <div key={a.id} style={{ display: "flex", gap: 10 }}>
+                  <span style={{ width: 60, ...muted }}>{a.at.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</span>
+                  <span style={{ flex: 1 }}>
+                    {a.actorName} · {a.action.replace(/[._]/g, " ")}
+                    {a.target ? ` · ${a.target}` : ""}
+                  </span>
                 </div>
               ))}
             </div>
+          </div>
+
+          <div style={{ ...block, borderBottom: undefined }}>
+            <RemoveBusiness
+              name={org.name}
+              onRemove={async (confirmName) => {
+                "use server";
+                await removeBusiness(org.slug, confirmName);
+              }}
+            />
           </div>
         </div>
       </div>

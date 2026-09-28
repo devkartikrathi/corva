@@ -1,4 +1,3 @@
-import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 
 /** Section eyebrow on the dark ground. */
@@ -75,65 +74,6 @@ export function OperatorHeader({
   );
 }
 
-/** Outlined button on the dark ground. */
-export function DarkOutlineButton({
-  children,
-  href,
-  style,
-}: {
-  children: ReactNode;
-  href?: string;
-  style?: CSSProperties;
-}) {
-  const merged: CSSProperties = {
-    display: "inline-block",
-    fontSize: 12,
-    fontWeight: 600,
-    border: "2px solid var(--color-bg)",
-    padding: "8px 14px",
-    ...style,
-  };
-  return href ? (
-    <Link href={href} className="hov-invert-dark" style={merged}>
-      {children}
-    </Link>
-  ) : (
-    <button type="button" className="hov-invert-dark" style={merged}>
-      {children}
-    </button>
-  );
-}
-
-/** Solid accent button on the dark ground. */
-export function DarkAccentButton({
-  children,
-  href,
-  style,
-}: {
-  children: ReactNode;
-  href?: string;
-  style?: CSSProperties;
-}) {
-  const merged: CSSProperties = {
-    display: "inline-block",
-    fontSize: 12,
-    fontWeight: 700,
-    background: "var(--color-accent)",
-    color: "var(--color-bg)",
-    padding: "10px 14px",
-    ...style,
-  };
-  return href ? (
-    <Link href={href} className="hov-accent-dark" style={merged}>
-      {children}
-    </Link>
-  ) : (
-    <button type="button" className="hov-accent-dark" style={merged}>
-      {children}
-    </button>
-  );
-}
-
 /** A KPI cell in one of the top strips. */
 export function KpiCell({
   label,
@@ -206,79 +146,6 @@ export function DarkTh({
     </th>
   );
 }
-
-/** A filled status pill. */
-export function DarkTag({
-  children,
-  bg,
-  fg,
-  padding = "3px 7px",
-}: {
-  children: ReactNode;
-  bg: string;
-  fg: string;
-  padding?: string;
-}) {
-  return (
-    <span
-      style={{
-        fontSize: 10,
-        fontWeight: 700,
-        letterSpacing: "0.06em",
-        textTransform: "uppercase",
-        background: bg,
-        color: fg,
-        padding,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {children}
-    </span>
-  );
-}
-
-/** A label/value row in one of the dark rails. */
-export function DarkStatRow({
-  label,
-  value,
-  valueColor,
-  extra,
-}: {
-  label: string;
-  value: string;
-  valueColor?: string;
-  extra?: string;
-}) {
-  return (
-    <div style={{ display: "flex", gap: 10, fontSize: 12.5 }}>
-      <span style={{ flex: 1, color: "var(--color-neutral-400)" }}>{label}</span>
-      <b style={{ color: valueColor }}>
-        {value}
-        {extra && <span style={{ color: "var(--color-accent-400)" }}> {extra}</span>}
-      </b>
-    </div>
-  );
-}
-
-/** A meter on the dark ground. */
-export function DarkBar({
-  width,
-  color,
-  height = 6,
-  style,
-}: {
-  width: string;
-  color: string;
-  height?: number;
-  style?: CSSProperties;
-}) {
-  return (
-    <span style={{ display: "block", height, background: "var(--color-neutral-800)", ...style }}>
-      <span style={{ display: "block", height: "100%", width, background: color }} />
-    </span>
-  );
-}
-
 
 /** A 16px section heading inside an operator screen. */
 export function DarkSectionTitle({ children, style }: { children: ReactNode; style?: CSSProperties }) {

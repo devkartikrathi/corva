@@ -3,7 +3,7 @@ import { OperatorNav } from "@/components/OperatorNav";
 import { getPlatformPulse } from "@/lib/queries/operator";
 
 export const metadata = {
-  title: "Corva · Platform operator",
+  title: "Corva · Admin",
 };
 
 /**
@@ -44,12 +44,11 @@ export default async function OperatorLayout({ children }: { children: React.Rea
               padding: "3px 8px",
             }}
           >
-            Platform operator
+            Corva admin
           </span>
           <span style={{ height: 22, width: 1, background: "var(--color-neutral-800)" }} />
           <span style={{ fontSize: 12, color: "var(--color-neutral-500)" }}>
-            Signed in as <b style={{ color: "var(--color-bg)" }}>{staff.email}</b> · Staff · all actions
-            audited
+            Signed in as <b style={{ color: "var(--color-bg)" }}>{staff.email}</b> · Corva staff
           </span>
           <span
             style={{
@@ -66,20 +65,18 @@ export default async function OperatorLayout({ children }: { children: React.Rea
                 style={{
                   width: 7,
                   height: 7,
-                  background: pulse.openIncidents > 0 ? "var(--color-accent)" : "var(--color-neutral-600)",
+                  background: pulse.live > 0 ? "var(--color-accent)" : "var(--color-neutral-600)",
                   display: "block",
-                  animation: pulse.openIncidents > 0 ? "cv-pulse 1.8s ease-in-out infinite" : undefined,
+                  animation: pulse.live > 0 ? "cv-pulse 1.8s ease-in-out infinite" : undefined,
                 }}
               />
-              <b style={{ color: "var(--color-bg)" }}>
-                {pulse.openIncidents} incident{pulse.openIncidents === 1 ? "" : "s"} open
-              </b>
+              <b style={{ color: "var(--color-bg)" }}>{pulse.live} live</b>
             </span>
             <span>
-              Voice p95 <b style={{ color: "var(--color-bg)" }}>{pulse.voiceP95Ms}ms</b>
+              Businesses <b style={{ color: "var(--color-bg)" }}>{pulse.businesses}</b>
             </span>
             <span>
-              Conversations in flight <b style={{ color: "var(--color-bg)" }}>{pulse.inFlight}</b>
+              Leads · 24h <b style={{ color: "var(--color-bg)" }}>{pulse.leadsToday}</b>
             </span>
           </span>
         </div>
