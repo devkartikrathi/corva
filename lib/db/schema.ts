@@ -117,6 +117,11 @@ export const brands = pgTable(
     initials: text("initials").notNull(),
     /** "Retail", "Trade", "Subscription" — free text, it varies by tenant. */
     segment: text("segment"),
+    /**
+     * Which template this business was set up from — "clinic", "real_estate",
+     * … — and so which words its pipeline uses. See lib/business/industries.ts.
+     */
+    industry: text("industry").notNull().default("general"),
     location: text("location"),
     /** The name the AI answers to on this brand's line. */
     agentName: text("agent_name"),
@@ -1220,4 +1225,108 @@ export const incidentUpdates = pgTable(
     at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("incident_updates_incident_idx").on(t.incidentId, t.at)],
+);
+
+/* ─── CRM: leads and follow-ups ────────────────────────────────────────── */
+
+/**
+ * Where a lead is in the pipeline.
+ *
+ * Fixed keys, industry-specific words. A clinic calls `qualified` "appointment
+ * booked" and an estate agent calls it "site visit fixed", but a report across
+ * both still has to be able to count how many got that far — so the key is
+ * shared and the label comes from `lib/business/industries.ts`.
+ */
+export const leadStageEnum = pgEnum("lead_stage", [
+  "new",
+  "contacted",
+  "qualified",
+  "proposal",
+  "won",
+  "lost",
+]);
+
+export const followUpStatusEnum = pgEnum("follow_up_status", ["open", "done", "cancelled"]);
+
+/**
+ * Someone who might become a customer, and what they came for.
+ *
+ * Most leads are written by the AI mid-call: a caller the brand does not know
+ * says what they want, and the agent records it rather than letting it vanish
+ * into a transcript nobody rereads. A lead points at the customer record the
+ * call created, so the person and the opportunity stay one click apart.
+ */
+export const leads = pgTable(
+  "leads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    /** The conversation it came from, when it came from one. */
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    phone: text("phone"),
+    email: text("email"),
+    /** What they want, in a sentence: "2BHK near Whitefield under ₹90L". */
+    interest: text("interest").notNull().default(""),
+    notes: text("notes"),
+    stage: leadStageEnum("stage").notNull().default("new"),
+    /** What it is worth if won, when anyone knows. */
+    valuePaise: integer("value_paise"),
+    ownerMembershipId: uuid("owner_membership_id").references(() => memberships.id, {
+      onDelete: "set null",
+    }),
+    /** "phone", "web_chat", "whatsapp", "manual", … */
+    source: text("source").notNull().default("manual"),
+    createdByAi: boolean("created_by_ai").notNull().default(false),
+    lostReason: text("lost_reason"),
+    stageChangedAt: timestamp("stage_changed_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("leads_brand_stage_idx").on(t.brandId, t.stage),
+    index("leads_owner_idx").on(t.ownerMembershipId),
+    index("leads_customer_idx").on(t.customerId),
+  ],
+);
+
+/**
+ * Something a person promised to do, with a date and a name on it.
+ *
+ * "We'll call you back tomorrow" is the most common promise a helpline makes
+ * and the one most often broken, because it lives in someone's head. The AI
+ * writes these when it makes that promise on the business's behalf, and the
+ * team screen counts which of them were kept on time.
+ */
+export const followUps = pgTable(
+  "follow_ups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    leadId: uuid("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    detail: text("detail"),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    assigneeMembershipId: uuid("assignee_membership_id").references(() => memberships.id, {
+      onDelete: "set null",
+    }),
+    status: followUpStatusEnum("status").notNull().default("open"),
+    createdByName: text("created_by_name"),
+    createdByAi: boolean("created_by_ai").notNull().default(false),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    completedByName: text("completed_by_name"),
+    outcome: text("outcome"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("follow_ups_brand_due_idx").on(t.brandId, t.status, t.dueAt),
+    index("follow_ups_assignee_idx").on(t.assigneeMembershipId, t.status),
+  ],
 );

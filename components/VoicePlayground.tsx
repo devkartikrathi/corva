@@ -16,6 +16,26 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * direction and are not negotiable.
  */
 
+const LABEL: React.CSSProperties = {
+  fontSize: 9.5,
+  fontWeight: 700,
+  letterSpacing: "0.14em",
+  textTransform: "uppercase",
+  color: "var(--color-neutral-500)",
+  marginBottom: 8,
+};
+
+const INPUT: React.CSSProperties = {
+  width: "100%",
+  border: "1px solid var(--color-neutral-600)",
+  background: "transparent",
+  color: "var(--color-bg)",
+  padding: "7px 9px",
+  fontSize: 12.5,
+  fontFamily: "inherit",
+  borderRadius: 0,
+};
+
 const INPUT_RATE = 16000;
 const OUTPUT_RATE = 24000;
 
@@ -29,24 +49,41 @@ type Event =
 
 type Status = "idle" | "connecting" | "ready" | "listening" | "thinking" | "speaking" | "closed";
 
+/** A made-up mobile number, so each test caller is a new person by default. */
+const freshMobile = () =>
+  `+91 9${String(Math.floor(Math.random() * 10000)).padStart(4, "0")} ${String(Math.floor(Math.random() * 100000)).padStart(5, "0")}`;
+
+const digits = (n: string) => {
+  let d = n.replace(/\D/g, "");
+  if (d.length === 11 && d.startsWith("0")) d = d.slice(1);
+  if (d.length === 10) d = `91${d}`;
+  return d;
+};
+
 export function VoicePlayground({
   bridgeUrl,
-  brands,
+  numbers,
   callers,
   liveModels,
   costPerMinutePaise,
+  initialDial,
 }: {
   bridgeUrl: string;
-  brands: { slug: string; name: string; agentName: string | null }[];
-  /** Who you can ring in as, per brand. An empty choice is an unknown number. */
-  callers: Record<string, { id: string; name: string; detail: string }[]>;
+  /** Every number that has a business and an AI behind it. */
+  numbers: { number: string; brandId: string; business: string; agentName: string | null; industry: string }[];
+  /** Known customers per business, for ringing in as someone it already knows. */
+  callers: Record<string, { name: string; phone: string; detail: string }[]>;
   /** The speech-to-speech models a call can be placed on. */
   liveModels: { id: string; label: string; blurb: string }[];
   costPerMinutePaise: number;
+  initialDial?: string;
 }) {
   const [status, setStatus] = useState<Status>("idle");
-  const [brandSlug, setBrandSlug] = useState(brands[0]?.slug ?? "");
-  const [callerId, setCallerId] = useState("");
+  const [dialed, setDialed] = useState(initialDial ?? numbers[0]?.number ?? "");
+  const [callerPhone, setCallerPhone] = useState("");
+  // Set after mount: a random number rendered on the server would not match
+  // the one rendered in the browser.
+  useEffect(() => setCallerPhone((p) => p || freshMobile()), []);
   const [liveModel, setLiveModel] = useState(liveModels[0]?.id ?? "");
   const [countsInMetrics, setCountsInMetrics] = useState(false);
   const [events, setEvents] = useState<Event[]>([]);
@@ -58,6 +95,7 @@ export function VoicePlayground({
     capSeconds: number;
     liveModel?: string;
     conversationId?: string;
+    brandId?: string;
   } | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +113,9 @@ export function VoicePlayground({
   const log = useRef<HTMLDivElement | null>(null);
 
   const push = (e: Event) => setEvents((prev) => [...prev, e]);
+  const reaches = numbers.find((n) => digits(n.number) === digits(dialed));
+  const known = reaches ? (callers[reaches.brandId] ?? []) : [];
+  const callingAs = known.find((c) => digits(c.phone) === digits(callerPhone));
 
   useEffect(() => {
     log.current?.scrollTo({ top: log.current.scrollHeight, behavior: "smooth" });
@@ -151,8 +192,8 @@ export function VoicePlayground({
       socket.send(
         JSON.stringify({
           type: "start",
-          brandSlug,
-          customerId: callerId || null,
+          dialed,
+          callerPhone,
           countsInMetrics,
           liveModel,
         }),
@@ -170,10 +211,10 @@ export function VoicePlayground({
         push({
           kind: "system",
           text:
-            `Connected to ${m.agent} on ${m.brand}, agent v${m.version}. ` +
-            (m.customer
-              ? `Ringing in as ${m.customer}.`
-              : "Ringing in from a number the brand does not recognise."),
+            `${m.agent} at ${m.brand} picked up. ` +
+            (m.newCaller
+              ? "You are a new caller — they do not know you yet."
+              : `They recognise you as ${m.customer}.`),
         });
       } else if (m.type === "heard") {
         setEvents((prev) => {
@@ -453,67 +494,94 @@ export function VoicePlayground({
       {/* Controls */}
       <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
         <div>
-          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--color-neutral-500)" }}>
-            Brand
-          </div>
-          <select
-            value={brandSlug}
-            onChange={(e) => setBrandSlug(e.target.value)}
+          <div style={LABEL}>Dial</div>
+          <input
+            value={dialed}
+            onChange={(e) => setDialed(e.target.value)}
             disabled={live}
-            style={{
-              marginTop: 8,
-              width: "100%",
-              border: "1px solid var(--color-neutral-600)",
-              background: "transparent",
-              color: "var(--color-bg)",
-              padding: "7px 9px",
-              fontSize: 12.5,
-              fontFamily: "inherit",
-              borderRadius: 0,
-            }}
-          >
-            {brands.map((b) => (
-              <option key={b.slug} value={b.slug} style={{ color: "var(--color-text)" }}>
-                {b.name}
-                {b.agentName ? ` · ${b.agentName}` : ""}
-              </option>
+            inputMode="tel"
+            placeholder="+91 40 7xxx xxxx"
+            aria-label="Number to dial"
+            style={{ ...INPUT, fontSize: 18, fontWeight: 800, letterSpacing: "0.01em" }}
+          />
+          <p style={{ margin: "7px 0 0", fontSize: 11.5, lineHeight: 1.5, color: reaches ? "var(--color-neutral-300)" : "var(--color-accent-400)" }}>
+            {reaches
+              ? `${reaches.business} · ${reaches.agentName ?? "their assistant"} answers`
+              : dialed.trim()
+                ? "No business answers on this number."
+                : "Type a number or pick one below."}
+          </p>
+          <div style={{ marginTop: 8, maxHeight: 150, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+            {numbers.map((n) => (
+              <button
+                key={n.number}
+                type="button"
+                disabled={live}
+                onClick={() => setDialed(n.number)}
+                className="hov-dark"
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "baseline",
+                  padding: "5px 0",
+                  borderBottom: "1px solid var(--color-neutral-800)",
+                  textAlign: "left",
+                  fontSize: 11.5,
+                  color: digits(n.number) === digits(dialed) ? "var(--color-accent-400)" : "var(--color-neutral-300)",
+                }}
+              >
+                <b style={{ whiteSpace: "nowrap" }}>{n.number}</b>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.business}</span>
+              </button>
             ))}
-          </select>
+          </div>
         </div>
 
         <div>
-          <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--color-neutral-500)" }}>
-            Calling as
+          <div style={LABEL}>Calling from</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              value={callerPhone}
+              onChange={(e) => setCallerPhone(e.target.value)}
+              disabled={live}
+              inputMode="tel"
+              aria-label="Your number"
+              style={{ ...INPUT, flex: 1 }}
+            />
+            <button
+              type="button"
+              disabled={live}
+              onClick={() => setCallerPhone(freshMobile())}
+              title="A new number nobody knows"
+              className="hov-invert-dark"
+              style={{ fontSize: 11, border: "1px solid var(--color-neutral-600)", padding: "0 9px" }}
+            >
+              New
+            </button>
           </div>
-          <select
-            value={callerId}
-            onChange={(e) => setCallerId(e.target.value)}
-            disabled={live}
-            style={{
-              marginTop: 8,
-              width: "100%",
-              border: "1px solid var(--color-neutral-600)",
-              background: "transparent",
-              color: "var(--color-bg)",
-              padding: "7px 9px",
-              fontSize: 12.5,
-              fontFamily: "inherit",
-              borderRadius: 0,
-            }}
-          >
-            <option value="" style={{ color: "var(--color-text)" }}>
-              An unrecognised number
-            </option>
-            {(callers[brandSlug] ?? []).map((c) => (
-              <option key={c.id} value={c.id} style={{ color: "var(--color-text)" }}>
-                {c.name}
-                {c.detail ? ` · ${c.detail}` : ""}
+          {known.length > 0 && (
+            <select
+              value={callingAs?.phone ?? ""}
+              onChange={(e) => e.target.value && setCallerPhone(e.target.value)}
+              disabled={live}
+              aria-label="Call as a known customer"
+              style={{ ...INPUT, marginTop: 6, fontSize: 12 }}
+            >
+              <option value="" style={{ color: "var(--color-text)" }}>
+                …or ring in as a customer they know
               </option>
-            ))}
-          </select>
-          <p style={{ margin: "8px 0 0", fontSize: 11, color: "var(--color-neutral-500)", lineHeight: 1.5 }}>
-            The agent sees this caller&rsquo;s record — their tier, lifetime value, priority and
-            open orders. Ringing in unrecognised is a different call, and worth trying too.
+              {known.map((c) => (
+                <option key={c.phone} value={c.phone} style={{ color: "var(--color-text)" }}>
+                  {c.name}
+                  {c.detail ? ` · ${c.detail}` : ""}
+                </option>
+              ))}
+            </select>
+          )}
+          <p style={{ margin: "7px 0 0", fontSize: 11, color: "var(--color-neutral-500)", lineHeight: 1.5 }}>
+            {callingAs
+              ? `They will recognise you as ${callingAs.name}.`
+              : "A number they have not seen: you are a new caller, and the AI should take your details as a lead."}
           </p>
         </div>
 
@@ -581,9 +649,16 @@ export function VoicePlayground({
             type="button"
             className="hov-accent-dark"
             onClick={start}
-            style={{ fontSize: 12.5, fontWeight: 700, background: "var(--color-accent)", color: "var(--color-bg)", padding: "12px 16px" }}
+            disabled={!reaches}
+            style={{
+              fontSize: 12.5,
+              fontWeight: 700,
+              background: reaches ? "var(--color-accent)" : "var(--color-neutral-700)",
+              color: "var(--color-bg)",
+              padding: "12px 16px",
+            }}
           >
-            Start the call
+            {reaches ? `Call ${reaches.business}` : "Call"}
           </button>
         ) : (
           <button
@@ -623,7 +698,7 @@ export function VoicePlayground({
             )}
             {session.conversationId && (
               <a
-                href={`/app/live?call=${session.conversationId}`}
+                href={`/operator/open?brand=${session.brandId}&next=${encodeURIComponent(`/app/live?call=${session.conversationId}`)}`}
                 target="_blank"
                 rel="noreferrer"
                 style={{

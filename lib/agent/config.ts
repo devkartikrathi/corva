@@ -39,6 +39,8 @@ export type AgentConfig = {
    * one place that forgets.
    */
   modelId: string;
+  /** Which industry template the business uses — its pipeline words and lead questions. */
+  industry: string;
   persona: string;
   tone: Record<string, number>;
   authority: AuthorityLimit[];
@@ -85,6 +87,7 @@ export async function loadAgentConfig(
     brandName: row.brand.name,
     agentName: row.brand.agentName ?? "the assistant",
     modelId: row.brand.modelId,
+    industry: row.brand.industry,
     persona: row.version.persona,
     tone: (row.version.tone ?? {}) as Record<string, number>,
     authority: authority.map((a) => ({

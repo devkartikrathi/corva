@@ -1,4 +1,6 @@
 import { google } from "@ai-sdk/google";
+import { wrapLanguageModel, type LanguageModelMiddleware } from "ai";
+import { MODELS } from "./models";
 
 /**
  * Where the models come from.
@@ -25,8 +27,57 @@ import { google } from "@ai-sdk/google";
  */
 export type ThinkingLevel = "minimal" | "low" | "medium" | "high";
 
-/** The model that answers, whichever one this brand is on. */
-export const languageModel = (modelId: string) => google(modelId);
+/**
+ * Whether a failure is the provider being busy rather than the request being
+ * wrong. Only these are worth trying elsewhere — a malformed request fails the
+ * same way on every model.
+ */
+function isOverloaded(e: unknown): boolean {
+  const err = e as { statusCode?: number; message?: string; lastError?: unknown };
+  if (err?.lastError) return isOverloaded(err.lastError);
+  if (err?.statusCode && [429, 500, 502, 503, 504].includes(err.statusCode)) return true;
+  return /high demand|overloaded|unavailable|resource_exhausted|rate limit|quota/i.test(err?.message ?? "");
+}
+
+/**
+ * Try the brand's model, then the others, when the provider is busy.
+ *
+ * A model being "at high demand" for an hour is routine on Gemini's free tier,
+ * and it used to mean every call to every business on that model failed until
+ * it passed. Falling through to a sibling keeps the phones answered; the
+ * console still records which model the brand is set to, and the log says
+ * when a call went elsewhere.
+ */
+const fallbackMiddleware = (primary: string): LanguageModelMiddleware => {
+  const others = MODELS.map((m) => m.id).filter((id) => id !== primary);
+  const attempt = async <T,>(first: () => PromiseLike<T>, next: (id: string) => PromiseLike<T>): Promise<T> => {
+    try {
+      return await first();
+    } catch (e) {
+      if (!isOverloaded(e)) throw e;
+      let last = e;
+      for (const id of others) {
+        try {
+          console.warn(`${primary} is busy — answering on ${id} instead`);
+          return await next(id);
+        } catch (err) {
+          if (!isOverloaded(err)) throw err;
+          last = err;
+        }
+      }
+      throw last;
+    }
+  };
+  return {
+    specificationVersion: "v4",
+    wrapGenerate: ({ doGenerate, params }) => attempt(doGenerate, (id) => google(id).doGenerate(params)),
+    wrapStream: ({ doStream, params }) => attempt(doStream, (id) => google(id).doStream(params)),
+  };
+};
+
+/** The model that answers, whichever one this brand is on — or a sibling, when it is busy. */
+export const languageModel = (modelId: string) =>
+  wrapLanguageModel({ model: google(modelId), middleware: fallbackMiddleware(modelId) });
 
 /**
  * Provider options for a call at a given thinking depth.

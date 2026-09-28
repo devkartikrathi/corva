@@ -2,7 +2,7 @@
 
 import { and, desc, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { embedDocuments } from "@/lib/agent/retrieval";
+import { reindex } from "@/lib/knowledge";
 import { getConsoleContext } from "@/lib/auth/context";
 import { assertCan, can } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
@@ -28,57 +28,6 @@ async function scoped(documentId: string, brandId: string) {
     .limit(1);
   if (!row) throw new Error("No such document in this brand.");
   return row;
-}
-
-/**
- * Split a document into retrievable pieces.
- *
- * Paragraphs, because that is how policies are written and how they are
- * quoted back — a fixed token window would cut "the agent may apply up to
- * ₹5,000" away from the condition that qualifies it.
- */
-function chunk(body: string): { anchor: string | null; content: string }[] {
-  const paragraphs = body
-    .split(/\n{2,}/)
-    .map((p) => p.trim())
-    .filter(Boolean);
-
-  return paragraphs.map((content, i) => {
-    // A leading "§3.2" or "Reschedules:" becomes the anchor a citation prints.
-    const match = content.match(/^(§[\d.]+|[A-Z][A-Za-z \-&]{2,28})[:—-]\s/);
-    return {
-      anchor: match ? match[1].trim() : `¶${i + 1}`,
-      content,
-    };
-  });
-}
-
-/**
- * Rewrite a document's chunks and embed them.
- *
- * Embedding is what costs time here, so it happens once for the whole document
- * rather than per chunk. If it throws, the old chunks are already gone — which
- * is the right failure: an empty document retrieves nothing, while a
- * half-updated one retrieves the wrong thing and says nothing is wrong.
- */
-async function reindex(documentId: string, brandId: string, body: string) {
-  await db.delete(s.documentChunks).where(eq(s.documentChunks.documentId, documentId));
-
-  const pieces = chunk(body);
-  if (pieces.length === 0) return 0;
-
-  const vectors = await embedDocuments(pieces.map((p) => p.content));
-  await db.insert(s.documentChunks).values(
-    pieces.map((p, i) => ({
-      documentId,
-      brandId,
-      ordinal: i,
-      anchor: p.anchor,
-      content: p.content,
-      embedding: vectors[i],
-    })),
-  );
-  return pieces.length;
 }
 
 export async function createDocument(input: {

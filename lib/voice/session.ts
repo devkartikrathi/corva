@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
 import { checkAuthority } from "@/lib/agent/authority";
 import { loadAgentConfig, type AgentConfig } from "@/lib/agent/config";
 import { describeNeverRules } from "@/lib/agent/guardrails";
@@ -7,6 +7,15 @@ import { writeBrief } from "@/lib/agent/brief";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { runningSentiment, scoreUtterance } from "@/lib/pipelines/sentiment";
+import { brandForNumber, formatPhone } from "@/lib/business/phone";
+import { industryFor } from "@/lib/business/industries";
+import {
+  crmInstructions,
+  customerForCaller,
+  isUnnamed,
+  saveCallerDetails,
+  scheduleFollowUp,
+} from "@/lib/crm/capture";
 
 /**
  * A Corva agent, expressed as a Gemini Live session.
@@ -93,6 +102,38 @@ export const TOOLS = [
         },
       },
       {
+        name: "save_caller_details",
+        description:
+          "Record who the caller is and what they want, as a lead for the team. Call it as soon as " +
+          "you know their name and what they are after, and again whenever you learn more.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            name: { type: "STRING", description: "The caller's name, as they said it" },
+            interest: { type: "STRING", description: "What they want, in one line, with specifics" },
+            email: { type: "STRING", description: "Email, if they gave one" },
+            notes: { type: "STRING", description: "Anything else useful: budget, timing, preferences" },
+            valueRupees: { type: "NUMBER", description: "Budget or order value in rupees, if known" },
+          },
+          required: ["interest"],
+        },
+      },
+      {
+        name: "schedule_follow_up",
+        description:
+          "Create a task for the team whenever you promise a callback, to send something, or to check " +
+          "on something. Returns who will do it and when.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            task: { type: "STRING", description: "What was promised, e.g. 'Call back with price for 2BHK in Tower B'" },
+            due: { type: "STRING", description: "When, as an ISO date-time with +05:30" },
+            detail: { type: "STRING", description: "Context the person will need" },
+          },
+          required: ["task"],
+        },
+      },
+      {
         name: "close_with_agreement",
         description:
           "End the call by agreement. Use ONLY when you could not do what the caller " +
@@ -122,7 +163,12 @@ export const TOOLS = [
  * The one addition is conversational: a caller cannot see a spinner, so silence
  * while a tool runs reads as a dropped line.
  */
-export function liveInstruction(config: AgentConfig, brandName: string, caller: string): string {
+export function liveInstruction(
+  config: AgentConfig,
+  brandName: string,
+  caller: string,
+  isNewCaller = false,
+): string {
   return [
     config.persona,
     "",
@@ -182,6 +228,8 @@ export function liveInstruction(config: AgentConfig, brandName: string, caller: 
     "",
     "If they are still unhappy, or they ask again, that is not agreement. Escalate.",
     "",
+    crmInstructions({ isNewCaller, leadQuestions: industryFor(config.industry).leadQuestions }),
+    "",
     "NEVER SAY A TOOL'S NAME OUT LOUD",
     "The caller is on a phone. They cannot see tools and must never hear one named.",
     "Do not say 'search_knowledge', 'take_action', 'calls take_action', or narrate",
@@ -200,6 +248,7 @@ export function setupMessage(
   brandName: string,
   model: string,
   caller: string,
+  isNewCaller = false,
 ) {
   return {
     setup: {
@@ -211,7 +260,7 @@ export function setupMessage(
         maxOutputTokens: 400,
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } },
       },
-      systemInstruction: { parts: [{ text: liveInstruction(config, brandName, caller) }] },
+      systemInstruction: { parts: [{ text: liveInstruction(config, brandName, caller, isNewCaller) }] },
       tools: TOOLS,
       // Both sides as text, so turns persist without a second STT pass.
       inputAudioTranscription: {},
@@ -231,8 +280,72 @@ export function setupMessage(
 export async function handleToolCall(
   name: string,
   args: Record<string, unknown>,
-  ctx: { conversationId: string; brandId: string; config: AgentConfig; isTest: boolean },
+  ctx: {
+    conversationId: string;
+    brandId: string;
+    config: AgentConfig;
+    isTest: boolean;
+    customerId: string | null;
+  },
 ): Promise<{ response: Record<string, unknown>; outcome: ToolOutcome }> {
+  if (name === "save_caller_details") {
+    const { lead, created, ownerName } = await saveCallerDetails({
+      conversationId: ctx.conversationId,
+      brandId: ctx.brandId,
+      customerId: ctx.customerId,
+      name: typeof args.name === "string" ? args.name : undefined,
+      email: typeof args.email === "string" ? args.email : undefined,
+      interest: typeof args.interest === "string" ? args.interest : undefined,
+      notes: typeof args.notes === "string" ? args.notes : undefined,
+      valueRupees: typeof args.valueRupees === "number" ? args.valueRupees : undefined,
+      source: "phone",
+    });
+    return {
+      response: { saved: true, owner: ownerName ?? "the team" },
+      outcome: {
+        name,
+        summary: `${created ? "New lead" : "Lead updated"}: ${lead.name}${lead.interest ? ` — ${lead.interest}` : ""}`,
+        allowed: true,
+        detail: ownerName ? `owner ${ownerName}` : "no owner yet",
+      },
+    };
+  }
+
+  if (name === "schedule_follow_up") {
+    // The conversation may have been re-pointed at a customer mid-call by
+    // save_caller_details, so read it rather than trust the opening value.
+    const [conv] = await db
+      .select({ customerId: s.conversations.customerId })
+      .from(s.conversations)
+      .where(eq(s.conversations.id, ctx.conversationId))
+      .limit(1);
+    const { assigneeName, dueAt } = await scheduleFollowUp({
+      conversationId: ctx.conversationId,
+      brandId: ctx.brandId,
+      customerId: conv?.customerId ?? ctx.customerId,
+      title: String(args.task ?? "Call the customer back"),
+      detail: typeof args.detail === "string" ? args.detail : undefined,
+      due: typeof args.due === "string" ? args.due : undefined,
+      createdByName: ctx.config.agentName,
+      createdByAi: true,
+    });
+    const when = dueAt.toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      weekday: "long",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    return {
+      response: { scheduled: true, who: assigneeName ?? "someone from the team", when },
+      outcome: {
+        name,
+        summary: String(args.task ?? "Follow-up"),
+        allowed: true,
+        detail: `${assigneeName ?? "unassigned"} · ${when}`,
+      },
+    };
+  }
+
   if (name === "search_knowledge") {
     const query = String(args.query ?? "");
     const chunks = await retrieve(ctx.brandId, query);
@@ -516,55 +629,82 @@ export function handBackNote(heldBy: string, replies: { body: string }[]) {
   ].join("\n");
 }
 
-/** Who could be on the other end, for the caller picker. */
-export async function callersFor(brandSlug: string) {
-  const [brand] = await db.select().from(s.brands).where(eq(s.brands.slug, brandSlug)).limit(1);
-  if (!brand) return [];
+/**
+ * Every number a test call can reach, with who answers it.
+ *
+ * Only businesses with a live agent are listed: a number with nobody behind it
+ * is a dead line, and the dialer would only be offering a failure.
+ */
+export async function dialableNumbers() {
   const rows = await db
-    .select()
-    .from(s.customers)
-    .where(eq(s.customers.brandId, brand.id))
-    .orderBy(s.customers.name);
-  return rows.map((c) => ({
-    id: c.id,
-    name: c.name,
-    detail: [c.tier, c.phone].filter(Boolean).join(" · "),
+    .select({ brand: s.brands, address: s.channels.address, org: s.organizations.name })
+    .from(s.channels)
+    .innerJoin(s.brands, eq(s.brands.id, s.channels.brandId))
+    .innerJoin(s.organizations, eq(s.organizations.id, s.brands.orgId))
+    .innerJoin(
+      s.agentVersions,
+      and(eq(s.agentVersions.brandId, s.brands.id), eq(s.agentVersions.status, "live")),
+    )
+    .where(and(eq(s.channels.kind, "phone"), sql`${s.channels.address} is not null`))
+    .orderBy(desc(s.brands.createdAt));
+  return rows.map((r) => ({
+    number: formatPhone(r.address!),
+    brandSlug: r.brand.slug,
+    brandId: r.brand.id,
+    business: r.brand.name,
+    org: r.org,
+    agentName: r.brand.agentName,
+    industry: industryFor(r.brand.industry).label,
   }));
 }
 
+/** Known customers of a business who have a phone number, for "call as". */
+export async function callersFor(brandId: string) {
+  const rows = await db
+    .select()
+    .from(s.customers)
+    .where(and(eq(s.customers.brandId, brandId), sql`${s.customers.phone} is not null`))
+    .orderBy(s.customers.name)
+    .limit(200);
+  return rows
+    .filter((c) => !isUnnamed(c.name))
+    .map((c) => ({ name: c.name, phone: formatPhone(c.phone!), detail: [c.tier, c.segment].filter(Boolean).join(" · ") }));
+}
+
 /**
- * Open a conversation for a call.
+ * Open a conversation for a call to a number.
  *
- * Nothing here marks it as a test. It is a real row on a real brand, and it
- * appears on the live console, the handoff queue and the archive exactly as an
- * inbound call would — which is the point: a rehearsal that writes to a
- * different table rehearses nothing.
+ * The number decides the business, the way a real line does. The caller's own
+ * number decides who they are: a known customer is recognised, anyone else is
+ * created as a new contact named after their number, so even a caller who
+ * hangs up after one sentence leaves a record the team can call back.
  *
- * The caller is chosen rather than assumed. Ringing in as Marguerite Okonkwo,
- * whose record shows three reschedules and a priority of 99, is a different
- * call from ringing in as a number nobody recognises, and the difference is
- * most of what the agent is reasoning about.
+ * Nothing here marks the call as fake. It is a real row on a real business,
+ * and it appears on the live console, the handoff queue and the archive
+ * exactly as an inbound call would — a rehearsal that writes to a different
+ * table rehearses nothing. It is only kept out of the numbers (`isTest`).
  */
-export async function openVoiceConversation(
-  brandSlug: string,
-  customerId?: string | null,
-  isTest = true,
-) {
-  const [brand] = await db.select().from(s.brands).where(eq(s.brands.slug, brandSlug)).limit(1);
-  if (!brand) throw new Error(`No brand ${brandSlug}`);
+export async function openVoiceConversation(opts: {
+  dialed?: string | null;
+  /** Fallback when no number is given — older clients pick a brand directly. */
+  brandSlug?: string | null;
+  callerPhone?: string | null;
+  isTest?: boolean;
+}) {
+  let brand: typeof s.brands.$inferSelect | undefined;
+  if (opts.dialed?.trim()) {
+    const found = await brandForNumber(opts.dialed);
+    if (!found) throw new Error(`The number ${formatPhone(opts.dialed)} is not in service.`);
+    brand = found.brand;
+  } else if (opts.brandSlug) {
+    [brand] = await db.select().from(s.brands).where(eq(s.brands.slug, opts.brandSlug)).limit(1);
+  }
+  if (!brand) throw new Error("Dial a business's number to place a call.");
 
   const config = await loadAgentConfig(brand.id);
-  if (!config) throw new Error(`${brand.name} has no live agent version.`);
+  if (!config) throw new Error(`${brand.name} has no AI assistant set up, so nobody answers.`);
 
-  // An explicit caller, or none — an unrecognised number is a real case, and
-  // the agent should be exercised against it too.
-  const [customer] = customerId
-    ? await db
-        .select()
-        .from(s.customers)
-        .where(and(eq(s.customers.id, customerId), eq(s.customers.brandId, brand.id)))
-        .limit(1)
-    : [null];
+  const customer = await customerForCaller(brand.id, opts.callerPhone);
 
   const [conversation] = await db
     .insert(s.conversations)
@@ -574,18 +714,21 @@ export async function openVoiceConversation(
       channel: "phone",
       status: "live",
       // Left unset: the classifier names it from the transcript when the call
-      // ends, the same way it does for every other conversation. A hardcoded
-      // label here would be the one thing marking this as not a real call.
+      // ends, the same way it does for every other conversation.
       intent: null,
-      // A rehearsal by default. Every metric excludes it, and the archive
-      // marks it, so nobody reads a practice call as a customer.
-      isTest,
+      isTest: opts.isTest ?? true,
       agentVersionId: config.versionId,
       startedAt: new Date(),
     })
     .returning();
 
-  return { brand, config, customer: customer ?? null, conversation };
+  return {
+    brand,
+    config,
+    customer: customer ?? null,
+    isNewCaller: !customer || isUnnamed(customer.name),
+    conversation,
+  };
 }
 
 /**
@@ -671,7 +814,13 @@ export async function closeVoiceConversation(conversationId: string, seconds: nu
  * Detection only. It cannot un-say what the caller heard, but it puts the turn
  * in front of whoever reviews quality instead of letting it pass silently.
  */
-const TOOL_NAMES = ["search_knowledge", "take_action", "escalate_to_human"];
+const TOOL_NAMES = [
+  "search_knowledge",
+  "take_action",
+  "escalate_to_human",
+  "save_caller_details",
+  "schedule_follow_up",
+];
 
 export function narratedATool(said: string): string | null {
   const lower = said.toLowerCase();

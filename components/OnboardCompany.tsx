@@ -2,24 +2,15 @@
 
 import { useState, useTransition } from "react";
 import type { OnboardingResult } from "@/lib/actions/onboarding";
-import type { ModelOption } from "@/lib/queries/models";
-import { ModelPicker } from "@/components/ModelPicker";
 
 /**
- * Creating a company.
+ * Adding a business.
  *
- * The form ends in an invite link rather than a success message, because the
- * link is the only part anyone needs afterwards — a workspace with no Owner in
- * it is not yet a customer.
+ * Ends in the business's phone number and two buttons — ring it, or open its
+ * console — because those are the two things anyone does next. Everything the
+ * form asks for is something the owner already knows; nothing here is a
+ * setting they would have to understand first.
  */
-const PLANS = [
-  { value: "trial", label: "Trial — no charge" },
-  { value: "studio", label: "Studio — ₹2,499/seat" },
-  { value: "operator", label: "Operator — ₹3,499/seat" },
-  { value: "enterprise", label: "Enterprise — ₹4,999/seat + ₹99,000" },
-];
-
-const REGIONS = ["eu-west-2", "eu-west-1", "us-east-1", "ap-southeast-2"];
 
 const field: React.CSSProperties = {
   border: "1px solid var(--color-neutral-600)",
@@ -42,239 +33,230 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 6,
 };
 
+const hint: React.CSSProperties = {
+  margin: "5px 0 0",
+  fontSize: 11,
+  color: "var(--color-neutral-500)",
+  lineHeight: 1.45,
+};
+
+type Input = {
+  businessName: string;
+  industry: string;
+  agentName: string;
+  website: string;
+  about: string;
+  phoneNumber: string;
+  ownerName: string;
+  ownerEmail: string;
+  team: string;
+};
+
+const EMPTY: Input = {
+  businessName: "",
+  industry: "general",
+  agentName: "",
+  website: "",
+  about: "",
+  phoneNumber: "",
+  ownerName: "",
+  ownerEmail: "",
+  team: "",
+};
+
 export function OnboardCompany({
   onOnboard,
-  models,
+  onEnter,
+  industries,
+  demo,
 }: {
-  onOnboard: (input: {
-    companyName: string;
-    plan: string;
-    region: string;
-    seats: number;
-    brandName: string;
-    ownerName: string;
-    ownerEmail: string;
-    modelId: string;
-  }) => Promise<OnboardingResult>;
-  models: ModelOption[];
+  onOnboard: (input: Input) => Promise<OnboardingResult>;
+  onEnter: (orgSlug: string) => Promise<void>;
+  industries: { key: string; label: string }[];
+  demo: boolean;
 }) {
-  const [companyName, setCompanyName] = useState("");
-  const [brandName, setBrandName] = useState("");
-  const [plan, setPlan] = useState("trial");
-  const [region, setRegion] = useState("eu-west-2");
-  const [seats, setSeats] = useState("5");
-  const [ownerName, setOwnerName] = useState("");
-  const [ownerEmail, setOwnerEmail] = useState("");
-  // Whichever model still has room today leads the list, so the default is the
-  // one that will actually answer rather than the one that reads best.
-  const [modelId, setModelId] = useState(models[0]?.id ?? "");
+  const [form, setForm] = useState<Input>(EMPTY);
   const [result, setResult] = useState<OnboardingResult | null>(null);
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const [entering, startEnter] = useTransition();
 
-  const inviteUrl = result
-    ? `${typeof window === "undefined" ? "" : window.location.origin}/invite/${result.inviteToken}`
-    : "";
+  const set = (key: keyof Input) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+    setForm((f) => ({ ...f, [key]: e.target.value }));
 
   if (result) {
+    const inviteUrl =
+      result.inviteToken && typeof window !== "undefined"
+        ? `${window.location.origin}/invite/${result.inviteToken}`
+        : null;
     return (
       <div style={{ maxWidth: 620 }}>
-        <div
-          style={{
-            fontSize: 9.5,
-            fontWeight: 700,
-            letterSpacing: "0.14em",
-            textTransform: "uppercase",
-            color: "var(--color-accent-400)",
-          }}
-        >
-          Workspace created
-        </div>
-        <h2 style={{ margin: "10px 0 0", fontWeight: 800, fontSize: 22, letterSpacing: "-0.02em" }}>
+        <div style={{ ...labelStyle, color: "var(--color-accent-400)", marginBottom: 0 }}>Business is live</div>
+        <h2 style={{ margin: "10px 0 0", fontWeight: 800, fontSize: 24, letterSpacing: "-0.02em" }}>
           {result.orgName}
         </h2>
-        <p style={{ marginTop: 10, fontSize: 12.5, color: "var(--color-neutral-400)", lineHeight: 1.6 }}>
-          One brand (<b style={{ color: "var(--color-bg)" }}>{result.brandName}</b>), default opening
-          hours and a cautious privacy position. No agent, no documents, no channels — those are
-          theirs to decide.
+        <p style={{ marginTop: 8, fontSize: 12.5, color: "var(--color-neutral-400)", lineHeight: 1.6 }}>
+          {result.industry} · {result.agentName} answers the phone · {result.people}{" "}
+          {result.people === 1 ? "person" : "people"} on the team
         </p>
-        <p style={{ marginTop: 14, fontSize: 12.5, color: "var(--color-neutral-400)", lineHeight: 1.6 }}>
-          Send this to <b style={{ color: "var(--color-bg)" }}>{result.ownerEmail}</b>. They become
-          the Owner, and everyone else in that workspace is invited by them, not by us.
-        </p>
-        <div
-          style={{
-            marginTop: 12,
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            border: "1px solid var(--color-neutral-600)",
-            padding: "9px 11px",
-          }}
-        >
-          <code style={{ flex: 1, fontSize: 11.5, color: "var(--color-bg)", wordBreak: "break-all" }}>
-            {inviteUrl}
-          </code>
-          <button
-            type="button"
-            className="hov-accent-dark"
-            onClick={() => {
-              void navigator.clipboard.writeText(inviteUrl);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 2000);
-            }}
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              background: "var(--color-accent)",
-              color: "var(--color-bg)",
-              padding: "5px 10px",
-              flexShrink: 0,
-            }}
-          >
-            {copied ? "Copied" : "Copy"}
-          </button>
+
+        <div style={{ marginTop: 16, border: "2px solid var(--color-accent)", padding: "14px 16px" }}>
+          <div style={labelStyle}>Their number</div>
+          <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-0.01em" }}>{result.phoneNumber}</div>
+          <p style={hint}>Dial it from Test calls — the call reaches {result.agentName}, and shows up in their console.</p>
         </div>
-        <div style={{ marginTop: 18, display: "flex", gap: 8 }}>
-          <a
-            href={`/operator/companies/${result.orgSlug}`}
-            className="hov-accent-dark"
+
+        <div style={{ marginTop: 14, fontSize: 12, color: "var(--color-neutral-400)", lineHeight: 1.7 }}>
+          <b style={{ color: "var(--color-bg)" }}>What the AI knows</b>
+          {result.documents.map((d) => (
+            <div key={d.title}>
+              · {d.title} — {d.chunks} {d.chunks === 1 ? "passage" : "passages"}
+            </div>
+          ))}
+        </div>
+
+        {result.warnings.length > 0 && (
+          <div
             style={{
-              fontSize: 12,
-              fontWeight: 700,
-              background: "var(--color-accent)",
-              color: "var(--color-bg)",
-              padding: "10px 14px",
+              marginTop: 12,
+              border: "1px solid var(--color-accent-800)",
+              padding: "9px 11px",
+              fontSize: 11.5,
+              color: "var(--color-accent-400)",
+              lineHeight: 1.5,
             }}
           >
-            Open the account
+            {result.warnings.map((w) => (
+              <div key={w}>{w}</div>
+            ))}
+          </div>
+        )}
+
+        {inviteUrl && (
+          <p style={{ ...hint, marginTop: 12 }}>
+            Owner invite for {result.ownerEmail}: <code style={{ color: "var(--color-bg)" }}>{inviteUrl}</code>
+          </p>
+        )}
+
+        <div style={{ marginTop: 18, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <a
+            href={`/operator/testing?dial=${encodeURIComponent(result.phoneNumber)}`}
+            className="hov-accent-dark"
+            style={{ fontSize: 12, fontWeight: 700, background: "var(--color-accent)", color: "var(--color-bg)", padding: "10px 14px" }}
+          >
+            Call {result.phoneNumber}
           </a>
+          {demo && (
+            <button
+              type="button"
+              className="hov-invert-dark"
+              disabled={entering}
+              onClick={() => startEnter(() => onEnter(result.orgSlug))}
+              style={{ fontSize: 12, fontWeight: 700, border: "2px solid var(--color-bg)", padding: "9px 14px" }}
+            >
+              {entering ? "Opening…" : "Open their console"}
+            </button>
+          )}
           <button
             type="button"
             className="hov-invert-dark"
             onClick={() => {
               setResult(null);
-              setCompanyName("");
-              setBrandName("");
-              setOwnerName("");
-              setOwnerEmail("");
+              setForm(EMPTY);
             }}
-            style={{ fontSize: 12, fontWeight: 600, border: "2px solid var(--color-bg)", padding: "9px 14px" }}
+            style={{ fontSize: 12, fontWeight: 600, border: "1px solid var(--color-neutral-600)", padding: "9px 14px" }}
           >
-            Onboard another
+            Add another
           </button>
         </div>
       </div>
     );
   }
 
+  const ready = form.businessName.trim() && form.ownerEmail.trim();
+
   return (
     <div style={{ maxWidth: 620, display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 12 }}>
         <label>
-          <span style={labelStyle}>Company</span>
-          <input
-            value={companyName}
-            onChange={(e) => setCompanyName(e.target.value)}
-            placeholder="Aurelius Group"
-            style={field}
-          />
+          <span style={labelStyle}>Business name</span>
+          <input value={form.businessName} onChange={set("businessName")} placeholder="Sunrise Dental Clinic" style={field} />
         </label>
         <label>
-          <span style={labelStyle}>First brand</span>
-          <input
-            value={brandName}
-            onChange={(e) => setBrandName(e.target.value)}
-            placeholder={companyName || "Aurelius Home"}
-            style={field}
-          />
-        </label>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1.4fr 0.8fr", gap: 12 }}>
-        <label>
-          <span style={labelStyle}>Plan</span>
-          <select value={plan} onChange={(e) => setPlan(e.target.value)} style={field}>
-            {PLANS.map((p) => (
-              <option key={p.value} value={p.value} style={{ color: "var(--color-text)" }}>
-                {p.label}
+          <span style={labelStyle}>Industry</span>
+          <select value={form.industry} onChange={set("industry")} style={field}>
+            {industries.map((i) => (
+              <option key={i.key} value={i.key} style={{ color: "var(--color-text)" }}>
+                {i.label}
               </option>
             ))}
           </select>
         </label>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 12 }}>
         <label>
-          <span style={labelStyle}>Residency</span>
-          <select value={region} onChange={(e) => setRegion(e.target.value)} style={field}>
-            {REGIONS.map((r) => (
-              <option key={r} value={r} style={{ color: "var(--color-text)" }}>
-                {r}
-              </option>
-            ))}
-          </select>
+          <span style={labelStyle}>Website</span>
+          <input value={form.website} onChange={set("website")} placeholder="sunrisedental.in" style={field} />
+          <p style={hint}>Read on creation — services, prices, hours and policies become what the AI knows.</p>
         </label>
         <label>
-          <span style={labelStyle}>Seats</span>
-          <input
-            value={seats}
-            onChange={(e) => setSeats(e.target.value.replace(/[^0-9]/g, ""))}
-            inputMode="numeric"
-            style={{ ...field, textAlign: "right" }}
-          />
+          <span style={labelStyle}>AI assistant&rsquo;s name</span>
+          <input value={form.agentName} onChange={set("agentName")} placeholder="Asha" style={field} />
         </label>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <label>
+        <span style={labelStyle}>Anything else the AI should know</span>
+        <textarea
+          value={form.about}
+          onChange={set("about")}
+          rows={5}
+          placeholder={"Consultation: ₹500, waived if treatment is booked the same day.\nParking: Free parking in the basement.\nDoctors: Dr. Rao (Mon–Fri), Dr. Iyer (Sat)."}
+          style={{ ...field, resize: "vertical", lineHeight: 1.5 }}
+        />
+        <p style={hint}>One fact per line, &ldquo;Topic: detail&rdquo;. Prices, timings, policies, FAQs.</p>
+      </label>
+
+      <label>
+        <span style={labelStyle}>Phone number</span>
+        <input value={form.phoneNumber} onChange={set("phoneNumber")} placeholder="Leave blank for a test number" style={field} />
+        <p style={hint}>The number customers ring. Blank gives it a free +91 40 7xxx xxxx test line.</p>
+      </label>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, borderTop: "1px solid var(--color-neutral-800)", paddingTop: 14 }}>
         <label>
           <span style={labelStyle}>Owner</span>
-          <input
-            value={ownerName}
-            onChange={(e) => setOwnerName(e.target.value)}
-            placeholder="Priya Chandrasekaran"
-            style={field}
-          />
+          <input value={form.ownerName} onChange={set("ownerName")} placeholder="Dr. Kavya Rao" style={field} />
         </label>
         <label>
           <span style={labelStyle}>Owner email</span>
-          <input
-            value={ownerEmail}
-            onChange={(e) => setOwnerEmail(e.target.value)}
-            placeholder="priya@company.com"
-            style={field}
-          />
+          <input value={form.ownerEmail} onChange={set("ownerEmail")} placeholder="kavya@sunrisedental.in" style={field} />
         </label>
       </div>
 
-      <div style={{ borderTop: "1px solid var(--color-neutral-800)", paddingTop: 14 }}>
-        <ModelPicker
-          options={models}
-          value={modelId}
-          onChange={setModelId}
-          label="Model this brand answers on"
+      <label>
+        <span style={labelStyle}>Team (optional)</span>
+        <textarea
+          value={form.team}
+          onChange={set("team")}
+          rows={3}
+          placeholder={"Ravi Kumar, ravi@sunrisedental.in, manager\nPooja Nair, pooja@sunrisedental.in, agent"}
+          style={{ ...field, resize: "vertical", lineHeight: 1.5 }}
         />
-      </div>
+        <p style={hint}>&ldquo;Name, email, role&rdquo; per line — manager, agent or analyst. They take handoffs and own leads.</p>
+      </label>
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 4 }}>
         <button
           type="button"
           className="hov-accent-dark"
-          disabled={pending || !companyName.trim() || !ownerEmail.trim()}
+          disabled={pending || !ready}
           onClick={() => {
             setError(null);
             start(async () => {
               try {
-                setResult(
-                  await onOnboard({
-                    companyName,
-                    plan,
-                    region,
-                    seats: Number(seats) || 1,
-                    brandName,
-                    ownerName,
-                    ownerEmail,
-                    modelId,
-                  }),
-                );
+                setResult(await onOnboard(form));
               } catch (e) {
                 setError(e instanceof Error ? e.message.replace(/^Error:\s*/, "") : "Failed.");
               }
@@ -283,17 +265,15 @@ export function OnboardCompany({
           style={{
             fontSize: 12,
             fontWeight: 700,
-            background:
-              companyName.trim() && ownerEmail.trim() ? "var(--color-accent)" : "var(--color-neutral-700)",
+            background: ready ? "var(--color-accent)" : "var(--color-neutral-700)",
             color: "var(--color-bg)",
             padding: "11px 16px",
           }}
         >
-          {pending ? "Creating…" : "Create the workspace"}
+          {pending ? "Setting up… (reading the website)" : "Create the business"}
         </button>
         <span style={{ fontSize: 11.5, color: "var(--color-neutral-500)", lineHeight: 1.45 }}>
-          Creates the company, one brand and an Owner invite. Nothing goes live until they
-          publish an agent and a document.
+          Creates the business, its AI assistant, what it knows, and its number. It can take calls straight away.
         </span>
       </div>
       {error && (

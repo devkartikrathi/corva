@@ -59,6 +59,7 @@ wss.on("connection", (client) => {
   let live: WebSocket | null = null;
   let conversationId: string | null = null;
   let brandId = "";
+  let customerId: string | null = null;
   let isTest = true;
   // Audio is billed per second in both directions, so the bytes are counted as
   // they pass rather than inferred from how long the session was open —
@@ -265,13 +266,15 @@ wss.on("connection", (client) => {
       open++;
 
       try {
-        const opened = await openVoiceConversation(
-          msg.brandSlug ?? "aurelius-home",
-          msg.customerId ?? null,
-          msg.countsInMetrics !== true,
-        );
+        const opened = await openVoiceConversation({
+          dialed: msg.dialed ?? null,
+          brandSlug: msg.brandSlug ?? null,
+          callerPhone: msg.callerPhone ?? null,
+          isTest: msg.countsInMetrics !== true,
+        });
         conversationId = opened.conversation.id;
         brandId = opened.brand.id;
+        customerId = opened.customer?.id ?? null;
         isTest = opened.conversation.isTest;
         config = opened.config;
         startedAt = new Date();
@@ -295,6 +298,7 @@ wss.on("connection", (client) => {
                 opened.brand.name,
                 liveModel,
                 caller || "The number is not recognised. You do not know who this is.",
+                opened.isNewCaller,
               ),
             ),
           );
@@ -311,9 +315,12 @@ wss.on("connection", (client) => {
               agent: config!.agentName,
               version: config!.version,
               customer: opened.customer?.name ?? null,
+              newCaller: opened.isNewCaller,
               conversationId,
               isTest,
-              brandSlug: msg.brandSlug ?? "aurelius-home",
+              brandSlug: opened.brand.slug,
+              brandId: opened.brand.id,
+              number: msg.dialed ?? null,
               liveModel,
               capSeconds: SESSION_CAP_SECONDS,
             });
@@ -350,7 +357,7 @@ wss.on("connection", (client) => {
               const { response, outcome } = await handleToolCall(
                 call.name,
                 call.args ?? {},
-                { conversationId: conversationId!, brandId, config: config!, isTest },
+                { conversationId: conversationId!, brandId, config: config!, isTest, customerId },
               );
               send({ type: "tool", ...outcome });
               live!.send(

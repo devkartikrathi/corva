@@ -20,6 +20,8 @@ import { runningSentiment, scoreUtterance } from "@/lib/pipelines/sentiment";
 import { addUsage, priceUsage, type Usage } from "@/lib/pricing";
 import { writeBrief } from "./brief";
 import { updateLiveSummary } from "./summary";
+import { crmInstructions, isUnnamed, saveCallerDetails, scheduleFollowUp } from "@/lib/crm/capture";
+import { industryFor } from "@/lib/business/industries";
 
 /**
  * One turn of the agent.
@@ -53,7 +55,12 @@ export type AgentReply = {
 };
 
 /** Exported so the tuning screen can preview a draft without persisting it. */
-export function systemPrompt(config: AgentConfig, context: string, chunks: RetrievedChunk[]): string {
+export function systemPrompt(
+  config: AgentConfig,
+  context: string,
+  chunks: RetrievedChunk[],
+  isNewCaller = false,
+): string {
   const sources = grounded(chunks)
     .map(
       (c, i) =>
@@ -88,11 +95,14 @@ ${describeNeverRules(config)}
 ${context}
 
 ## The only sources you may answer from
-${sources || "(nothing matched — say you do not know and that you are getting a person)"}
+${sources || "(nothing matched — say you do not have that to hand and offer a callback from the team)"}
+
+## ${crmInstructions({ isNewCaller, leadQuestions: industryFor(config.industry).leadQuestions })
+    .replace(/^RECORDING WHAT HAPPENS/, "Recording what happens")}
 
 ## Rules
 - Answer only from the sources above. If they do not cover the question, say
-  so plainly and tell the customer you are getting a person. Do not guess, and
+  so plainly and offer a callback (schedule_follow_up). Do not guess, and
   do not soften a refusal into a maybe.
 - Cite naturally in your own words; do not print bracket numbers.
 - Never state a date, price or fee that is not in the sources or the customer
@@ -116,6 +126,13 @@ export async function customerContext(customerId: string | null): Promise<{ text
   if (!row) return { text: "Unidentified caller.", priority: null };
 
   const c = row.customer;
+  // Named after their number means we do not know who they are yet.
+  if (isUnnamed(c.name)) {
+    return {
+      text: `New caller — not in the records yet. Calling from ${c.phone ?? c.name}, so you already have their number; do not ask for it. You do not know their name.`,
+      priority: null,
+    };
+  }
   const lines = [
     `Name: ${c.name}`,
     c.tier && `Tier: ${c.tier}`,
@@ -279,7 +296,7 @@ export async function* respondStream(opts: {
     const result = streamText({
       model: languageModel(model.id),
       providerOptions: thinkingOptions(model.thinking.turn),
-      system: systemPrompt(config, context, chunks),
+      system: systemPrompt(config, context, chunks, context.startsWith("New caller")),
       messages: [
         ...history.map((t) => ({
           role: (t.speaker === "customer" ? "user" : "assistant") as "user" | "assistant",
@@ -302,6 +319,62 @@ export async function* respondStream(opts: {
           execute: async ({ outcome }) => {
             closedByAgreement = outcome;
             return { closed: true };
+          },
+        }),
+        save_caller_details: tool({
+          description:
+            "Record who the customer is and what they want, as a lead for the team. Call it as soon as " +
+            "you know their name and what they are after, and again whenever you learn more.",
+          inputSchema: z.object({
+            name: z.string().optional().describe("Their name, as they gave it"),
+            interest: z.string().describe("What they want, in one line, with specifics"),
+            email: z.string().optional(),
+            notes: z.string().optional().describe("Budget, timing, preferences"),
+            valueRupees: z.number().optional().describe("Budget or order value in rupees, if known"),
+          }),
+          execute: async (input) => {
+            const { lead, created, ownerName } = await saveCallerDetails({
+              conversationId,
+              brandId: conversation.brandId,
+              customerId: conversation.customerId,
+              ...input,
+              source: conversation.channel,
+            });
+            actionsTaken.push({ label: `${created ? "New lead" : "Lead updated"}: ${lead.name}`, allowed: true });
+            return { saved: true, owner: ownerName ?? "the team" };
+          },
+        }),
+        schedule_follow_up: tool({
+          description:
+            "Create a task for the team whenever you promise a callback, to send something, or to " +
+            "check on something. Returns who will do it and when.",
+          inputSchema: z.object({
+            task: z.string().describe("What was promised"),
+            due: z.string().optional().describe("When, as an ISO date-time with +05:30"),
+            detail: z.string().optional(),
+          }),
+          execute: async ({ task, due, detail }) => {
+            const [current] = await db
+              .select({ customerId: s.conversations.customerId })
+              .from(s.conversations)
+              .where(eq(s.conversations.id, conversationId))
+              .limit(1);
+            const { assigneeName, dueAt } = await scheduleFollowUp({
+              conversationId,
+              brandId: conversation.brandId,
+              customerId: current?.customerId ?? conversation.customerId,
+              title: task,
+              detail,
+              due,
+              createdByName: config.agentName,
+              createdByAi: true,
+            });
+            actionsTaken.push({ label: `Follow-up: ${task}`, allowed: true });
+            return {
+              scheduled: true,
+              who: assigneeName ?? "someone from the team",
+              when: dueAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", weekday: "long", hour: "numeric", minute: "2-digit" }),
+            };
           },
         }),
         take_action: tool({
@@ -332,7 +405,7 @@ export async function* respondStream(opts: {
           },
         }),
       },
-      stopWhen: (step) => step.steps.length >= 4,
+      stopWhen: (step) => step.steps.length >= 5,
     });
 
     let buffer = "";

@@ -1,10 +1,7 @@
-import { eq } from "drizzle-orm";
 import { DarkKicker, OperatorHeader } from "@/components/operator-ui";
 import { VoicePlayground } from "@/components/VoicePlayground";
 import { requireStaff } from "@/lib/auth/context";
-import { db } from "@/lib/db";
-import * as s from "@/lib/db/schema";
-import { callersFor } from "@/lib/voice/session";
+import { callersFor, dialableNumbers } from "@/lib/voice/session";
 import { modelOptions } from "@/lib/queries/models";
 import {
   BRIDGE_PORT,
@@ -14,59 +11,42 @@ import {
 } from "@/lib/voice/config";
 
 /**
- * The voice playground.
+ * Test calls.
  *
- * In the operator console rather than the tenant one, deliberately. It is a
- * testing rig for Corva's own staff: it costs money per second, it can reach
- * any brand, and the agent it exercises is whatever version is live — none of
- * which belongs in a customer's workspace.
+ * A dialer, because a business is reached at a number: type one, or pick one,
+ * and whichever business answers on it takes the call. Your own number decides
+ * who you are to them — a number they have never seen makes you a new caller,
+ * which is the case worth testing most, since that is where leads come from.
  *
- * What it proves is that the guardrails hold in a medium where they are harder
- * to hold. In text the console decides when the agent speaks; on a call the
- * agent is already speaking, and the only leverage is that every consequential
- * act is a tool call the bridge answers. Same rules, different seam.
+ * It writes a real conversation on a real business: it appears on that
+ * business's live console, in its leads and follow-ups, and in its archive —
+ * kept out of its numbers unless you say otherwise.
  */
-export default async function VoiceTestingPage() {
+export default async function VoiceTestingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ dial?: string }>;
+}) {
   await requireStaff();
+  const { dial } = await searchParams;
 
-  // Only brands with a live agent version can take a call at all.
-  const rows = await db
-    .select({ brand: s.brands, version: s.agentVersions })
-    .from(s.brands)
-    .innerJoin(s.agentVersions, eq(s.agentVersions.brandId, s.brands.id))
-    .where(eq(s.agentVersions.status, "live"))
-    .orderBy(s.brands.name);
-
-  const brands = rows.map((r) => ({
-    slug: r.brand.slug,
-    name: r.brand.name,
-    agentName: r.brand.agentName,
-  }));
-
-  // Who you can ring in as, per brand. The agent reasons about this record —
-  // tier, lifetime value, priority, open orders — so it changes the call.
+  const numbers = await dialableNumbers();
   const callers = Object.fromEntries(
-    await Promise.all(brands.map(async (b) => [b.slug, await callersFor(b.slug)] as const)),
+    await Promise.all(
+      [...new Set(numbers.map((n) => n.brandId))].map(async (id) => [id, await callersFor(id)] as const),
+    ),
   );
 
-  /**
-   * A test call spends more than audio.
-   *
-   * The call itself runs on a live model, but closing it classifies the
-   * transcript, an escalation writes a brief, and an open conversation has its
-   * live summary rewritten — each of those a request against a text model's
-   * daily allowance, on a key every tenant shares. Four rehearsals is enough to
-   * exhaust the tightest of them, which is worth seeing before pressing Start
-   * rather than discovering halfway through a demo.
-   */
+  // Ending a call classifies it and an escalation writes a brief — each a
+  // request against the text model's daily allowance.
   const models = await modelOptions();
 
   return (
     <section>
       <OperatorHeader
         kicker={`Speech to speech · capped at ${SESSION_CAP_SECONDS}s`}
-        title="Voice testing"
-        lede="Ring a tenant's helpline as one of their customers. It writes a real conversation on a real brand — it appears on the live console, the handoff queue and the archive as any inbound call would, and a colleague watching those screens sees it happen."
+        title="Test calls"
+        lede="Dial a business's number and talk to its AI assistant as a customer would. The call shows up live in that business's console, and whatever the AI records — leads, follow-ups, handoffs — lands there too."
       />
 
       <div
@@ -82,19 +62,10 @@ export default async function VoiceTestingPage() {
         <DarkKicker>Model requests today</DarkKicker>
         {models.map((m) => {
           const spent = m.limit !== null && m.remaining === 0;
-          const low = m.limit !== null && m.remaining !== null && m.remaining <= Math.max(2, m.limit * 0.15);
           return (
             <span key={m.id} style={{ fontSize: 11.5, color: "var(--color-neutral-400)" }}>
               {m.label}{" "}
-              <b
-                style={{
-                  color: spent
-                    ? "var(--color-accent)"
-                    : low
-                      ? "var(--color-accent-400)"
-                      : "var(--color-bg)",
-                }}
-              >
+              <b style={{ color: spent ? "var(--color-accent)" : "var(--color-bg)" }}>
                 {m.used}
                 {m.limit === null ? "" : ` / ${m.limit}`}
               </b>
@@ -103,18 +74,22 @@ export default async function VoiceTestingPage() {
         })}
       </div>
 
-      {brands.length === 0 ? (
+      {numbers.length === 0 ? (
         <div style={{ padding: "28px 24px", fontSize: 13, color: "var(--color-neutral-400)", maxWidth: "62ch", lineHeight: 1.6 }}>
-          No brand has a live agent version, so there is nothing to call. Publish one from a
-          tenant&rsquo;s Tuning screen first.
+          No business has a number with an AI assistant behind it yet. Add one from{" "}
+          <a href="/operator/onboarding" style={{ color: "var(--color-accent-400)" }}>
+            Add a business
+          </a>{" "}
+          — it gets a number straight away.
         </div>
       ) : (
         <VoicePlayground
           bridgeUrl={`ws://localhost:${BRIDGE_PORT}`}
-          brands={brands}
+          numbers={numbers}
           callers={callers}
           liveModels={[...LIVE_MODELS]}
           costPerMinutePaise={COST_PER_MINUTE_PAISE}
+          initialDial={dial}
         />
       )}
     </section>

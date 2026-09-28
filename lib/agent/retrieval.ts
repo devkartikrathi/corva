@@ -94,8 +94,67 @@ export async function retrieve(
   query: string,
   limit = 5,
 ): Promise<RetrievedChunk[]> {
-  const embedding = await embedQuery(query);
-  const vector = sql.raw(`'[${embedding.join(",")}]'::vector`);
+  try {
+    const embedding = await embedQuery(query);
+    const vector = sql.raw(`'[${embedding.join(",")}]'::vector`);
+
+    const rows = await db
+      .select({
+        chunkId: s.documentChunks.id,
+        documentId: s.documents.id,
+        documentTitle: s.documents.title,
+        anchor: s.documentChunks.anchor,
+        content: s.documentChunks.content,
+        // pgvector's <=> is cosine distance; similarity is its complement.
+        confidence: sql<number>`1 - (${s.documentChunks.embedding} <=> ${vector})`,
+      })
+      .from(s.documentChunks)
+      .innerJoin(s.documents, eq(s.documents.id, s.documentChunks.documentId))
+      .where(
+        and(
+          eq(s.documentChunks.brandId, brandId),
+          eq(s.documents.status, "published"),
+          sql`${s.documentChunks.embedding} IS NOT NULL`,
+        ),
+      )
+      .orderBy(sql`${s.documentChunks.embedding} <=> ${vector}`)
+      .limit(limit);
+
+    if (rows.length > 0) return rows.map((r) => ({ ...r, confidence: Number(r.confidence) }));
+  } catch (e) {
+    console.error("vector retrieval failed, matching words instead:", (e as Error).message);
+  }
+  return retrieveByWords(brandId, query, limit);
+}
+
+/** Words that say nothing about what the caller wants. */
+const STOPWORDS = new Set(
+  (
+    "a an and are as at be but by can could do does for from have how i if in is it me my of on or our " +
+    "please the their there this to was we what when where which who why will with you your hi hello " +
+    "want need know tell about any get like would"
+  ).split(" "),
+);
+
+const terms = (text: string) =>
+  text
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w));
+
+/**
+ * Retrieval without embeddings.
+ *
+ * The fallback for when the embedding API is unavailable or a brand's chunks
+ * were stored before it came back. Scores are the share of the question's
+ * meaningful words that appear in the chunk, mapped onto the same 0–1 scale so
+ * the confidence bar still means "enough of this is about that". Crude, but a
+ * new business's knowledge base is a few dozen paragraphs, and a crude answer
+ * from the right paragraph beats a confident escalation from none.
+ */
+async function retrieveByWords(brandId: string, query: string, limit: number): Promise<RetrievedChunk[]> {
+  const wanted = [...new Set(terms(query))];
+  if (wanted.length === 0) return [];
 
   const rows = await db
     .select({
@@ -104,22 +163,22 @@ export async function retrieve(
       documentTitle: s.documents.title,
       anchor: s.documentChunks.anchor,
       content: s.documentChunks.content,
-      // pgvector's <=> is cosine distance; similarity is its complement.
-      confidence: sql<number>`1 - (${s.documentChunks.embedding} <=> ${vector})`,
     })
     .from(s.documentChunks)
     .innerJoin(s.documents, eq(s.documents.id, s.documentChunks.documentId))
-    .where(
-      and(
-        eq(s.documentChunks.brandId, brandId),
-        eq(s.documents.status, "published"),
-        sql`${s.documentChunks.embedding} IS NOT NULL`,
-      ),
-    )
-    .orderBy(sql`${s.documentChunks.embedding} <=> ${vector}`)
-    .limit(limit);
+    .where(and(eq(s.documentChunks.brandId, brandId), eq(s.documents.status, "published")))
+    .limit(1000);
 
-  return rows.map((r) => ({ ...r, confidence: Number(r.confidence) }));
+  return rows
+    .map((r) => {
+      const have = new Set(terms(`${r.documentTitle} ${r.anchor ?? ""} ${r.content}`));
+      const hits = wanted.filter((w) => have.has(w) || [...have].some((h) => h.startsWith(w) || w.startsWith(h))).length;
+      const share = hits / wanted.length;
+      return { ...r, confidence: hits === 0 ? 0 : Math.min(0.95, 0.45 + share * 0.5) };
+    })
+    .filter((r) => r.confidence > 0)
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, limit);
 }
 
 /** Whether anything retrieved is good enough to answer from. */
