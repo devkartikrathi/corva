@@ -28,6 +28,16 @@ const CONSENT_KINDS = [
   { kind: "data_sharing", label: "Sharing with third parties" },
 ];
 import { getCustomer } from "@/lib/queries/customers";
+import { ActionSelect, AddFollowUpForm, FollowUpButtons } from "@/components/CrmControls";
+import {
+  addFollowUp,
+  completeFollowUp,
+  postponeFollowUp,
+  reopenFollowUp,
+  setLeadStage,
+} from "@/lib/actions/crm";
+import { industryFor, LEAD_STAGES } from "@/lib/business/industries";
+import { listFollowUps, listLeads } from "@/lib/queries/crm";
 
 
 
@@ -72,7 +82,15 @@ export default async function Customer360Page({
   const liveCall = conversations.find((c) => c.status === "live" || c.status === "waiting_human");
   // Owners are the people who can actually hold an account, so the picker is
   // the team list rather than free text that drifts into three spellings.
-  const team = await getTeam(session.orgId);
+  const [team, leads, followUps] = await Promise.all([
+    getTeam(session.orgId),
+    // The customer's own record: whoever may open it may see all of what is on it.
+    listLeads(brand.id, { kind: "all" }, { customerId: customer.id }),
+    listFollowUps(brand.id, { kind: "all" }, { customerId: customer.id, limit: 20 }),
+  ]);
+  const industry = industryFor(brand.industry);
+  const openFollowUps = followUps.filter((f) => f.status === "open");
+  const doneFollowUps = followUps.filter((f) => f.status !== "open").slice(0, 3);
   const owners = team.people.map((p) => p.name);
 
   const identity = [
@@ -297,6 +315,85 @@ export default async function Customer360Page({
                 </div>
               )}
             </div>
+          </div>
+
+          {/* What they want, and what was promised them */}
+          <div style={{ padding: "16px 24px 12px", display: "flex", alignItems: "baseline", gap: 14, borderTop: "2px solid var(--color-divider)" }}>
+            <SectionTitle>Leads &amp; follow-ups</SectionTitle>
+            <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+              {leads.length} lead{leads.length === 1 ? "" : "s"} · {openFollowUps.length} follow-up{openFollowUps.length === 1 ? "" : "s"} open
+            </span>
+            <span style={{ marginLeft: "auto" }}>
+              <AddFollowUpForm
+                label="+ Follow-up"
+                onAdd={async (input) => {
+                  "use server";
+                  await addFollowUp({ ...input, customerId: customer.id });
+                }}
+              />
+            </span>
+          </div>
+          <div style={{ borderTop: "2px solid var(--color-divider)" }}>
+            {leads.length === 0 && openFollowUps.length === 0 && (
+              <div style={{ padding: "14px 24px", fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+                Nothing open. When this customer asks for something new, the AI records it here as a lead.
+              </div>
+            )}
+            {leads.map((l) => (
+              <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <b style={{ fontSize: 13 }}>{l.interest || "Enquiry"}</b>
+                  {l.createdByAi && (
+                    <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, background: "var(--color-accent)", color: "var(--color-bg)", padding: "1px 5px" }}>
+                      AI
+                    </span>
+                  )}
+                  <div style={{ marginTop: 2, fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+                    Lead · {l.ownerName ?? "unassigned"}
+                    {l.valuePaise ? ` · ${formatRupees(l.valuePaise)}` : ""}
+                    {l.notes ? ` · ${l.notes}` : ""}
+                  </div>
+                </div>
+                <ActionSelect
+                  label="Stage"
+                  value={l.stage}
+                  options={LEAD_STAGES.map((st) => ({ value: st, label: industry.stages[st] }))}
+                  onChange={async (stage) => {
+                    "use server";
+                    await setLeadStage(l.id, stage);
+                  }}
+                />
+              </div>
+            ))}
+            {[...openFollowUps, ...doneFollowUps].map((f) => (
+              <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 24px", borderBottom: "1px solid var(--color-neutral-300)", opacity: f.status === "open" ? 1 : 0.6 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <b style={{ fontSize: 13, textDecoration: f.status === "open" ? undefined : "line-through" }}>{f.title}</b>
+                  <div style={{ marginTop: 2, fontSize: 11.5, color: f.overdue ? "var(--color-accent-700)" : "var(--color-neutral-700)" }}>
+                    Follow-up · {f.assigneeName ?? "unassigned"} ·{" "}
+                    {f.status === "open"
+                      ? `${f.overdue ? "overdue since" : "due"} ${f.dueAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}`
+                      : `done by ${f.completedByName ?? "someone"}${f.outcome ? ` — ${f.outcome}` : ""}`}
+                    {f.createdByAi && " · promised by the AI"}
+                  </div>
+                </div>
+                <FollowUpButtons
+                  open={f.status === "open"}
+                  onDone={async (outcome) => {
+                    "use server";
+                    await completeFollowUp(f.id, outcome);
+                  }}
+                  onPostpone={async () => {
+                    "use server";
+                    await postponeFollowUp(f.id, 1);
+                  }}
+                  onReopen={async () => {
+                    "use server";
+                    await reopenFollowUp(f.id);
+                  }}
+                />
+              </div>
+            ))}
           </div>
 
           {/* Conversation history */}

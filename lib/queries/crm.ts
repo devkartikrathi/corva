@@ -25,7 +25,7 @@ export async function assignableMembers(orgId: string) {
   return rows.filter((r) => r.role !== "analyst");
 }
 
-export async function listLeads(brandId: string, scope: Scope, opts: { q?: string } = {}) {
+export async function listLeads(brandId: string, scope: Scope, opts: { q?: string; customerId?: string } = {}) {
   const q = opts.q?.trim();
   const rows = await db
     .select({
@@ -48,6 +48,7 @@ export async function listLeads(brandId: string, scope: Scope, opts: { q?: strin
       and(
         eq(s.leads.brandId, brandId),
         scope.kind === "own" ? eq(s.leads.ownerMembershipId, scope.membershipId) : undefined,
+        opts.customerId ? eq(s.leads.customerId, opts.customerId) : undefined,
         q
           ? or(
               sql`${s.leads.name} ilike ${`%${q}%`}`,
