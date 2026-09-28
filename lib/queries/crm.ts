@@ -207,3 +207,24 @@ export async function crmSnapshot(brandId: string, scope: Scope) {
     followUps: counts,
   };
 }
+
+/** What the AI (or a person) recorded during one conversation. */
+export async function capturedOn(conversationId: string) {
+  const [leads, followUps] = await Promise.all([
+    db
+      .select({ lead: s.leads, ownerName: owner.name })
+      .from(s.leads)
+      .leftJoin(owner, eq(owner.id, s.leads.ownerMembershipId))
+      .where(eq(s.leads.conversationId, conversationId)),
+    db
+      .select({ followUp: s.followUps, assigneeName: owner.name })
+      .from(s.followUps)
+      .leftJoin(owner, eq(owner.id, s.followUps.assigneeMembershipId))
+      .where(eq(s.followUps.conversationId, conversationId))
+      .orderBy(asc(s.followUps.createdAt)),
+  ]);
+  return {
+    leads: leads.map((r) => ({ ...r.lead, ownerName: r.ownerName })),
+    followUps: followUps.map((r) => ({ ...r.followUp, assigneeName: r.assigneeName })),
+  };
+}

@@ -17,6 +17,8 @@ import {
   takeOverCall,
 } from "@/lib/actions/conversations";
 import { approveHandoffDecision } from "@/lib/actions/handoffs";
+import { industryFor } from "@/lib/business/industries";
+import { capturedOn } from "@/lib/queries/crm";
 
 export default async function LiveCallPage({
   searchParams,
@@ -52,7 +54,8 @@ export default async function LiveCallPage({
     );
   }
 
-  const config = await loadAgentConfig(brand.id);
+  const [config, captured] = await Promise.all([loadAgentConfig(brand.id), capturedOn(call.conversation.id)]);
+  const industry = industryFor(brand.industry);
   const callerFacts = call.facts;
   const transcript = call.turns;
   const callActions = call.actions;
@@ -564,6 +567,60 @@ export default async function LiveCallPage({
 
         {/* Documents and actions */}
         <div>
+          {/* What the call has produced so far — the reason the AI is on the phone at all. */}
+          <div
+            style={{
+              padding: "14px 18px",
+              borderBottom: "1px solid var(--color-neutral-300)",
+              background: captured.leads.length || captured.followUps.length ? "var(--color-surface)" : undefined,
+            }}
+          >
+            <Kicker>Recorded on this call</Kicker>
+            <div style={{ marginTop: 11, display: "flex", flexDirection: "column", gap: 9, fontSize: 12 }}>
+              {captured.leads.length === 0 && captured.followUps.length === 0 && (
+                <span style={{ color: "var(--color-neutral-700)" }}>
+                  Nothing yet. When the caller says who they are and what they want, the AI records a lead here;
+                  when it promises a callback, the follow-up appears with a name on it.
+                </span>
+              )}
+              {captured.leads.map((l) => (
+                <div key={l.id} style={{ borderLeft: "3px solid var(--color-accent)", paddingLeft: 9 }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
+                    <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--color-accent-700)" }}>
+                      Lead
+                    </span>
+                    <b>{l.name}</b>
+                    <span style={{ marginLeft: "auto", color: "var(--color-neutral-700)" }}>{industry.stages[l.stage]}</span>
+                  </div>
+                  {l.interest && <div style={{ marginTop: 2 }}>{l.interest}</div>}
+                  <div style={{ marginTop: 2, color: "var(--color-neutral-700)" }}>
+                    Owner {l.ownerName ?? "—"}
+                    {l.valuePaise ? ` · ${formatRupees(l.valuePaise)}` : ""}
+                  </div>
+                </div>
+              ))}
+              {captured.followUps.map((f) => (
+                <div key={f.id} style={{ borderLeft: "3px solid var(--color-neutral-700)", paddingLeft: 9 }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "baseline" }}>
+                    <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--color-neutral-700)" }}>
+                      Follow-up
+                    </span>
+                    <b style={{ flex: 1 }}>{f.title}</b>
+                  </div>
+                  <div style={{ marginTop: 2, color: "var(--color-neutral-700)" }}>
+                    {f.assigneeName ?? "Unassigned"} ·{" "}
+                    {f.dueAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", hour: "numeric", minute: "2-digit" })}
+                  </div>
+                </div>
+              ))}
+              {(captured.leads.length > 0 || captured.followUps.length > 0) && (
+                <LinkAction href="/app/leads" size={11}>
+                  Open the pipeline →
+                </LinkAction>
+              )}
+            </div>
+          </div>
+
           <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-neutral-300)" }}>
             <Kicker>Documents in play</Kicker>
             <div
