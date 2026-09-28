@@ -77,7 +77,12 @@ export type BusinessRow = Awaited<ReturnType<typeof listBusinesses>>[number];
 export async function getPlatformPulse() {
   const [row] = await db
     .select({
-      businesses: sql<number>`(select count(*)::int from ${s.organizations})`,
+      // Businesses that can actually be rung: a live assistant and a number.
+      businesses: sql<number>`(
+        select count(distinct b.id)::int from ${s.brands} b
+        where exists (select 1 from ${s.agentVersions} v where v.brand_id = b.id and v.status = 'live')
+          and exists (select 1 from ${s.channels} c where c.brand_id = b.id and c.kind = 'phone' and c.address is not null)
+      )`,
       live: sql<number>`(select count(*)::int from ${s.conversations} where status in ('live', 'waiting_human'))`,
       leadsToday: sql<number>`(select count(*)::int from ${s.leads} where created_at > now() - interval '24 hours')`,
     })

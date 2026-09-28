@@ -12,9 +12,16 @@ import { listBusinesses } from "@/lib/queries/operator";
  * turning into leads. Each row ends in the two things you do next — ring it,
  * or open its console.
  */
-export default async function BusinessesPage() {
+export default async function BusinessesPage({ searchParams }: { searchParams: Promise<{ all?: string }> }) {
   await requireStaff();
-  const businesses = await listBusinesses();
+  const { all } = await searchParams;
+  const everything = await listBusinesses();
+  // The seed carries ~150 placeholder companies from the old fleet dashboard,
+  // with no assistant and no number. They are hidden unless asked for, so the
+  // list is the businesses you can actually ring.
+  const set = (b: (typeof everything)[number]) => Boolean(b.agentName || b.phone);
+  const businesses = all ? everything : everything.filter(set);
+  const hidden = everything.length - everything.filter(set).length;
 
   const answering = businesses.filter((b) => b.canAnswer).length;
   const conversations = businesses.reduce((n, b) => n + b.conversations7d, 0);
@@ -121,6 +128,22 @@ export default async function BusinessesPage() {
           ))}
         </tbody>
       </table>
+      {hidden > 0 && (
+        <p style={{ padding: "14px 24px", margin: 0, fontSize: 12, color: "var(--color-neutral-500)" }}>
+          {all ? (
+            <Link href="/operator" style={{ color: "var(--color-neutral-300)" }}>
+              Hide the {hidden} placeholder companies
+            </Link>
+          ) : (
+            <>
+              {hidden} placeholder companies from the seed data have no assistant or number and are hidden.{" "}
+              <Link href="/operator?all=1" style={{ color: "var(--color-neutral-300)" }}>
+                Show them
+              </Link>
+            </>
+          )}
+        </p>
+      )}
     </section>
   );
 }

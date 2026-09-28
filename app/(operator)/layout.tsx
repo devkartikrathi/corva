@@ -73,7 +73,7 @@ export default async function OperatorLayout({ children }: { children: React.Rea
               <b style={{ color: "var(--color-bg)" }}>{pulse.live} live</b>
             </span>
             <span>
-              Businesses <b style={{ color: "var(--color-bg)" }}>{pulse.businesses}</b>
+              Answering calls <b style={{ color: "var(--color-bg)" }}>{pulse.businesses}</b>
             </span>
             <span>
               Leads · 24h <b style={{ color: "var(--color-bg)" }}>{pulse.leadsToday}</b>
