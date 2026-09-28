@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Bar, Kicker, ScreenHeader, ScreenRefusal, StatRow, Tag, Th } from "@/components/ui";
+import { Bar, Kicker, ScreenHeader, ScreenRefusal, StatRow, Th } from "@/components/ui";
 import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { teamPerformance } from "@/lib/queries/analytics";
 import { formatRupees } from "@/lib/money";
@@ -37,87 +37,64 @@ export default async function TeamPerformancePage() {
 
   const { people, totals } = await teamPerformance(session.orgId, brand.id);
 
-  const busiest = Math.max(1, ...people.map((p) => p.accepted));
-  const biggestBook = Math.max(1, ...people.map((p) => p.bookPaise));
+  const busiest = Math.max(1, ...people.map((p) => p.leadsTotal));
+
+  const kpis = [
+    { label: "Open leads", value: String(totals.leadsOpen), note: "across the team", hot: false },
+    {
+      label: "Won",
+      value: String(totals.leadsWon),
+      note: totals.wonPaise ? `worth ${formatRupees(totals.wonPaise)}` : "no value recorded",
+      hot: false,
+    },
+    {
+      label: "Follow-ups overdue",
+      value: String(totals.followUpsOverdue),
+      note: totals.followUpsOverdue ? "promises not yet kept" : "every promise on time",
+      hot: totals.followUpsOverdue > 0,
+    },
+    {
+      label: "Handoffs in hand",
+      value: String(totals.open),
+      note: `${totals.accepted} taken · ${totals.resolved} closed`,
+      hot: totals.open > totals.available,
+    },
+    {
+      label: "Free to take a call",
+      value: `${totals.available} of ${totals.people}`,
+      note: totals.available === 0 ? "nobody is available" : "by their own setting",
+      hot: totals.available === 0,
+    },
+  ];
+
+  const dash = <span style={{ color: "var(--color-neutral-500)" }}>—</span>;
+  const sub = { display: "block", marginTop: 3, fontSize: 11, color: "var(--color-neutral-700)" } as const;
 
   return (
     <section>
       <ScreenHeader
-        kicker={`${brand.name} · ${totals.people} who can take a call · ${totals.available} free now`}
+        kicker={`${brand.name} · ${totals.people} on the team · ${totals.available} free now`}
         title="Team performance"
-        lede="Who is carrying what, how fast a handed-over customer gets picked up, and which accounts no person holds."
+        lede="Who owns which leads and how many they win, whether callbacks happen when the AI promised them, and how fast a handed-over customer gets picked up."
       />
 
-      {/* The four numbers a manager opens this screen for. */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
-          borderBottom: "2px solid var(--color-divider)",
-        }}
-      >
-        {[
-          {
-            label: "Waiting or in hand",
-            value: String(totals.open),
-            note: totals.open === 0 ? "nothing outstanding" : "across the team right now",
-            hot: totals.open > totals.available,
-          },
-          {
-            label: "Handoffs taken",
-            value: String(totals.accepted),
-            note: `${totals.resolved} closed out`,
-            hot: false,
-          },
-          {
-            label: "Free to take a call",
-            value: `${totals.available} of ${totals.people}`,
-            note: totals.available === 0 ? "nobody is available" : "by their own setting",
-            hot: totals.available === 0,
-          },
-          {
-            /**
-             * Not a failure state. A customer the AI handles start to finish
-             * is the product working — this is here so a manager can see how
-             * much of the book that is, and decide whether it should be.
-             */
-            label: "Held by the AI alone",
-            value: String(totals.aiOnly),
-            note: "no person assigned",
-            hot: false,
-          },
-        ].map((k, i) => (
-          <div
-            key={k.label}
-            style={{
-              padding: "16px 20px",
-              borderRight: i < 3 ? "1px solid var(--color-neutral-300)" : undefined,
-            }}
-          >
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${kpis.length}, 1fr)`, borderBottom: "2px solid var(--color-divider)" }}>
+        {kpis.map((k, i) => (
+          <div key={k.label} style={{ padding: "16px 20px", borderRight: i < kpis.length - 1 ? "1px solid var(--color-neutral-300)" : undefined }}>
             <Kicker>{k.label}</Kicker>
-            <div
-              style={{
-                marginTop: 8,
-                fontWeight: 800,
-                fontSize: 27,
-                letterSpacing: "-0.028em",
-                color: k.hot ? "var(--color-accent-700)" : undefined,
-              }}
-            >
+            <div style={{ marginTop: 8, fontWeight: 800, fontSize: 27, letterSpacing: "-0.028em", color: k.hot ? "var(--color-accent-700)" : undefined }}>
               {k.value}
             </div>
-            <div style={{ marginTop: 3, fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-              {k.note}
-            </div>
+            <div style={{ marginTop: 3, fontSize: 11.5, color: "var(--color-neutral-700)" }}>{k.note}</div>
           </div>
         ))}
       </div>
 
       {people.length === 0 ? (
         <p style={{ padding: "20px 24px", fontSize: 13, color: "var(--color-neutral-800)", maxWidth: "56ch" }}>
-          Nobody on {brand.name} can be handed a call yet. Invite an Agent or a Manager from{" "}
+          Nobody on {brand.name} can be handed work yet. Invite an Agent or a Manager from{" "}
           <Link href="/app/team" style={{ fontWeight: 600, color: "var(--color-text)" }}>
-            Team &amp; roles
+            People &amp; roles
           </Link>
           , and every column here fills itself from the work they do.
         </p>
@@ -127,23 +104,22 @@ export default async function TeamPerformancePage() {
             <tr style={{ borderBottom: "2px solid var(--color-divider)" }}>
               <Th padding="9px 24px">Person</Th>
               <Th>Right now</Th>
-              <Th width={150}>Handoffs taken</Th>
-              <Th width={92}>Closed</Th>
-              <Th width={92}>Pick-up</Th>
-              <Th width={92}>Rating</Th>
-              <Th width={92}>Reviews</Th>
-              <Th width={170}>Accounts held</Th>
-              <Th padding="9px 24px 9px 10px">Known for</Th>
+              <Th width={190}>Leads owned</Th>
+              <Th width={110}>Conversion</Th>
+              <Th width={170}>Follow-ups</Th>
+              <Th width={150}>Handoffs</Th>
+              <Th width={90}>Rating</Th>
+              <Th width={150} padding="9px 24px 9px 10px">
+                Accounts held
+              </Th>
             </tr>
           </thead>
           <tbody>
             {people.map((p) => (
-              <tr key={p.membershipId} style={{ borderBottom: "1px solid var(--color-neutral-300)" }}>
+              <tr key={p.membershipId} style={{ borderBottom: "1px solid var(--color-neutral-300)", verticalAlign: "top" }}>
                 <td style={{ padding: "11px 24px" }}>
                   <b style={{ fontSize: 13 }}>{p.name}</b>
-                  <span style={{ display: "block", fontSize: 11, color: "var(--color-neutral-700)" }}>
-                    {p.role}
-                  </span>
+                  <span style={sub}>{p.role}</span>
                 </td>
 
                 <td style={{ padding: "11px 10px" }}>
@@ -161,107 +137,64 @@ export default async function TeamPerformancePage() {
                               : "var(--color-neutral-400)",
                       }}
                     />
-                    {p.availability === "available"
-                      ? "Available"
-                      : p.availability === "busy"
-                        ? "On a call"
-                        : "Offline"}
+                    {p.availability === "available" ? "Available" : p.availability === "busy" ? "On a call" : "Offline"}
                   </span>
-                  {p.open > 0 && (
-                    <span style={{ display: "block", marginTop: 3, fontSize: 11, color: "var(--color-accent-700)" }}>
-                      {p.open} in hand
-                    </span>
-                  )}
+                  {p.open > 0 && <span style={{ ...sub, color: "var(--color-accent-700)" }}>{p.open} handoff{p.open === 1 ? "" : "s"} in hand</span>}
                 </td>
 
                 <td style={{ padding: "11px 10px" }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <b style={{ fontSize: 12.5, width: 26 }}>{p.accepted}</b>
-                    <Bar
-                      width={`${Math.round((p.accepted / busiest) * 100)}%`}
-                      color="var(--color-neutral-700)"
-                      style={{ flex: 1 }}
-                    />
+                    <b style={{ fontSize: 12.5, width: 26 }}>{p.leadsTotal}</b>
+                    <Bar width={`${Math.round((p.leadsTotal / busiest) * 100)}%`} color="var(--color-neutral-700)" style={{ flex: 1 }} />
                   </span>
-                  <span style={{ display: "block", marginTop: 3, fontSize: 11, color: "var(--color-neutral-700)" }}>
-                    {p.conversations} conversation{p.conversations === 1 ? "" : "s"} handled
+                  <span style={sub}>
+                    {p.leadsOpen} open · {p.leadsWon} won · {p.leadsLost} lost
                   </span>
                 </td>
 
                 <td style={{ padding: "11px 10px", fontSize: 12.5 }}>
-                  {p.closeRate === null ? (
-                    <span style={{ color: "var(--color-neutral-500)" }}>—</span>
+                  {p.conversion === null ? dash : <b>{p.conversion}%</b>}
+                  {p.wonPaise > 0 && <span style={sub}>{formatRupees(p.wonPaise)}</span>}
+                </td>
+
+                <td style={{ padding: "11px 10px", fontSize: 12.5 }}>
+                  {p.followUpsDone + p.followUpsOpen === 0 ? (
+                    dash
                   ) : (
-                    <b style={{ color: p.closeRate >= 80 ? undefined : "var(--color-accent-700)" }}>
-                      {p.closeRate}%
-                    </b>
+                    <>
+                      <b>{p.followUpsDone}</b> done
+                      {p.onTimeRate !== null && (
+                        <span style={{ color: p.onTimeRate >= 80 ? "var(--color-neutral-800)" : "var(--color-accent-700)" }}>
+                          {" "}
+                          · {p.onTimeRate}% on time
+                        </span>
+                      )}
+                      <span style={{ ...sub, color: p.followUpsOverdue ? "var(--color-accent-700)" : sub.color }}>
+                        {p.followUpsOpen} open{p.followUpsOverdue ? `, ${p.followUpsOverdue} overdue` : ""}
+                      </span>
+                    </>
                   )}
                 </td>
 
                 <td style={{ padding: "11px 10px", fontSize: 12.5 }}>
-                  {/* Median, not mean — one handoff that sat overnight would
-                      otherwise make a good week look like a bad one. */}
-                  <b
-                    style={{
-                      color:
-                        p.pickupSeconds !== null && p.pickupSeconds > 300
-                          ? "var(--color-accent-700)"
-                          : undefined,
-                    }}
-                  >
-                    {p.pickup}
-                  </b>
-                </td>
-
-                <td style={{ padding: "11px 10px", fontSize: 12.5 }}>
-                  {p.rating === null ? (
-                    <span style={{ color: "var(--color-neutral-500)" }}>—</span>
+                  {p.accepted === 0 ? (
+                    dash
                   ) : (
-                    <b>{p.rating.toFixed(1)}★</b>
+                    <>
+                      <b>{p.accepted}</b> taken{p.closeRate !== null && ` · ${p.closeRate}% closed`}
+                      <span style={sub}>pick-up {p.pickup}</span>
+                    </>
                   )}
                 </td>
 
                 <td style={{ padding: "11px 10px", fontSize: 12.5 }}>
-                  {p.reviewScore === null ? (
-                    <span style={{ color: "var(--color-neutral-500)" }} title="Nobody has reviewed one of their calls yet">
-                      —
-                    </span>
-                  ) : (
-                    <b>{p.reviewScore.toFixed(1)}</b>
-                  )}
+                  {p.rating === null ? dash : <b>{p.rating.toFixed(1)}★</b>}
+                  {p.reviewScore !== null && <span style={sub}>reviews {p.reviewScore.toFixed(1)}</span>}
                 </td>
 
-                <td style={{ padding: "11px 10px" }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <b style={{ fontSize: 12.5, width: 22 }}>{p.customers}</b>
-                    <Bar
-                      width={`${Math.round((p.bookPaise / biggestBook) * 100)}%`}
-                      color="var(--color-neutral-500)"
-                      style={{ flex: 1 }}
-                    />
-                  </span>
-                  <span style={{ display: "block", marginTop: 3, fontSize: 11, color: "var(--color-neutral-700)" }}>
-                    {p.book} lifetime value
-                  </span>
-                </td>
-
-                <td style={{ padding: "11px 24px 11px 10px" }}>
-                  {p.specialities.length === 0 ? (
-                    <span style={{ fontSize: 11.5, color: "var(--color-neutral-500)" }}>—</span>
-                  ) : (
-                    <span style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                      {p.specialities.map((sp) => (
-                        <Tag
-                          key={sp}
-                          bg="var(--color-neutral-200)"
-                          fg="var(--color-neutral-800)"
-                          padding="3px 7px"
-                        >
-                          {sp}
-                        </Tag>
-                      ))}
-                    </span>
-                  )}
+                <td style={{ padding: "11px 24px 11px 10px", fontSize: 12.5 }}>
+                  <b>{p.customers}</b>
+                  <span style={sub}>{p.book} lifetime value</span>
                 </td>
               </tr>
             ))}
@@ -305,8 +238,8 @@ export default async function TeamPerformancePage() {
         <div>
           <Kicker>What these columns are not</Kicker>
           <div style={{ marginTop: 11, display: "flex", flexDirection: "column", gap: 7 }}>
-            <StatRow label="Rating" value="A judgement, set by a manager" />
-            <StatRow label="Reviews" value="The score left on their calls, 1–5" />
+            <StatRow label="Conversion" value="Won out of won + lost — open leads do not count against anyone" />
+            <StatRow label="On time" value="Done within an hour of when it was promised" />
             <StatRow label="Pick-up" value="Median, so one bad night cannot skew it" />
             <StatRow
               label="Accounts held"

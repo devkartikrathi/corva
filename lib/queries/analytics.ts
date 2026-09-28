@@ -357,7 +357,7 @@ export async function agentPerformance(orgId: string) {
  * mix in colleagues they are not accountable for and cannot act on.
  */
 export async function teamPerformance(orgId: string, brandId: string) {
-  const [people, handoffStats, openStats, book, handled, aiOnlyRows] = await Promise.all([
+  const [people, handoffStats, openStats, book, handled, aiOnlyRows, leadStats, followUpStats] = await Promise.all([
     db
       .select()
       .from(s.memberships)
@@ -439,12 +439,47 @@ export async function teamPerformance(orgId: string, brandId: string) {
       .select({ n: sql<number>`count(*)::int` })
       .from(s.customers)
       .where(and(eq(s.customers.brandId, brandId), isNull(s.customers.ownerMembershipId))),
+
+    // The pipeline each person owns, and how much of it they closed.
+    db
+      .select({
+        membershipId: s.leads.ownerMembershipId,
+        total: sql<number>`count(*)::int`,
+        open: sql<number>`count(*) filter (where ${s.leads.stage} not in ('won', 'lost'))::int`,
+        won: sql<number>`count(*) filter (where ${s.leads.stage} = 'won')::int`,
+        lost: sql<number>`count(*) filter (where ${s.leads.stage} = 'lost')::int`,
+        wonPaise: sql<number>`coalesce(sum(${s.leads.valuePaise}) filter (where ${s.leads.stage} = 'won'), 0)::bigint`,
+      })
+      .from(s.leads)
+      .where(and(eq(s.leads.brandId, brandId), isNotNull(s.leads.ownerMembershipId)))
+      .groupBy(s.leads.ownerMembershipId),
+
+    /**
+     * Promises kept.
+     *
+     * "On time" is done before the due time plus a working hour's grace — a
+     * callback made at 11:20 for an 11:00 slot was kept; one made the next
+     * afternoon was not.
+     */
+    db
+      .select({
+        membershipId: s.followUps.assigneeMembershipId,
+        done: sql<number>`count(*) filter (where ${s.followUps.status} = 'done')::int`,
+        onTime: sql<number>`count(*) filter (where ${s.followUps.status} = 'done' and ${s.followUps.completedAt} <= ${s.followUps.dueAt} + interval '1 hour')::int`,
+        overdue: sql<number>`count(*) filter (where ${s.followUps.status} = 'open' and ${s.followUps.dueAt} < now())::int`,
+        open: sql<number>`count(*) filter (where ${s.followUps.status} = 'open')::int`,
+      })
+      .from(s.followUps)
+      .where(and(eq(s.followUps.brandId, brandId), isNotNull(s.followUps.assigneeMembershipId)))
+      .groupBy(s.followUps.assigneeMembershipId),
   ]);
 
   const handoffsBy = new Map(handoffStats.map((r) => [r.membershipId!, r]));
   const openBy = new Map(openStats.map((r) => [r.membershipId, r.open]));
   const bookBy = new Map(book.map((r) => [r.membershipId!, r]));
   const handledBy = new Map(handled.map((r) => [r.name!, r]));
+  const leadsBy = new Map(leadStats.map((r) => [r.membershipId!, r]));
+  const followUpsBy = new Map(followUpStats.map((r) => [r.membershipId!, r]));
 
   // Only people who can be handed a customer. An Analyst has no handling
   // numbers by construction, and a row of dashes against their name reads as a
@@ -459,6 +494,9 @@ export async function teamPerformance(orgId: string, brandId: string) {
       const resolved = h?.resolved ?? 0;
       const pickup = h?.pickupSeconds == null ? null : Math.round(Number(h.pickupSeconds));
       const bookPaise = Number(b?.bookPaise ?? 0);
+      const l = leadsBy.get(m.id);
+      const f = followUpsBy.get(m.id);
+      const decided = (l?.won ?? 0) + (l?.lost ?? 0);
 
       return {
         membershipId: m.id,
@@ -486,11 +524,25 @@ export async function teamPerformance(orgId: string, brandId: string) {
          * question the data cannot answer yet.
          */
         closeRate: accepted > 0 ? Math.round((resolved / accepted) * 100) : null,
+        leadsOpen: l?.open ?? 0,
+        leadsWon: l?.won ?? 0,
+        leadsLost: l?.lost ?? 0,
+        leadsTotal: l?.total ?? 0,
+        wonPaise: Number(l?.wonPaise ?? 0),
+        /** Won out of decided — an open lead is not yet a loss. */
+        conversion: decided > 0 ? Math.round(((l?.won ?? 0) / decided) * 100) : null,
+        followUpsDone: f?.done ?? 0,
+        followUpsOpen: f?.open ?? 0,
+        followUpsOverdue: f?.overdue ?? 0,
+        onTimeRate: f && f.done > 0 ? Math.round((f.onTime / f.done) * 100) : null,
       };
     });
 
   // Busiest first: the point of the table is who is carrying what.
-  rows.sort((a, b2) => b2.accepted - a.accepted || b2.customers - a.customers);
+  rows.sort(
+    (a, b2) =>
+      b2.leadsTotal + b2.accepted - (a.leadsTotal + a.accepted) || b2.customers - a.customers,
+  );
 
   return {
     people: rows,
@@ -502,6 +554,10 @@ export async function teamPerformance(orgId: string, brandId: string) {
       resolved: rows.reduce((a, p) => a + p.resolved, 0),
       /** Accounts on this brand that no person holds — the AI is running them. */
       aiOnly: aiOnlyRows[0]?.n ?? 0,
+      leadsOpen: rows.reduce((a, p) => a + p.leadsOpen, 0),
+      leadsWon: rows.reduce((a, p) => a + p.leadsWon, 0),
+      wonPaise: rows.reduce((a, p) => a + p.wonPaise, 0),
+      followUpsOverdue: rows.reduce((a, p) => a + p.followUpsOverdue, 0),
     },
   };
 }
