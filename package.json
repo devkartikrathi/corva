@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "build": "next build",
-    "check:sql": "tsx scripts/check-sql.ts",
     "check:quota": "tsx scripts/check-quota.ts",
+    "check:sql": "tsx scripts/check-sql.ts",
     "db:conversations": "tsx lib/db/seed-conversations.ts",
+    "db:crm": "tsx lib/db/seed-crm.ts",
     "db:doctor": "tsx lib/db/doctor.ts",
     "db:embed": "tsx --tsconfig tsconfig.json lib/db/embed.ts",
     "db:generate": "drizzle-kit generate",
@@ -18,6 +19,8 @@
     "db:studio": "drizzle-kit studio",
     "dev": "next dev",
     "pipelines": "tsx scripts/pipelines.ts",
+    "smoke:business": "tsx --tsconfig tsconfig.json scripts/smoke-business.ts",
+    "smoke:voice": "tsx --tsconfig tsconfig.json scripts/smoke-voice.ts",
     "start": "next start",
     "voice": "tsx scripts/voice-server.ts"
   },

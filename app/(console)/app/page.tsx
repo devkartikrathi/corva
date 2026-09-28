@@ -61,7 +61,7 @@ export default async function HomePage() {
       href: "/app/leads",
     },
     {
-      label: "Follow-ups due today",
+      label: "Follow-ups still due today",
       value: String(crm.followUps.today),
       note: crm.followUps.overdue ? `${crm.followUps.overdue} overdue` : "nothing overdue",
       accent: crm.followUps.overdue > 0,

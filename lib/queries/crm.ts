@@ -101,13 +101,16 @@ export async function listFollowUps(
   scope: Scope,
   opts: { window?: FollowUpWindow; customerId?: string; leadId?: string; limit?: number } = {},
 ) {
-  const { start, end } = todayInIndia();
+  // Overdue means past its time, not "from before today": a 4pm callback not
+  // made by 6pm is late now, and every screen has to agree on that.
+  const { end } = todayInIndia();
+  const now = new Date();
   const window = opts.window;
   const windowWhere =
     window === "overdue"
-      ? and(eq(s.followUps.status, "open"), lt(s.followUps.dueAt, start))
+      ? and(eq(s.followUps.status, "open"), lt(s.followUps.dueAt, now))
       : window === "today"
-        ? and(eq(s.followUps.status, "open"), gte(s.followUps.dueAt, start), lt(s.followUps.dueAt, end))
+        ? and(eq(s.followUps.status, "open"), gte(s.followUps.dueAt, now), lt(s.followUps.dueAt, end))
         : window === "upcoming"
           ? and(eq(s.followUps.status, "open"), gte(s.followUps.dueAt, end))
           : window === "done"
@@ -151,7 +154,7 @@ export async function listFollowUps(
     customerPhone: r.customerPhone,
     leadName: r.leadName,
     leadInterest: r.leadInterest,
-    overdue: r.followUp.status === "open" && r.followUp.dueAt < start,
+    overdue: r.followUp.status === "open" && r.followUp.dueAt < now,
   }));
 }
 
@@ -159,11 +162,12 @@ export type FollowUpRow = Awaited<ReturnType<typeof listFollowUps>>[number];
 
 /** How many follow-ups sit in each window, for the tab counts. */
 export async function followUpCounts(brandId: string, scope: Scope) {
-  const { start, end } = todayInIndia();
+  const { end } = todayInIndia();
+  const now = new Date();
   const [row] = await db
     .select({
-      overdue: sql<number>`count(*) filter (where ${s.followUps.status} = 'open' and ${s.followUps.dueAt} < ${start})::int`,
-      today: sql<number>`count(*) filter (where ${s.followUps.status} = 'open' and ${s.followUps.dueAt} >= ${start} and ${s.followUps.dueAt} < ${end})::int`,
+      overdue: sql<number>`count(*) filter (where ${s.followUps.status} = 'open' and ${s.followUps.dueAt} < ${now})::int`,
+      today: sql<number>`count(*) filter (where ${s.followUps.status} = 'open' and ${s.followUps.dueAt} >= ${now} and ${s.followUps.dueAt} < ${end})::int`,
       upcoming: sql<number>`count(*) filter (where ${s.followUps.status} = 'open' and ${s.followUps.dueAt} >= ${end})::int`,
       done: sql<number>`count(*) filter (where ${s.followUps.status} <> 'open')::int`,
     })
