@@ -68,6 +68,12 @@ async function main() {
     console.log("  actions:", reply.actions, reply.escalation ? `ESCALATED: ${reply.escalation.reason}` : "");
   }
 
+  // Hang up, so the test does not sit on the live console forever.
+  await db
+    .update(s.conversations)
+    .set({ status: "resolved", endedAt: new Date() })
+    .where(eq(s.conversations.id, conversation.id));
+
   const leads = await db.select().from(s.leads).where(eq(s.leads.brandId, found.brand.id));
   const followUps = await db.select().from(s.followUps).where(eq(s.followUps.brandId, found.brand.id));
   const [cust] = await db.select().from(s.customers).where(eq(s.customers.id, customer!.id));

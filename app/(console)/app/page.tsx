@@ -1,29 +1,19 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import {
-  Bar,
-  Kicker,
-  LinkAction,
-  LiveDot,
-  OutlineButton,
-  PrimaryButton,
-  ScreenTitle,
-  SectionTitle,
-  StackedBar,
-  Tag,
-  Th,
-} from "@/components/ui";
+import { Bar, Kicker, LinkAction, LiveDot, OutlineButton, PrimaryButton, ScreenTitle, SectionTitle } from "@/components/ui";
+import { FollowUpButtons } from "@/components/CrmControls";
 import { ActionButton } from "@/components/ActionButton";
 import { LiveRefresh } from "@/components/LiveRefresh";
 import { takeOverCall } from "@/lib/actions/conversations";
 import { getConsoleContext } from "@/lib/auth/context";
 import { customerScope } from "@/lib/auth/scope";
-import { hourlyVolume } from "@/lib/queries/analytics";
-import { docGaps, headlineStats, liveCalls, needsHuman, scoreMovers } from "@/lib/queries/command";
-import { priorityQueue } from "@/lib/queries/customers";
-import { listSavedViews } from "@/lib/queries/views";
+import { completeFollowUp, postponeFollowUp, reopenFollowUp } from "@/lib/actions/crm";
+import { industryFor } from "@/lib/business/industries";
+import { formatRupeesShort } from "@/lib/money";
+import { docGaps, headlineStats, liveCalls, needsHuman } from "@/lib/queries/command";
+import { crmSnapshot, listFollowUps, listLeads } from "@/lib/queries/crm";
 
-export default async function CommandCenterPage() {
+export default async function HomePage() {
   const { session, brand } = await getConsoleContext();
 
   /**
@@ -39,16 +29,48 @@ export default async function CommandCenterPage() {
   const scope = customerScope(session.actor, session.membershipId, brand.id);
   const mine = scope.kind === "own";
 
-  const [stats, live, queue, waiting, gaps, movers, volume, views] = await Promise.all([
+  const [stats, live, waiting, gaps, crm, dueFollowUps, overdueFollowUps, leads] = await Promise.all([
     headlineStats(brand.id),
     liveCalls(brand.id),
-    priorityQueue(brand.id, { ownedBy: mine ? scope.membershipId : undefined }),
     needsHuman(brand.id),
     docGaps(brand.id),
-    scoreMovers(brand.id),
-    hourlyVolume(brand.id),
-    listSavedViews(session.orgId, "customers"),
+    crmSnapshot(brand.id, scope),
+    listFollowUps(brand.id, scope, { window: "today", limit: 8 }),
+    listFollowUps(brand.id, scope, { window: "overdue", limit: 8 }),
+    listLeads(brand.id, scope),
   ]);
+  const industry = industryFor(brand.industry);
+  const followUps = [...overdueFollowUps, ...dueFollowUps].slice(0, 8);
+  const newestLeads = leads.filter((l) => l.stage !== "won" && l.stage !== "lost").slice(0, 6);
+
+  // The business's numbers first — leads and promises — then the AI's.
+  const pick = (label: string) => stats.find((s) => s.label.startsWith(label));
+  const headline = [
+    {
+      label: "New leads · 7 days",
+      value: String(crm.newLeadsThisWeek),
+      note: crm.leadsByAiThisWeek ? `${crm.leadsByAiThisWeek} captured by the AI on calls` : "none captured yet",
+      accent: false,
+      href: "/app/leads",
+    },
+    {
+      label: "Open pipeline",
+      value: String(crm.openLeads),
+      note: crm.pipelinePaise ? `worth ${formatRupeesShort(crm.pipelinePaise)}` : `${crm.wonThisWeek} ${industry.stages.won.toLowerCase()} this week`,
+      accent: false,
+      href: "/app/leads",
+    },
+    {
+      label: "Follow-ups due today",
+      value: String(crm.followUps.today),
+      note: crm.followUps.overdue ? `${crm.followUps.overdue} overdue` : "nothing overdue",
+      accent: crm.followUps.overdue > 0,
+      href: "/app/follow-ups",
+    },
+    ...[pick("Contacts"), pick("AI containment"), pick("Waiting")]
+      .filter((s): s is NonNullable<typeof s> => Boolean(s))
+      .map((s) => ({ label: s.label, value: `${s.value}${s.unit ?? ""}`, note: s.note, accent: Boolean(s.accent), href: undefined as string | undefined })),
+  ];
 
   return (
     <section>
@@ -61,22 +83,12 @@ export default async function CommandCenterPage() {
           gap: 24,
         }}
       >
-        <ScreenTitle
-          kicker={mine ? `${brand.name} · your accounts` : brand.name}
-          title="Command center"
-        />
+        <ScreenTitle kicker={mine ? `${brand.name} · your work` : brand.name} title="Today" />
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           <LiveRefresh active={live.length > 0 || waiting.length > 0} />
-          <span style={{ fontSize: 11, color: "var(--color-neutral-700)" }}>Saved views</span>
-          {views
-            .filter((v) => !v.isDefault)
-            .map((v) => (
-              <OutlineButton key={v.id} href={v.href} style={{ fontSize: 11, padding: "6px 10px", borderWidth: 1 }}>
-                {v.name}
-              </OutlineButton>
-            ))}
-          <PrimaryButton href="/app/customers" style={{ fontWeight: 600 }}>
-            {mine ? "My customers →" : "All customers →"}
+          <OutlineButton href="/app/follow-ups">Follow-ups</OutlineButton>
+          <PrimaryButton href="/app/leads" style={{ fontWeight: 600 }}>
+            {mine ? "My leads →" : "Leads →"}
           </PrimaryButton>
         </div>
       </div>
@@ -85,39 +97,46 @@ export default async function CommandCenterPage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(5, 1fr)",
+          gridTemplateColumns: `repeat(${headline.length}, 1fr)`,
           borderBottom: "2px solid var(--color-divider)",
         }}
       >
-        {stats.map((stat, i) => (
-          <div
-            key={stat.label}
-            style={{
-              padding: "16px 20px",
-              borderRight: i < stats.length - 1 ? "1px solid var(--color-neutral-300)" : undefined,
-            }}
-          >
-            <Kicker style={{ letterSpacing: "0.12em" }}>{stat.label}</Kicker>
-            <div
-              style={{
-                marginTop: 8,
-                fontWeight: 800,
-                fontSize: 32,
-                lineHeight: 1,
-                letterSpacing: "-0.03em",
-                color: stat.accent ? "var(--color-accent-700)" : undefined,
-              }}
-            >
-              {stat.value}
-              {stat.unit && (
-                <span style={{ fontSize: 16, color: "var(--color-neutral-700)" }}>{stat.unit}</span>
-              )}
+        {headline.map((stat, i) => {
+          const body = (
+            <>
+              <Kicker style={{ letterSpacing: "0.12em" }}>{stat.label}</Kicker>
+              <div
+                style={{
+                  marginTop: 8,
+                  fontWeight: 800,
+                  fontSize: 30,
+                  lineHeight: 1,
+                  letterSpacing: "-0.03em",
+                  color: stat.accent ? "var(--color-accent-700)" : "var(--color-text)",
+                }}
+              >
+                {stat.value}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 11.5, color: stat.accent ? "var(--color-accent-700)" : "var(--color-neutral-700)" }}>
+                {stat.note}
+              </div>
+            </>
+          );
+          const style = {
+            padding: "16px 20px",
+            borderRight: i < headline.length - 1 ? "1px solid var(--color-neutral-300)" : undefined,
+            display: "block",
+          } as const;
+          return stat.href ? (
+            <Link key={stat.label} href={stat.href} className="hov-surface" style={style}>
+              {body}
+            </Link>
+          ) : (
+            <div key={stat.label} style={style}>
+              {body}
             </div>
-            <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-              {stat.note}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Live right now */}
@@ -274,106 +293,106 @@ export default async function CommandCenterPage() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 356px" }}>
         <div style={{ borderRight: "2px solid var(--color-divider)" }}>
-          {/* Priority queue */}
-          <div style={{ padding: "16px 24px 12px", display: "flex", alignItems: "baseline", gap: 12 }}>
-            <SectionTitle>{mine ? "Your priority queue" : "Priority queue"}</SectionTitle>
-            <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-              {mine
-                ? "Your accounts, by blended score"
-                : "Blended score · brand overrides applied"}
-            </span>
-            <LinkAction href="/app/customers" style={{ marginLeft: "auto" }}>
-              {mine ? "My customers →" : "All customers →"}
+          {/* Follow-ups */}
+          <div style={{ padding: "16px 24px 10px", display: "flex", alignItems: "baseline", gap: 12 }}>
+            <SectionTitle>{mine ? "Your follow-ups" : "Follow-ups due"}</SectionTitle>
+            <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>Overdue first, then today</span>
+            <LinkAction href="/app/follow-ups" style={{ marginLeft: "auto" }}>
+              All follow-ups →
             </LinkAction>
           </div>
-
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-            <thead>
-              <tr
+          <div style={{ borderTop: "2px solid var(--color-divider)" }}>
+            {followUps.length === 0 && (
+              <p style={{ margin: 0, padding: "14px 24px", fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+                Nothing due today. When the AI promises a caller a callback, it lands here with a name on it.
+              </p>
+            )}
+            {followUps.map((f) => (
+              <div
+                key={f.id}
                 style={{
-                  borderTop: "2px solid var(--color-divider)",
-                  borderBottom: "2px solid var(--color-divider)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 14,
+                  padding: "11px 24px",
+                  borderBottom: "1px solid var(--color-neutral-300)",
                 }}
               >
-                <Th padding="8px 24px">Customer</Th>
-                <Th width={92} padding="8px 12px">Priority</Th>
-                <Th padding="8px 12px">Why it&rsquo;s high</Th>
-                <Th width={96} padding="8px 12px">Value</Th>
-                <Th width={150} padding="8px 24px">Next action</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {queue.map((row) => (
-                <tr
-                  key={row.id}
-                  className="hov-surface"
-                  style={{ borderBottom: "1px solid var(--color-neutral-300)" }}
-                >
-                  <td style={{ padding: "11px 24px" }}>
-                    <Link href={`/app/customers/${row.id}`} style={{ textAlign: "left", color: "var(--color-text)" }}>
-                      <b style={{ fontSize: 13 }}>{row.name}</b>
-                      <span style={{ display: "block", fontSize: 11, color: "var(--color-neutral-700)" }}>
-                        {row.meta}
-                      </span>
-                    </Link>
-                  </td>
-                  <td style={{ padding: "11px 12px" }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <b style={{ fontSize: 15, color: row.pColor }}>{row.priority}</b>
-                      <Bar width={row.pBar} color={row.pColor} height={5} style={{ width: 34 }} />
-                    </span>
-                  </td>
-                  <td style={{ padding: "11px 12px", color: "var(--color-neutral-800)" }}>{row.why}</td>
-                  <td style={{ padding: "11px 12px", fontWeight: 700 }}>{row.value}</td>
-                  <td style={{ padding: "11px 24px" }}>
-                    <Tag bg={row.actionBg} fg={row.actionFg} size={11} padding="4px 8px">
-                      {row.action}
-                    </Tag>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <b style={{ fontSize: 13 }}>{f.title}</b>
+                  <div style={{ marginTop: 2, fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+                    {f.customerId ? (
+                      <Link href={`/app/customers/${f.customerId}`} style={{ color: "var(--color-text)", fontWeight: 600 }}>
+                        {f.customerName ?? f.leadName}
+                      </Link>
+                    ) : (
+                      f.leadName ?? "—"
+                    )}
+                    {f.customerPhone && ` · ${f.customerPhone}`}
+                    {!mine && ` · ${f.assigneeName ?? "unassigned"}`}
+                    {f.createdByAi && " · promised by the AI"}
+                  </div>
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", color: f.overdue ? "var(--color-accent-700)" : "var(--color-neutral-800)" }}>
+                  {f.overdue ? "Overdue · " : ""}
+                  {f.dueAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit", ...(f.overdue ? { day: "numeric", month: "short" } : {}) })}
+                </span>
+                <FollowUpButtons
+                  open={f.status === "open"}
+                  onDone={async (outcome) => {
+                    "use server";
+                    await completeFollowUp(f.id, outcome);
+                  }}
+                  onPostpone={async () => {
+                    "use server";
+                    await postponeFollowUp(f.id, 1);
+                  }}
+                  onReopen={async () => {
+                    "use server";
+                    await reopenFollowUp(f.id);
+                  }}
+                />
+              </div>
+            ))}
+          </div>
 
-          {/* Contact volume */}
-          <div style={{ padding: "18px 24px", borderTop: "2px solid var(--color-divider)" }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-              <SectionTitle>Contact volume &amp; containment</SectionTitle>
-              <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>Hourly, today</span>
-            </div>
-            <div
-              style={{
-                marginTop: 16,
-                display: "flex",
-                alignItems: "flex-end",
-                gap: 6,
-                height: 116,
-                borderBottom: "2px solid var(--color-divider)",
-              }}
-            >
-              {volume.map((bar, i) => (
-                <StackedBar key={i} ai={bar.ai} human={bar.human} />
-              ))}
-            </div>
-            <div
-              style={{
-                marginTop: 8,
-                display: "flex",
-                gap: 18,
-                fontSize: 11,
-                color: "var(--color-neutral-700)",
-              }}
-            >
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ width: 10, height: 10, background: "var(--color-accent)", display: "block" }} />
-                Resolved by AI
-              </span>
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ width: 10, height: 10, background: "var(--color-neutral-400)", display: "block" }} />
-                Handed to a human
-              </span>
-              <span style={{ marginLeft: "auto" }}>08:00 → 21:00</span>
-            </div>
+          {/* Newest leads */}
+          <div style={{ padding: "18px 24px 10px", display: "flex", alignItems: "baseline", gap: 12, borderTop: "2px solid var(--color-divider)" }}>
+            <SectionTitle>{mine ? "Your newest leads" : "Newest leads"}</SectionTitle>
+            <LinkAction href="/app/leads" style={{ marginLeft: "auto" }}>
+              Pipeline →
+            </LinkAction>
+          </div>
+          <div style={{ borderTop: "2px solid var(--color-divider)" }}>
+            {newestLeads.length === 0 && (
+              <p style={{ margin: 0, padding: "14px 24px", fontSize: 12.5, color: "var(--color-neutral-700)" }}>
+                No open leads. New callers who want something become leads here, with an owner.
+              </p>
+            )}
+            {newestLeads.map((l) => (
+              <div
+                key={l.id}
+                style={{ display: "flex", alignItems: "baseline", gap: 14, padding: "11px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {l.customerId ? (
+                    <Link href={`/app/customers/${l.customerId}`} style={{ color: "var(--color-text)", fontWeight: 700, fontSize: 13 }}>
+                      {l.name}
+                    </Link>
+                  ) : (
+                    <b style={{ fontSize: 13 }}>{l.name}</b>
+                  )}
+                  {l.createdByAi && (
+                    <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, background: "var(--color-accent)", color: "var(--color-bg)", padding: "1px 5px" }}>
+                      AI
+                    </span>
+                  )}
+                  <div style={{ marginTop: 2, fontSize: 12, color: "var(--color-neutral-800)" }}>{l.interest || "—"}</div>
+                </div>
+                <span style={{ fontSize: 11.5, fontWeight: 700 }}>{industry.stages[l.stage]}</span>
+                <span style={{ width: 120, fontSize: 11.5, color: "var(--color-neutral-700)", textAlign: "right" }}>{l.ownerName ?? "Unassigned"}</span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -430,7 +449,7 @@ export default async function CommandCenterPage() {
           </div>
 
           <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
-            <Kicker>Documentation gaps found by the AI</Kicker>
+            <Kicker>Callers asked, the AI had no answer</Kicker>
             <div
               style={{
                 marginTop: 12,
@@ -459,47 +478,6 @@ export default async function CommandCenterPage() {
             </div>
           </div>
 
-          <div style={{ padding: "16px 20px" }}>
-            <Kicker>Score movers · last 24h</Kicker>
-            <div
-              style={{
-                marginTop: 12,
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-                fontSize: 12,
-              }}
-            >
-              {movers.length === 0 && (
-                <p style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
-                  No score has moved since the last run. Movements appear here as soon as a
-                  signal or a rule changes one.
-                </p>
-              )}
-              {movers.map((m, i) => (
-                <Link
-                  key={m.id}
-                  href={`/app/customers/${m.id}`}
-                  className="hov-ink"
-                  style={{
-                    display: "flex",
-                    gap: 10,
-                    alignItems: "baseline",
-                    paddingBottom: i < movers.length - 1 ? 9 : undefined,
-                    borderBottom:
-                      i < movers.length - 1 ? "1px solid var(--color-neutral-300)" : undefined,
-                    color: "var(--color-text)",
-                  }}
-                >
-                  <b style={{ flex: 1 }}>{m.name}</b>
-                  <span style={{ color: "var(--color-neutral-700)" }}>{m.axis}</span>
-                  <b style={{ color: m.hot ? "var(--color-accent-700)" : "var(--color-neutral-800)" }}>
-                    {m.delta}
-                  </b>
-                </Link>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </section>

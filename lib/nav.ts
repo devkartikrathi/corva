@@ -30,64 +30,52 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
     label: "Operate",
     items: [
       // Everyone gets a landing screen, whatever else they can reach.
-      { href: "/app", label: "Command center" },
+      { href: "/app", label: "Home" },
       { href: "/app/live", label: "Live calls", capability: "calls.handle", badge: { count: "live", accent: true } },
       { href: "/app/handoffs", label: "Handoffs", capability: "calls.handle", badge: { count: "waiting", accent: false } },
       { href: "/app/conversations", label: "Conversations", capability: "customers.read" },
     ],
   },
   {
-    label: "Customers",
+    /**
+     * Where the phone line turns into business.
+     *
+     * Leads and follow-ups are mostly written by the AI during calls; these
+     * screens are where the team picks them up. An Agent sees their own — the
+     * same scope rule as customers — and a Manager sees everyone's.
+     */
+    label: "Sales",
     items: [
-      /**
-       * One way in, not two.
-       *
-       * There was a "Customer 360" nav item beside this one that resolved to
-       * whoever was top of the priority queue. It was the same screen you
-       * reach by clicking any row here, and a nav entry that lands somewhere
-       * different every time you press it is not navigation — so the list is
-       * the entry point and the profile is where a row takes you.
-       */
+      { href: "/app/leads", label: "Leads", capability: "customers.read", labelByRole: { agent: "My leads" } },
+      { href: "/app/follow-ups", label: "Follow-ups", capability: "calls.handle", labelByRole: { agent: "My follow-ups" } },
       {
         href: "/app/customers",
-        label: "All customers",
+        label: "Customers",
         capability: "customers.read",
         labelByRole: { agent: "My customers" },
       },
-      // The model itself, not one customer's score — the "why this number"
-      // breakdown a manager needs lives on the profile instead.
-      { href: "/app/segments", label: "Segments & rules", capability: "scoring.edit" },
     ],
   },
   {
-    label: "Intelligence",
+    label: "AI assistant",
     items: [
-      { href: "/app/knowledge", label: "Knowledge base", capability: "documents.publish" },
-      { href: "/app/tuning", label: "AI tuning", capability: "agent.edit" },
+      { href: "/app/knowledge", label: "Knowledge", capability: "documents.publish" },
+      { href: "/app/tuning", label: "Behaviour & limits", capability: "agent.edit" },
       { href: "/app/analytics", label: "Analytics", capability: "customers.read" },
     ],
   },
   {
-    label: "Workspace",
+    label: "Team",
     items: [
       /**
        * How the people are doing, as opposed to how the AI is doing.
        *
-       * Gated on its own capability rather than on `people.manage`, because
-       * these are two different questions: administering a workspace is not
-       * the same as being allowed to see how well a named colleague handles a
-       * call, and an Agent should not be reading a league table they are on.
+       * Gated on its own capability rather than on `people.manage`: an Agent
+       * should not be reading a league table they are on.
        */
-      { href: "/app/performance", label: "Team performance", capability: "team.performance" },
-      { href: "/app/team", label: "Team & roles", capability: "people.manage" },
-      /**
-       * Setup is gated on `people.manage` rather than `billing.manage`, which
-       * is Owner-only. An Admin has to be able to connect a channel without
-       * being able to change the plan — so the screen is reachable by whoever
-       * administers the workspace, and the billing controls inside it check
-       * `billing.manage` separately.
-       */
-      { href: "/app/setup", label: "Setup & channels", capability: "people.manage" },
+      { href: "/app/performance", label: "Performance", capability: "team.performance" },
+      { href: "/app/team", label: "People & roles", capability: "people.manage" },
+      { href: "/app/setup", label: "Settings", capability: "people.manage" },
     ],
   },
 ];
