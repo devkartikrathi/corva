@@ -7,6 +7,7 @@ import { assertCan } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { audit } from "./audit";
+import { formatPhone, isPlausiblePhone, numberTaken } from "@/lib/business/phone";
 
 /**
  * Workspace setup.
@@ -81,7 +82,6 @@ export async function createBrand(input: { name: string; segment: string; locati
   return brand.id;
 }
 
-
 /**
  * Take a brand live, or take it down.
  *
@@ -152,6 +152,19 @@ export async function setChannel(input: {
   if (input.state !== "not_connected" && !input.address.trim()) {
     throw new Error("A connected channel needs a number, address or origin to answer on.");
   }
+
+  // The phone number is what routes a call to this business, so it has to be
+  // a real number and nobody else's.
+  let address = input.address.trim();
+  let detail = input.detail.trim();
+  if (input.kind === "phone" && address) {
+    if (!isPlausiblePhone(address)) throw new Error("That phone number does not look right.");
+    const clash = await numberTaken(address, brand.id);
+    if (clash) throw new Error(`${formatPhone(address)} is already ${clash}'s number.`);
+    address = formatPhone(address);
+    if (!detail || isPlausiblePhone(detail)) detail = address;
+  }
+  input = { ...input, address, detail };
 
   await db
     .insert(s.channels)
@@ -280,38 +293,6 @@ export async function setPrivacy(input: {
     action: "privacy.updated",
     target: session.orgSlug,
     meta: { ...input },
-  });
-
-  revalidatePath("/app/setup");
-}
-
-/** Reconnect or disconnect an integration. */
-export async function setIntegration(integrationId: string, connected: boolean) {
-  const { session } = await getConsoleContext();
-  assertCan(session.actor, "billing.manage");
-
-  const [integration] = await db
-    .select()
-    .from(s.integrations)
-    .where(and(eq(s.integrations.id, integrationId), eq(s.integrations.orgId, session.orgId)))
-    .limit(1);
-  if (!integration) throw new Error("No such integration.");
-
-  await db
-    .update(s.integrations)
-    .set({
-      status: connected ? "Connected" : "Disconnected",
-      healthy: connected,
-      lastSyncedAt: connected ? new Date() : integration.lastSyncedAt,
-    })
-    .where(eq(s.integrations.id, integrationId));
-
-  await audit({
-    orgId: session.orgId,
-    actorId: session.membershipId,
-    actorName: session.name,
-    action: connected ? "integration.connected" : "integration.disconnected",
-    target: integration.name,
   });
 
   revalidatePath("/app/setup");

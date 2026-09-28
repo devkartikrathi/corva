@@ -1,5 +1,5 @@
-import { Bar, OutlineButton, ScreenHeader, ScreenRefusal, SectionTitle } from "@/components/ui";
-import { ActionButton } from "@/components/ActionButton";
+import { PrimaryButton, ScreenHeader, ScreenRefusal, SectionTitle } from "@/components/ui";
+import { DEMO_MODE } from "@/lib/auth/mode";
 import {
   AddBrand,
   BrandLiveToggle,
@@ -14,7 +14,6 @@ import {
   setBrandLive,
   setBusinessHours,
   setChannel,
-  setIntegration,
   setPrivacy,
 } from "@/lib/actions/setup";
 import { getSetup } from "@/lib/queries/workspace";
@@ -70,25 +69,21 @@ export default async function SetupPage() {
   }
 
   const setup = await getSetup(session.orgId, currentBrand.id);
-  const { brands, brand, channels, hours, afterHours, privacy, audit, integrations, usage, org } =
-    setup;
+  const { brands, brand, channels, hours, afterHours, privacy, audit, org } = setup;
 
   const manages = can(session.actor, "billing.manage").allowed;
   const channelBy = new Map(channels.map((c) => [c.kind, c]));
 
-  const planUsage = [
-    { label: "Plan", value: (org?.plan ?? "trial").replace(/^./, (c) => c.toUpperCase()) },
-    { label: "Brands in use", value: `${brands.filter((b) => b.live).length} of ${brands.length}` },
-    {
-      label: "Contract renews",
-      value: org?.renewsAt?.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) ?? "—",
-    },
-  ];
+  const phone = channels.find((c) => c.kind === "phone" && c.live);
 
   return (
     <section style={{ position: "relative" }}>
-      <ScreenHeader kicker={`Workspace · ${session.orgName}`} title="Setup & channels">
-        <OutlineButton href="#plan">Billing &amp; plan</OutlineButton>
+      <ScreenHeader kicker={`Workspace · ${session.orgName}`} title="Settings">
+        {DEMO_MODE && phone && (
+          <PrimaryButton href={`/operator/testing?dial=${encodeURIComponent(phone.detail)}`}>
+            Call {phone.detail} →
+          </PrimaryButton>
+        )}
         {manages && <AddBrand onCreate={createBrand} />}
       </ScreenHeader>
 
@@ -235,43 +230,6 @@ export default async function SetupPage() {
         <div>
           <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
             <div style={{ marginBottom: 12 }}>
-              <SectionTitle size={16}>Connected systems</SectionTitle>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 11, fontSize: 12.5 }}>
-              {integrations.map((g) => (
-                <div
-                  key={g.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    paddingBottom: 10,
-                    borderBottom: "1px solid var(--color-neutral-300)",
-                  }}
-                >
-                  <b style={{ width: 130 }}>{g.name}</b>
-                  <span style={{ flex: 1, color: "var(--color-neutral-800)" }}>{g.purpose}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: g.color }}>{g.status}</span>
-                  {manages && (
-                    <ActionButton
-                      variant="hairline"
-                      pendingLabel="Saving…"
-                      style={{ fontSize: 10.5, padding: "3px 7px" }}
-                      action={async () => {
-                        "use server";
-                        await setIntegration(g.id, !g.healthy);
-                      }}
-                    >
-                      {g.healthy ? "Disconnect" : "Reconnect"}
-                    </ActionButton>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
-            <div style={{ marginBottom: 12 }}>
               <SectionTitle size={16}>Data, privacy &amp; residency</SectionTitle>
             </div>
             {manages ? (
@@ -318,63 +276,6 @@ export default async function SetupPage() {
                 {privacy.updatedAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}.
               </p>
             )}
-          </div>
-
-          <div id="plan" style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
-            <div style={{ marginBottom: 12 }}>
-              <SectionTitle size={16}>Plan &amp; usage</SectionTitle>
-            </div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                  background: "var(--color-accent)",
-                  color: "var(--color-bg)",
-                  padding: "4px 8px",
-                }}
-              >
-                {(org?.plan ?? "trial").replace(/^./, (c) => c.toUpperCase())}
-              </span>
-              <span style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>
-                ₹27 per resolved conversation · unlimited seats
-              </span>
-            </div>
-
-            <div
-              style={{
-                marginTop: 14,
-                display: "flex",
-                flexDirection: "column",
-                gap: 11,
-                fontSize: 12.5,
-              }}
-            >
-              <div>
-                <div style={{ display: "flex", gap: 10 }}>
-                  <span style={{ flex: 1, color: "var(--color-neutral-800)" }}>
-                    Conversations this month
-                  </span>
-                  <b>
-                    {usage.conversations.toLocaleString("en-GB")} /{" "}
-                    {usage.allowance.toLocaleString("en-GB")}
-                  </b>
-                </div>
-                <Bar
-                  width={`${Math.min(100, Math.round((usage.conversations / usage.allowance) * 100))}%`}
-                  color="var(--color-accent)"
-                  style={{ marginTop: 5 }}
-                />
-              </div>
-              {planUsage.map((p) => (
-                <div key={p.label} style={{ display: "flex", gap: 12 }}>
-                  <span style={{ flex: 1, color: "var(--color-neutral-800)" }}>{p.label}</span>
-                  <b>{p.value}</b>
-                </div>
-              ))}
-            </div>
           </div>
 
           {/* Audit log. Tenant-visible on purpose: it is what makes the
