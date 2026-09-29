@@ -315,3 +315,49 @@ export function crmInstructions(opts: { isNewCaller: boolean; leadQuestions: str
     "If you cannot answer a question from the business's information, offer a callback and schedule it rather than guessing.",
   ].join("\n");
 }
+
+/**
+ * A new caller who left without a lead or a promise still rang for a reason.
+ *
+ * The most expensive call for a small business is the one nobody returns:
+ * someone new rings, the line drops or they give up before saying who they
+ * are, and there is nothing in any list to remind anyone. So when a call from
+ * an unknown number ends with no lead and no follow-up on it, one is written —
+ * "call them back" — with an owner and a time. A silent call of a few seconds
+ * is treated as a misdial and left alone.
+ */
+export async function followUpIfLost(conversationId: string, seconds: number) {
+  const [conv] = await db
+    .select({ c: s.conversations, customer: s.customers })
+    .from(s.conversations)
+    .leftJoin(s.customers, eq(s.customers.id, s.conversations.customerId))
+    .where(eq(s.conversations.id, conversationId))
+    .limit(1);
+  if (!conv?.customer || conv.c.handledBy) return null;
+  if (!isUnnamed(conv.customer.name)) return null;
+
+  const [counts] = await db
+    .select({
+      leads: sql<number>`(select count(*)::int from ${s.leads} where conversation_id = ${conversationId})`,
+      followUps: sql<number>`(select count(*)::int from ${s.followUps} where conversation_id = ${conversationId})`,
+      spoke: sql<number>`(select count(*)::int from ${s.turns} where conversation_id = ${conversationId} and speaker = 'customer')`,
+    })
+    .from(sql`(select 1) as one`);
+  if (!counts || counts.leads > 0 || counts.followUps > 0) return null;
+  if (counts.spoke === 0 && seconds < 10) return null;
+
+  return scheduleFollowUp({
+    conversationId,
+    brandId: conv.c.brandId,
+    customerId: conv.customer.id,
+    title: `Call back ${conv.customer.phone ?? "the caller"} — new caller, left no details`,
+    detail:
+      counts.spoke > 0
+        ? "They spoke to the AI but hung up before saying who they are or what they need."
+        : "The call ended before they said anything.",
+    // Within the hour: a missed caller is warmest straight away.
+    due: new Date(Date.now() + 60 * 60_000).toISOString(),
+    createdByName: "Corva",
+    createdByAi: true,
+  });
+}

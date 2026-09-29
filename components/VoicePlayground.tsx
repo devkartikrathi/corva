@@ -85,7 +85,9 @@ export function VoicePlayground({
   // the one rendered in the browser.
   useEffect(() => setCallerPhone((p) => p || freshMobile()), []);
   const [liveModel, setLiveModel] = useState(liveModels[0]?.id ?? "");
-  const [countsInMetrics, setCountsInMetrics] = useState(false);
+  // On by default: a demo is judged by whether the numbers move. Untick it to
+  // rehearse without touching containment, cost or the caller's score.
+  const [countsInMetrics, setCountsInMetrics] = useState(true);
   const [events, setEvents] = useState<Event[]>([]);
   const [session, setSession] = useState<{
     brand: string;
@@ -637,9 +639,9 @@ export function VoicePlayground({
           <span>
             Count this call in the numbers
             <span style={{ display: "block", fontSize: 11, color: "var(--color-neutral-500)", lineHeight: 1.5, marginTop: 3 }}>
-              Off by default. A rehearsal still appears on the live console and in the archive —
-              it just stays out of containment, cost, fleet health and the caller&rsquo;s priority
-              score.
+              Untick to rehearse: the call still appears on the live console and in the archive,
+              but stays out of the business&rsquo;s numbers — contacts, containment, cost and the
+              caller&rsquo;s priority score.
             </span>
           </span>
         </label>

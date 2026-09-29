@@ -43,6 +43,7 @@ import {
 } from "../lib/voice/session";
 import { classifyAndStore } from "../lib/pipelines/classify";
 import { billConversation, customerContext } from "../lib/agent/respond";
+import { followUpIfLost } from "../lib/crm/capture";
 import { INPUT_RATE_BYTES_PER_SEC, OUTPUT_RATE_BYTES_PER_SEC } from "../lib/voice/config";
 
 const KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
@@ -141,6 +142,8 @@ wss.on("connection", (client) => {
           liveModel,
         );
         await closeVoiceConversation(conversationId, seconds);
+        const lost = await followUpIfLost(conversationId, seconds);
+        if (lost) console.log(`  new caller left no details — follow-up for ${lost.assigneeName ?? "the team"}`);
 
         // Name the call from its transcript, the way the nightly job does for
         // every other conversation. Deliberately not awaited: it takes tens of

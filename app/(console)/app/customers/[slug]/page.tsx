@@ -222,6 +222,11 @@ export default async function Customer360Page({
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 340px" }}>
         <div style={{ borderRight: "2px solid var(--color-divider)" }}>
+          {/* Score and its rationale — only once there is one. A caller the
+              business met five minutes ago has no history to score, and a
+              large "—" at the top of their record says nothing useful. */}
+          {score && (
+            <>
           {/* Score and its rationale */}
           <div
             style={{
@@ -316,6 +321,9 @@ export default async function Customer360Page({
               )}
             </div>
           </div>
+
+            </>
+          )}
 
           {/* What they want, and what was promised them */}
           <div style={{ padding: "16px 24px 12px", display: "flex", alignItems: "baseline", gap: 14, borderTop: "2px solid var(--color-divider)" }}>
@@ -586,6 +594,7 @@ export default async function Customer360Page({
 
         {/* Right rail */}
         <div>
+          {signalRows.length > 0 && (
           <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span
@@ -639,6 +648,7 @@ export default async function Customer360Page({
               })}
             </div>
           </div>
+          )}
 
           {config.showAiRationale && (
             <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
