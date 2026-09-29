@@ -589,6 +589,11 @@ export const conversations = pgTable(
      */
     isTest: boolean("is_test").notNull().default(false),
     /**
+     * The id another system gave this conversation — e.g. a website chat
+     * session — so it can be updated as it goes rather than duplicated.
+     */
+    externalRef: text("external_ref"),
+    /**
      * What this conversation cost to serve, in paise.
      *
      * Measured rather than estimated — real tokens, real audio seconds, real
@@ -631,6 +636,7 @@ export const conversations = pgTable(
     index("conversations_status_idx").on(t.brandId, t.status),
     // Every metric filters on this, so it earns its own index.
     index("conversations_is_test_idx").on(t.brandId, t.isTest),
+    uniqueIndex("conversations_brand_external_idx").on(t.brandId, t.externalRef),
   ],
 );
 
@@ -1329,4 +1335,86 @@ export const followUps = pgTable(
     index("follow_ups_brand_due_idx").on(t.brandId, t.status, t.dueAt),
     index("follow_ups_assignee_idx").on(t.assigneeMembershipId, t.status),
   ],
+);
+
+/* ─── Integrations: API keys, website visitors ─────────────────────────── */
+
+/**
+ * A key a business's own systems use to talk to Corva — their website's chat,
+ * their booking form.
+ *
+ * Only a hash is stored. The key itself is shown once, when it is made, and
+ * the first characters are kept so a list of keys can say which is which
+ * without being able to reconstruct any of them.
+ */
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** e.g. "ck_7Fq2" — enough to tell keys apart, not enough to use one. */
+    prefix: text("prefix").notNull(),
+    /** SHA-256 of the full key, hex. */
+    hash: text("hash").notNull().unique(),
+    createdByName: text("created_by_name"),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("api_keys_brand_idx").on(t.brandId)],
+);
+
+/**
+ * Someone who has been on a business's website.
+ *
+ * Keyed by the first-party visitor id the site sets (a strictly necessary
+ * cookie: it is what keeps a chat going across pages). Everything beyond that
+ * id — which pages, where they came from — is only recorded when the visitor
+ * has consented to analytics, and `consent` says which they chose.
+ */
+export const visitors = pgTable(
+  "visitors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    /** The site's own visitor id, from its cookie. */
+    externalId: text("external_id").notNull(),
+    /** Set once they tell us who they are — a lead, a callback, a booking. */
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    /** "necessary" or "all". */
+    consent: text("consent").notNull().default("necessary"),
+    pageViews: integer("page_views").notNull().default(0),
+    firstReferrer: text("first_referrer"),
+    /** utm_source / utm_medium / utm_campaign from the first visit. */
+    firstUtm: jsonb("first_utm").notNull().default({}),
+    lastPath: text("last_path"),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("visitors_brand_external_idx").on(t.brandId, t.externalId),
+    index("visitors_customer_idx").on(t.customerId),
+  ],
+);
+
+/** What a visitor did on the site: a page, a chat, a request. */
+export const visitorEvents = pgTable(
+  "visitor_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    visitorId: uuid("visitor_id")
+      .notNull()
+      .references(() => visitors.id, { onDelete: "cascade" }),
+    /** "page_view", "chat_started", "callback_requested", "pickup_requested", "voice_call". */
+    type: text("type").notNull(),
+    path: text("path"),
+    meta: jsonb("meta").notNull().default({}),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("visitor_events_visitor_idx").on(t.visitorId, t.at)],
 );

@@ -685,6 +685,10 @@ export async function callersFor(brandId: string) {
  * table rehearses nothing. It is only kept out of the numbers (`isTest`).
  */
 export async function openVoiceConversation(opts: {
+  /** Straight to a business — a website's "talk to us", which has no number to dial. */
+  brandId?: string | null;
+  /** How the caller introduced themselves, if the site already knows. */
+  callerName?: string | null;
   dialed?: string | null;
   /** Fallback when no number is given — older clients pick a brand directly. */
   brandSlug?: string | null;
@@ -692,7 +696,9 @@ export async function openVoiceConversation(opts: {
   isTest?: boolean;
 }) {
   let brand: typeof s.brands.$inferSelect | undefined;
-  if (opts.dialed?.trim()) {
+  if (opts.brandId) {
+    [brand] = await db.select().from(s.brands).where(eq(s.brands.id, opts.brandId)).limit(1);
+  } else if (opts.dialed?.trim()) {
     const found = await brandForNumber(opts.dialed);
     if (!found) throw new Error(`The number ${formatPhone(opts.dialed)} is not in service.`);
     brand = found.brand;
@@ -704,14 +710,19 @@ export async function openVoiceConversation(opts: {
   const config = await loadAgentConfig(brand.id);
   if (!config) throw new Error(`${brand.name} has no AI assistant set up, so nobody answers.`);
 
-  const customer = await customerForCaller(brand.id, opts.callerPhone);
+  let customer = await customerForCaller(brand.id, opts.callerPhone);
+  const callerName = opts.callerName?.trim();
+  if (customer && callerName && callerName.length > 1 && isUnnamed(customer.name)) {
+    [customer] = await db.update(s.customers).set({ name: callerName }).where(eq(s.customers.id, customer.id)).returning();
+  }
 
   const [conversation] = await db
     .insert(s.conversations)
     .values({
       brandId: brand.id,
       customerId: customer?.id ?? null,
-      channel: "phone",
+      // A call from the website is a voice call, but not over the phone line.
+      channel: opts.brandId ? "web_chat" : "phone",
       status: "live",
       // Left unset: the classifier names it from the transcript when the call
       // ends, the same way it does for every other conversation.

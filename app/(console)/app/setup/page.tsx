@@ -1,5 +1,9 @@
 import { PrimaryButton, ScreenHeader, ScreenRefusal, SectionTitle } from "@/components/ui";
 import { DEMO_MODE } from "@/lib/auth/mode";
+import { ApiKeys } from "@/components/ApiKeys";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { db } from "@/lib/db";
+import * as s from "@/lib/db/schema";
 import {
   AddBrand,
   BrandLiveToggle,
@@ -11,6 +15,8 @@ import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { can } from "@/lib/auth/permissions";
 import {
   createBrand,
+  createKey,
+  revokeKey,
   setBrandLive,
   setBusinessHours,
   setChannel,
@@ -69,6 +75,11 @@ export default async function SetupPage() {
   }
 
   const setup = await getSetup(session.orgId, currentBrand.id);
+  const keys = await db
+    .select()
+    .from(s.apiKeys)
+    .where(and(eq(s.apiKeys.brandId, currentBrand.id), isNull(s.apiKeys.revokedAt)))
+    .orderBy(desc(s.apiKeys.createdAt));
   const { brands, brand, channels, hours, afterHours, privacy, audit, org } = setup;
 
   const manages = can(session.actor, "billing.manage").allowed;
@@ -228,6 +239,28 @@ export default async function SetupPage() {
 
         {/* Integrations, privacy, plan */}
         <div>
+          <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
+            <div style={{ marginBottom: 6 }}>
+              <SectionTitle size={16}>Website &amp; API keys</SectionTitle>
+            </div>
+            <p style={{ margin: "0 0 12px", fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.5 }}>
+              Your website&rsquo;s server uses a key to send Corva its chats, pickup and callback requests,
+              visitors (with their cookie consent) and to start voice calls with {brand?.agentName ?? "your assistant"}.
+              Keep keys on the server — never in the browser.
+            </p>
+            <ApiKeys
+              keys={keys.map((k) => ({
+                id: k.id,
+                name: k.name,
+                prefix: k.prefix,
+                lastUsed: k.lastUsedAt ? k.lastUsedAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : null,
+                created: k.createdAt.toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
+              }))}
+              onCreate={createKey}
+              onRevoke={revokeKey}
+            />
+          </div>
+
           <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
             <div style={{ marginBottom: 12 }}>
               <SectionTitle size={16}>Data, privacy &amp; residency</SectionTitle>

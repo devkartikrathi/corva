@@ -64,6 +64,13 @@
       "when": 1790604111545,
       "tag": "0008_crm_leads_follow_ups",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790651161785,
+      "tag": "0009_integrations_api_visitors",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { audit } from "./audit";
 import { formatPhone, isPlausiblePhone, numberTaken } from "@/lib/business/phone";
+import { createApiKey } from "@/lib/integrations/keys";
 
 /**
  * Workspace setup.
@@ -295,5 +296,49 @@ export async function setPrivacy(input: {
     meta: { ...input },
   });
 
+  revalidatePath("/app/setup");
+}
+
+/* ─── API keys ─────────────────────────────────────────────────────────── */
+
+/**
+ * Make a key for this business's own systems — its website, its booking form.
+ *
+ * The key is returned once, here, and never again: only its hash is kept.
+ * Owners and Admins only, since a key can create customers and leads.
+ */
+export async function createKey(name: string) {
+  const { session, brand } = await getConsoleContext();
+  assertCan(session.actor, "people.manage", { brandId: brand.id });
+  const { key, row } = await createApiKey(brand.id, name, session.name);
+  await audit({
+    orgId: session.orgId,
+    brandId: brand.id,
+    actorId: session.membershipId,
+    actorName: session.name,
+    action: "api_key.created",
+    target: `${row.name} (${row.prefix}…)`,
+  });
+  revalidatePath("/app/setup");
+  return { key, prefix: row.prefix };
+}
+
+export async function revokeKey(keyId: string) {
+  const { session, brand } = await getConsoleContext();
+  assertCan(session.actor, "people.manage", { brandId: brand.id });
+  const [row] = await db
+    .update(s.apiKeys)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(s.apiKeys.id, keyId), eq(s.apiKeys.brandId, brand.id)))
+    .returning();
+  if (!row) throw new Error("No such key for this business.");
+  await audit({
+    orgId: session.orgId,
+    brandId: brand.id,
+    actorId: session.membershipId,
+    actorName: session.name,
+    action: "api_key.revoked",
+    target: `${row.name} (${row.prefix}…)`,
+  });
   revalidatePath("/app/setup");
 }

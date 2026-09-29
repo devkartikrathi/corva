@@ -44,6 +44,28 @@ import {
 import { classifyAndStore } from "../lib/pipelines/classify";
 import { billConversation, customerContext } from "../lib/agent/respond";
 import { followUpIfLost } from "../lib/crm/capture";
+import { verifyVoiceToken } from "../lib/integrations/keys";
+import { db } from "../lib/db";
+import * as schema from "../lib/db/schema";
+import { and, eq } from "drizzle-orm";
+
+/** A website visitor started a voice call: note it on their visit history. */
+async function noteVoiceVisit(brandId: string, externalId: string, customerId: string | null) {
+  try {
+    const [visitor] = await db
+      .select({ id: schema.visitors.id, customerId: schema.visitors.customerId })
+      .from(schema.visitors)
+      .where(and(eq(schema.visitors.brandId, brandId), eq(schema.visitors.externalId, externalId)))
+      .limit(1);
+    if (!visitor) return;
+    await db.insert(schema.visitorEvents).values({ visitorId: visitor.id, type: "voice_call" });
+    if (customerId && !visitor.customerId) {
+      await db.update(schema.visitors).set({ customerId }).where(eq(schema.visitors.id, visitor.id));
+    }
+  } catch (e) {
+    console.error("  could not note the visit:", (e as Error).message);
+  }
+}
 import { INPUT_RATE_BYTES_PER_SEC, OUTPUT_RATE_BYTES_PER_SEC } from "../lib/voice/config";
 
 const KEY = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
@@ -132,7 +154,7 @@ wss.on("connection", (client) => {
       if (conversationId) {
         if (heard.trim()) await persistTurn(conversationId, "customer", heard, startedAt);
         if (said.trim()) await persistTurn(conversationId, "ai", said, startedAt);
-        await persistTurn(conversationId, "system", `Playground session ended: ${reason}.`, startedAt);
+        await persistTurn(conversationId, "system", `Call ended: ${reason}.`, startedAt);
         await billConversation(
           conversationId,
           {
@@ -269,12 +291,33 @@ wss.on("connection", (client) => {
       open++;
 
       try {
-        const opened = await openVoiceConversation({
-          dialed: msg.dialed ?? null,
-          brandSlug: msg.brandSlug ?? null,
-          callerPhone: msg.callerPhone ?? null,
-          isTest: msg.countsInMetrics !== true,
-        });
+        /**
+         * Two ways in. A website visitor arrives with a signed token (made by
+         * the app for one business, good for a few minutes); Corva's own dialer
+         * arrives with a number. On a publicly reachable bridge the second must
+         * be switched off — VOICE_REQUIRE_TOKEN=1 — or anyone could ring any
+         * business on our bill.
+         */
+        let opened;
+        if (typeof msg.token === "string") {
+          const grant = verifyVoiceToken(msg.token);
+          if (!grant) throw new Error("This call link has expired. Refresh the page and try again.");
+          opened = await openVoiceConversation({
+            brandId: grant.brandId,
+            callerPhone: grant.callerPhone,
+            callerName: grant.callerName,
+            isTest: false,
+          });
+          if (grant.visitorId) void noteVoiceVisit(grant.brandId, grant.visitorId, opened.customer?.id ?? null);
+        } else {
+          if (process.env.VOICE_REQUIRE_TOKEN === "1") throw new Error("This bridge only takes calls from a website token.");
+          opened = await openVoiceConversation({
+            dialed: msg.dialed ?? null,
+            brandSlug: msg.brandSlug ?? null,
+            callerPhone: msg.callerPhone ?? null,
+            isTest: msg.countsInMetrics !== true,
+          });
+        }
         conversationId = opened.conversation.id;
         brandId = opened.brand.id;
         customerId = opened.customer?.id ?? null;

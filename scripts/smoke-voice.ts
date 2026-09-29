@@ -6,12 +6,15 @@
  * malformed), then hangs up. No audio is sent, so nothing is said.
  *
  *   VOICE_BRIDGE_PORT=8788 npx tsx --tsconfig tsconfig.json scripts/smoke-voice.ts "+91 40 7xxx xxxx"
+ *   … scripts/smoke-voice.ts --token <token from POST /api/v1/voice-sessions>
  */
 import WebSocket from "ws";
 
 const port = process.env.VOICE_BRIDGE_PORT ?? "8787";
-const dialed = process.argv[2];
-if (!dialed) throw new Error("Pass the number to dial.");
+const args = process.argv.slice(2);
+const token = args[0] === "--token" ? args[1] : null;
+const dialed = token ? null : args[0];
+if (!dialed && !token) throw new Error("Pass the number to dial, or --token <voice token>.");
 
 const ws = new WebSocket(`ws://localhost:${port}`);
 const timer = setTimeout(() => {
@@ -20,7 +23,11 @@ const timer = setTimeout(() => {
 }, 30_000);
 
 ws.on("open", () =>
-  ws.send(JSON.stringify({ type: "start", dialed, callerPhone: "+91 99999 00001", countsInMetrics: false })),
+  ws.send(
+    JSON.stringify(
+      token ? { type: "start", token } : { type: "start", dialed, callerPhone: "+91 99999 00001", countsInMetrics: false },
+    ),
+  ),
 );
 ws.on("message", (raw, isBinary) => {
   if (isBinary) return;
