@@ -176,8 +176,8 @@ export const footerColumns = [
   {
     title: "Developers",
     links: [
-      { label: "API", href: "#" },
-      { label: "Webhooks", href: "#" },
+      { label: "API docs", href: "/developers" },
+      { label: "OpenAPI spec", href: "/api/v1/openapi.json" },
       { label: "Status", href: "#" },
     ],
   },

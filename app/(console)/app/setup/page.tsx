@@ -246,7 +246,10 @@ export default async function SetupPage() {
             <p style={{ margin: "0 0 12px", fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.5 }}>
               Your website&rsquo;s server uses a key to send Corva its chats, pickup and callback requests,
               visitors (with their cookie consent) and to start voice calls with {brand?.agentName ?? "your assistant"}.
-              Keep keys on the server — never in the browser.
+              Keep keys on the server — never in the browser.{" "}
+              <a href="/developers" target="_blank" rel="noreferrer" style={{ fontWeight: 700, color: "var(--color-accent-700)" }}>
+                Developer docs →
+              </a>
             </p>
             <ApiKeys
               keys={keys.map((k) => ({
