@@ -38,7 +38,7 @@ import {
   updateLead,
 } from "@/lib/actions/crm";
 import { industryFor, LEAD_STAGES } from "@/lib/business/industries";
-import { listFollowUps, listLeads } from "@/lib/queries/crm";
+import { listFollowUps, listLeads, websiteActivity } from "@/lib/queries/crm";
 
 
 
@@ -83,11 +83,12 @@ export default async function Customer360Page({
   const liveCall = conversations.find((c) => c.status === "live" || c.status === "waiting_human");
   // Owners are the people who can actually hold an account, so the picker is
   // the team list rather than free text that drifts into three spellings.
-  const [team, leads, followUps] = await Promise.all([
+  const [team, leads, followUps, website] = await Promise.all([
     getTeam(session.orgId),
     // The customer's own record: whoever may open it may see all of what is on it.
     listLeads(brand.id, { kind: "all" }, { customerId: customer.id }),
     listFollowUps(brand.id, { kind: "all" }, { customerId: customer.id, limit: 20 }),
+    websiteActivity(customer.id),
   ]);
   const industry = industryFor(brand.industry);
   const openFollowUps = followUps.filter((f) => f.status === "open");
@@ -603,6 +604,44 @@ export default async function Customer360Page({
 
         {/* Right rail */}
         <div>
+          {website && (
+            <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
+              <Kicker>On the website</Kicker>
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5 }}>
+                <div>
+                  First visit{" "}
+                  <b>{website.firstSeen.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</b>
+                  {website.consentedAnalytics
+                    ? ` · ${website.pageViews} page${website.pageViews === 1 ? "" : "s"}`
+                    : " · browsing not recorded (necessary cookies only)"}
+                </div>
+                {website.source && (
+                  <div>
+                    Came from <b>{website.source}</b>
+                    {website.campaign ? ` · campaign ${website.campaign}` : ""}
+                  </div>
+                )}
+                <div style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 4, fontSize: 11.5, color: "var(--color-neutral-800)" }}>
+                  {website.events
+                    .filter((e) => e.type !== "page_view")
+                    .map((e) => (
+                      <span key={e.id}>
+                        {e.at.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+                        {" · "}
+                        {({
+                          chat_started: "Chatted with the assistant",
+                          callback_requested: "Asked for a callback",
+                          pickup_requested: "Booked a pickup",
+                          voice_call: "Talked to the assistant by voice",
+                          enquiry: "Sent an enquiry",
+                          consent: "Answered the cookie banner",
+                        } as Record<string, string>)[e.type] ?? e.type.replace(/_/g, " ")}
+                      </span>
+                    ))}
+                </div>
+              </div>
+            </div>
+          )}
           {signalRows.length > 0 && (
           <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

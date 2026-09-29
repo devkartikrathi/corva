@@ -228,3 +228,36 @@ export async function capturedOn(conversationId: string) {
     followUps: followUps.map((r) => ({ ...r.followUp, assigneeName: r.assigneeName })),
   };
 }
+
+/** What a customer did on the business's website, if they came from it. */
+export async function websiteActivity(customerId: string) {
+  const visitors = await db
+    .select()
+    .from(s.visitors)
+    .where(eq(s.visitors.customerId, customerId))
+    .orderBy(asc(s.visitors.firstSeenAt));
+  if (visitors.length === 0) return null;
+  const events = await db
+    .select()
+    .from(s.visitorEvents)
+    .where(inArray(s.visitorEvents.visitorId, visitors.map((v) => v.id)))
+    .orderBy(desc(s.visitorEvents.at))
+    .limit(12);
+  const first = visitors[0];
+  const utm = (first.firstUtm ?? {}) as Record<string, string>;
+  let referrer: string | null = null;
+  try {
+    referrer = first.firstReferrer ? new URL(first.firstReferrer).hostname.replace(/^www\./, "") : null;
+  } catch {
+    referrer = first.firstReferrer;
+  }
+  return {
+    firstSeen: first.firstSeenAt,
+    lastSeen: visitors.reduce((d, v) => (v.lastSeenAt > d ? v.lastSeenAt : d), first.lastSeenAt),
+    pageViews: visitors.reduce((n, v) => n + v.pageViews, 0),
+    consentedAnalytics: visitors.some((v) => v.consent === "all"),
+    source: utm.utm_source ?? referrer ?? null,
+    campaign: utm.utm_campaign ?? null,
+    events: events.map((e) => ({ id: e.id, type: e.type, path: e.path, at: e.at })),
+  };
+}
