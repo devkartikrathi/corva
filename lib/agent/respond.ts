@@ -135,6 +135,8 @@ export async function customerContext(customerId: string | null): Promise<{ text
   }
   const lines = [
     `Name: ${c.name}`,
+    c.phone && `Phone: ${c.phone} (already on record — do not ask for it)`,
+    c.email && `Email: ${c.email}`,
     c.tier && `Tier: ${c.tier}`,
     c.segment && `Segment: ${c.segment}`,
     `Lifetime value: ${formatRupees(c.ltvPaise)}`,
