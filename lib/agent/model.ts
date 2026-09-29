@@ -48,30 +48,92 @@ function isOverloaded(e: unknown): boolean {
  * console still records which model the brand is set to, and the log says
  * when a call went elsewhere.
  */
+/**
+ * How long a model gets to start answering before the next one is tried.
+ *
+ * An overloaded Gemini model does not always fail fast — one took 76 seconds
+ * to return its "high demand" error — and a caller on web chat will not wait
+ * that long for the first word. For a stream this is time to the first byte
+ * of the response, not the whole answer.
+ */
+const FIRST_RESPONSE_MS = Number(process.env.MODEL_FIRST_RESPONSE_MS ?? 15_000);
+
+/**
+ * The same limit for a call that only returns once it is finished — a brief,
+ * a classification, a website rewrite. Those think harder and nobody is
+ * waiting on them in silence, so they get longer.
+ */
+const WHOLE_ANSWER_MS = Number(process.env.MODEL_WHOLE_ANSWER_MS ?? 90_000);
+
+class SlowModel extends Error {
+  constructor(id: string, ms: number) {
+    super(`${id} did not answer within ${ms / 1000}s`);
+  }
+}
+
+/**
+ * Models that failed recently, and until when to leave them alone.
+ *
+ * Per process and deliberately short-lived: "high demand" on one model tends
+ * to last minutes, and without this every single turn in that window would
+ * spend its first fifteen seconds rediscovering it.
+ */
+const COOL_DOWN_MS = 5 * 60_000;
+const coolingUntil = new Map<string, number>();
+const cooling = (id: string) => (coolingUntil.get(id) ?? 0) > Date.now();
+
 const fallbackMiddleware = (primary: string): LanguageModelMiddleware => {
-  const others = MODELS.map((m) => m.id).filter((id) => id !== primary);
-  const attempt = async <T,>(first: () => PromiseLike<T>, next: (id: string) => PromiseLike<T>): Promise<T> => {
-    try {
-      return await first();
-    } catch (e) {
-      if (!isOverloaded(e)) throw e;
-      let last = e;
-      for (const id of others) {
-        try {
-          console.warn(`${primary} is busy — answering on ${id} instead`);
-          return await next(id);
-        } catch (err) {
-          if (!isOverloaded(err)) throw err;
-          last = err;
-        }
+  const candidates = [primary, ...MODELS.map((m) => m.id).filter((id) => id !== primary)];
+
+  /**
+   * Run one call against each model in turn until one answers. Every attempt
+   * gets its own abort signal, tied to the caller's, so a model abandoned for
+   * being slow stops being paid for.
+   */
+  const attempt = async <T,>(
+    params: { abortSignal?: AbortSignal },
+    limitMs: number,
+    call: (id: string, signal: AbortSignal) => PromiseLike<T>,
+  ): Promise<T> => {
+    // The brand's model first, unless it has just failed; recently failed
+    // models go to the back rather than being dropped, so something is tried.
+    const order = [...candidates.filter((id) => !cooling(id)), ...candidates.filter(cooling)];
+    let last: unknown;
+    for (const [i, id] of order.entries()) {
+      if (i > 0) console.warn(`${order[i - 1]} is unavailable — answering on ${id} instead`);
+      const controller = new AbortController();
+      const onAbort = () => controller.abort(params.abortSignal?.reason);
+      params.abortSignal?.addEventListener("abort", onAbort);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          call(id, controller.signal),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              controller.abort();
+              reject(new SlowModel(id, limitMs));
+            }, limitMs);
+          }),
+        ]);
+      } catch (e) {
+        if (params.abortSignal?.aborted) throw e;
+        if (!(e instanceof SlowModel) && !isOverloaded(e)) throw e;
+        coolingUntil.set(id, Date.now() + COOL_DOWN_MS);
+        last = e;
+      } finally {
+        clearTimeout(timer);
+        params.abortSignal?.removeEventListener("abort", onAbort);
       }
-      throw last;
     }
+    throw last;
   };
+
   return {
     specificationVersion: "v4",
-    wrapGenerate: ({ doGenerate, params }) => attempt(doGenerate, (id) => google(id).doGenerate(params)),
-    wrapStream: ({ doStream, params }) => attempt(doStream, (id) => google(id).doStream(params)),
+    wrapGenerate: ({ params }) =>
+      attempt(params, WHOLE_ANSWER_MS, (id, abortSignal) => google(id).doGenerate({ ...params, abortSignal })),
+    wrapStream: ({ params }) =>
+      attempt(params, FIRST_RESPONSE_MS, (id, abortSignal) => google(id).doStream({ ...params, abortSignal })),
   };
 };
 

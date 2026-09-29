@@ -6,10 +6,10 @@
  *   3. they ask for a callback
  *   4. check a lead, an owner and a follow-up came out of it
  *
- * Writes a real business called "Smoke Test Clinic …" — delete it from the
- * operator console afterwards, or leave it as demo data.
+ * Writes a real business called "Smoke Test Clinic …" and removes it again at
+ * the end; pass --keep to leave it as demo data.
  *
- *   npx tsx --tsconfig tsconfig.json scripts/smoke-business.ts
+ *   npm run smoke:business [-- --keep]
  */
 import "../lib/db/script-env";
 import { eq } from "drizzle-orm";
@@ -83,6 +83,11 @@ async function main() {
 
   const ok = leads.length > 0 && followUps.length > 0 && cust.name.includes("Arjun");
   console.log(ok ? "\nPASS" : "\nFAIL");
+
+  if (!process.argv.includes("--keep")) {
+    await db.delete(s.organizations).where(eq(s.organizations.slug, result.orgSlug));
+    console.log(`removed ${result.orgName} (pass --keep to leave it)`);
+  }
   process.exit(ok ? 0 : 1);
 }
 
