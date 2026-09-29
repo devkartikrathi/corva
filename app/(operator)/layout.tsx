@@ -1,5 +1,6 @@
 import { requireStaff } from "@/lib/auth/context";
 import { OperatorNav } from "@/components/OperatorNav";
+import { AccountMenu } from "@/components/AccountMenu";
 import { getPlatformPulse } from "@/lib/queries/operator";
 
 export const metadata = {
@@ -22,7 +23,7 @@ export const dynamic = "force-dynamic";
  * ground, the staff banner, and the reminder that every action is audited.
  */
 export default async function OperatorLayout({ children }: { children: React.ReactNode }) {
-  const { staff } = await requireStaff();
+  const { staff, isDemo } = await requireStaff();
   const pulse = await getPlatformPulse();
 
   return (
@@ -50,6 +51,7 @@ export default async function OperatorLayout({ children }: { children: React.Rea
           <span style={{ fontSize: 12, color: "var(--color-neutral-500)" }}>
             Signed in as <b style={{ color: "var(--color-bg)" }}>{staff.email}</b> · Corva staff
           </span>
+          {!isDemo && <AccountMenu />}
           <span
             style={{
               marginLeft: "auto",

@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
@@ -67,9 +68,11 @@ export const requireStaff = cache(
     const staff = real ?? (await getDemoStaffSession());
 
     if (!staff) {
-      // The operator console is closed (production) and this person is not
-      // on the staff list — there is no sign-in that would change that yet.
-      redirect(demoEnabled() ? "/no-workspace" : "/operator-closed");
+      if (demoEnabled()) redirect("/no-workspace");
+      // Not signed in: sign in, and come back. Signed in but not on the staff
+      // list: say so, rather than bouncing them round the sign-in page.
+      const { userId } = await auth();
+      redirect(userId ? "/operator-closed" : "/sign-in?redirect_url=%2Foperator");
     }
 
     return { staff, isDemo: !real };

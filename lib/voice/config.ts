@@ -16,8 +16,14 @@ export const SESSION_CAP_SECONDS = Number(process.env.VOICE_SESSION_CAP_SECONDS 
 /** Close a session that has had no audio from the browser for this long. */
 export const IDLE_TIMEOUT_SECONDS = Number(process.env.VOICE_IDLE_TIMEOUT_SECONDS ?? 45);
 
-/** How many sessions may be open at once across the whole bridge. */
-export const MAX_CONCURRENT_SESSIONS = Number(process.env.VOICE_MAX_SESSIONS ?? 2);
+/**
+ * How many calls one bridge process takes at once.
+ *
+ * Two on a laptop, where it guards the bill during testing. On Vercel it is
+ * per function instance and instances scale out, so it only stops one
+ * instance being overloaded — real businesses need more than two callers.
+ */
+export const MAX_CONCURRENT_SESSIONS = Number(process.env.VOICE_MAX_SESSIONS ?? (process.env.VERCEL ? 20 : 2));
 
 /**
  * How often the bridge checks whether a person has taken the line.

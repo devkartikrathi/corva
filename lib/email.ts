@@ -15,7 +15,12 @@
 const FROM = process.env.EMAIL_FROM ?? "Corva <onboarding@resend.dev>";
 
 /** Where links in emails point. */
-export const APP_URL = (process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+export const APP_URL = (
+  process.env.APP_URL ??
+  process.env.NEXT_PUBLIC_APP_URL ??
+  // On Vercel, the project's production address unless told otherwise.
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000")
+).replace(/\/$/, "");
 
 export type EmailResult = { sent: boolean; id?: string; reason?: string };
 

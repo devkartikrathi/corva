@@ -1,14 +1,17 @@
 /**
  * Whether the app runs without authentication.
  *
- * Demo mode is the default so the consoles open on a fresh clone. When it is
+ * On with CORVA_DEMO=1, or on a fresh clone with no Clerk keys. When it is
  * on, Clerk is not in the request path at all — no provider, no proxy, no
- * session lookup — which keeps the "no barriers" promise from depending on
- * Clerk being configured correctly.
- *
- * Set CORVA_DEMO=0 to require real authentication.
+ * session lookup. Everywhere else, including any deployment, sign-in is real.
  */
-export const DEMO_MODE = process.env.CORVA_DEMO !== "0";
+export const DEMO_MODE =
+  process.env.CORVA_DEMO === "1" ||
+  // Unset means demo only when there is no sign-in to use — a fresh clone
+  // without Clerk keys. With keys (every deployment) it is real sign-in unless
+  // someone asks for the demo in so many words: forgetting one variable must
+  // never open a production console to the world.
+  (process.env.CORVA_DEMO === undefined && !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 
 /**
  * Whether Corva's own console opens without signing in.

@@ -2,6 +2,7 @@
 
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { requireStaff } from "@/lib/auth/context";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
@@ -9,6 +10,8 @@ import { loadAgentConfig } from "@/lib/agent/config";
 import { respond } from "@/lib/agent/respond";
 import { classifyAndStore } from "@/lib/pipelines/classify";
 import { customerForCaller } from "@/lib/crm/capture";
+import { brandForNumber, formatPhone, isPlausiblePhone } from "@/lib/business/phone";
+import { signVoiceToken, voiceBridge } from "@/lib/integrations/keys";
 
 /**
  * Chatting to a business as a customer would.
@@ -124,7 +127,7 @@ export async function endTestChat(conversationId: string) {
     .where(and(eq(s.conversations.id, conversationId), eq(s.conversations.status, "live")))
     .returning({ id: s.conversations.id });
   // Name it from its transcript, as the voice bridge does after a call.
-  if (c) void classifyAndStore(conversationId).catch(() => undefined);
+  if (c) after(() => classifyAndStore(conversationId).catch(() => undefined));
   refresh(conversationId);
 }
 
@@ -134,4 +137,27 @@ async function nextOrdinal(conversationId: string) {
     .from(s.turns)
     .where(eq(s.turns.conversationId, conversationId));
   return rows.reduce((m, r) => Math.max(m, r.ordinal), -1) + 1;
+}
+
+/**
+ * A signed token for a test call from Corva's dialer.
+ *
+ * The same kind of token a business's website gets, so the bridge treats every
+ * call alike and never has to accept an unsigned one in production.
+ */
+export async function dialToken(input: { dialed: string; callerPhone: string; countsInMetrics: boolean }) {
+  await requireStaff();
+  const found = await brandForNumber(input.dialed);
+  if (!found) throw new Error(`The number ${formatPhone(input.dialed)} is not in service.`);
+  const bridge = voiceBridge();
+  if (!bridge.available) throw new Error("Voice calls are not available on this deployment.");
+  const { token } = signVoiceToken({
+    brandId: found.brand.id,
+    callerPhone: isPlausiblePhone(input.callerPhone) ? formatPhone(input.callerPhone) : null,
+    callerName: null,
+    visitorId: null,
+    dialed: formatPhone(input.dialed),
+    isTest: !input.countsInMetrics,
+  });
+  return { token, bridgeUrl: bridge.url };
 }

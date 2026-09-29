@@ -109,18 +109,17 @@ use a Corva phone number: callers reach the same agent.
 Tumble Days (`../tumbledays`, branch `corva-integration`) is the first site wired up; set it
 up with `scripts/setup-tumbledays.ts`.
 
-## Environment
+## Environment and deployment
 
-| Variable | Why |
-| --- | --- |
-| `DATABASE_URL` | Neon Postgres (pgvector holds the knowledge-base embeddings) |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini: answers, embeddings, voice |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Sign-in |
-| `CORVA_DEMO` | `0` for real sign-in, `1` (default) for the open demo |
-| `CORVA_OPERATOR_OPEN` | `1` to open `/operator` in production |
-| `RESEND_API_KEY`, `EMAIL_FROM` | Email (Resend, via the Vercel Marketplace); `EMAIL_FROM` once a domain is verified |
-| `APP_URL` | Where links in emails point |
-| `VOICE_BRIDGE_PUBLIC_URL`, `VOICE_TOKEN_SECRET`, `VOICE_REQUIRE_TOKEN` | Hosting the voice bridge publicly for website calls |
+Every variable, with notes, is in **`.env.example`**; **`DEPLOYING.md`** walks through putting
+Corva on Vercel (env vars, Clerk, Resend, domain, connecting Tumble Days). After deploying,
+**`/api/status`** says which pieces are configured without revealing any value.
+
+Sign-in: with Clerk keys present, sign-in is required unless `CORVA_DEMO=1`. `/operator` is for
+emails on `CORVA_STAFF_EMAILS` (open without sign-in only in development).
+
+Voice: on Vercel the bridge runs inside the app at `wss://<host>/api/voice`
+(`app/api/voice/route.ts`); locally `npm run voice` runs the same code (`lib/voice/bridge.ts`).
 
 ## How the AI turns calls into work
 

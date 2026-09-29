@@ -6,7 +6,7 @@ import { LiveRefresh } from "@/components/LiveRefresh";
 import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { loadAgentConfig } from "@/lib/agent/config";
 import { formatRupees } from "@/lib/money";
-import { getLiveCall } from "@/lib/queries/conversations";
+import { getLiveCall, listLiveConversations } from "@/lib/queries/conversations";
 import { normalise, type RawParams } from "@/lib/params";
 import {
   releaseCall,
@@ -38,21 +38,82 @@ export default async function LiveCallPage({
   }
 
   const params = normalise(await searchParams);
-  const call = await getLiveCall(brand.id, params.call);
+  const [call, liveNow] = await Promise.all([getLiveCall(brand.id, params.call), listLiveConversations(brand.id)]);
+
+  /**
+   * Every live conversation, one click apart.
+   *
+   * The screen shows one at a time, and a voice call that starts while you are
+   * reading a chat is a different conversation — without this strip it would
+   * be invisible until you went looking.
+   */
+  const strip =
+    liveNow.length > 0 ? (
+      <div
+        style={{
+          padding: "8px 24px",
+          borderBottom: "1px solid var(--color-neutral-300)",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+          fontSize: 12,
+        }}
+      >
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--color-neutral-700)" }}>
+          Live now
+        </span>
+        {liveNow.map((c) => {
+          const current = c.id === call?.conversation.id;
+          return (
+            <Link
+              key={c.id}
+              href={`/app/live?call=${c.id}`}
+              className={current ? undefined : "hov-invert"}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 9px",
+                border: `1px solid ${current ? "var(--color-text)" : "var(--color-neutral-400)"}`,
+                background: current ? "var(--color-text)" : "transparent",
+                color: current ? "var(--color-bg)" : "var(--color-text)",
+                fontWeight: current ? 700 : 500,
+              }}
+            >
+              {c.kind !== "Chat" && <LiveDot size={6} />}
+              {c.customer ?? "Unknown caller"}
+              <span style={{ opacity: 0.7 }}>· {c.kind}</span>
+              {c.handledBy && <span style={{ opacity: 0.7 }}>· {c.handledBy}</span>}
+            </Link>
+          );
+        })}
+      </div>
+    ) : null;
 
   if (!call) {
     return (
-      <section style={{ padding: "20px 24px" }}>
-        <h1 style={{ margin: 0, fontWeight: 800, fontSize: 30, letterSpacing: "-0.028em" }}>
-          No call in progress
-        </h1>
+      <section>
+        {strip}
+        <div style={{ padding: "20px 24px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <h1 style={{ margin: 0, fontWeight: 800, fontSize: 30, letterSpacing: "-0.028em" }}>
+            No call in progress
+          </h1>
+          {/* Keep looking: a call that starts now appears without a refresh. */}
+          <LiveRefresh active label="Watching" />
+        </div>
         <p style={{ marginTop: 12, fontSize: 13, color: "var(--color-neutral-800)", maxWidth: "52ch" }}>
           When a customer reaches {brand.name} on any channel, the transcript streams here with the
           document behind every answer, and you can take the line at any point.
         </p>
+        </div>
       </section>
     );
   }
+
+  // The one on screen has gone quiet, but something else is live.
+  const newer = call.ended ? liveNow.find((c) => c.id !== call.conversation.id) : undefined;
 
   const [config, captured] = await Promise.all([loadAgentConfig(brand.id), capturedOn(call.conversation.id)]);
   const industry = industryFor(brand.industry);
@@ -83,6 +144,23 @@ export default async function LiveCallPage({
 
   return (
     <section>
+      {strip}
+      {newer && (
+        <Link
+          href={`/app/live?call=${newer.id}`}
+          className="hov-accent"
+          style={{
+            display: "block",
+            padding: "10px 24px",
+            background: "var(--color-accent)",
+            color: "var(--color-bg)",
+            fontSize: 13,
+            fontWeight: 700,
+          }}
+        >
+          This conversation has ended. {newer.customer ?? "Someone"} is live now ({newer.kind.toLowerCase()}) — open it →
+        </Link>
+      )}
       {/* Call bar */}
       <div
         style={{
@@ -110,7 +188,8 @@ export default async function LiveCallPage({
           On call
         </span>
         <span style={{ fontWeight: 800, fontSize: 22, letterSpacing: "-0.02em" }}>{call.elapsed}</span>
-        <LiveRefresh active={!call.ended} label="Following" />
+        {/* Keeps polling after the call ends, so the next live one is offered. */}
+        <LiveRefresh active label={call.ended ? "Watching" : "Following"} />
         <span style={{ height: 26, width: 2, background: "var(--color-neutral-400)" }} />
         <Link
           href={call.customer ? `/app/customers/${call.customer.id}` : "/app/customers"}

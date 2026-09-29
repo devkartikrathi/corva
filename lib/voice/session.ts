@@ -696,6 +696,8 @@ export async function openVoiceConversation(opts: {
   brandSlug?: string | null;
   callerPhone?: string | null;
   isTest?: boolean;
+  /** Started from the business's own website rather than dialled. */
+  fromWebsite?: boolean;
 }) {
   let brand: typeof s.brands.$inferSelect | undefined;
   if (opts.brandId) {
@@ -723,8 +725,10 @@ export async function openVoiceConversation(opts: {
     .values({
       brandId: brand.id,
       customerId: customer?.id ?? null,
-      // A call from the website is a voice call, but not over the phone line.
-      channel: opts.brandId ? "web_chat" : "phone",
+      // A voice call either way — the console shows it as a call. One made from
+      // the business's website carries a `web-voice:` reference to say so.
+      channel: "phone",
+      externalRef: opts.fromWebsite ? `web-voice:${crypto.randomUUID()}` : null,
       status: "live",
       // Left unset: the classifier names it from the transcript when the call
       // ends, the same way it does for every other conversation.

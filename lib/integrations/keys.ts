@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
+import { after } from "next/server";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 
@@ -41,8 +42,9 @@ export async function brandForRequest(req: Request) {
     .limit(1);
   if (!row) return null;
 
-  // Not awaited: "last used" is for the key list, not worth a round trip.
-  void db.update(s.apiKeys).set({ lastUsedAt: new Date() }).where(eq(s.apiKeys.id, row.key.id)).catch(() => undefined);
+  // After the response: "last used" is for the key list, not worth a round
+  // trip — but it must still happen once the function has answered.
+  after(() => db.update(s.apiKeys).set({ lastUsedAt: new Date() }).where(eq(s.apiKeys.id, row.key.id)).catch(() => undefined));
   return row.brand;
 }
 
@@ -67,6 +69,9 @@ export type VoiceGrant = {
   callerName: string | null;
   /** The website visitor, so the call joins their history. */
   visitorId: string | null;
+  /** Corva's own dialer: the number dialled, and whether it is a rehearsal. */
+  dialed?: string | null;
+  isTest?: boolean;
   exp: number;
 };
 
@@ -98,12 +103,29 @@ export function verifyVoiceToken(token: string): VoiceGrant | null {
 /**
  * Where browsers reach the voice bridge, and whether they can.
  *
- * `VOICE_BRIDGE_PUBLIC_URL` (a `wss://` address) when the bridge is hosted;
- * without it, the local bridge — which only a browser on the same machine can
- * reach, so it is reported as available only outside production.
+ *   VOICE_BRIDGE_PUBLIC_URL   an explicit address, if the bridge runs elsewhere
+ *   on Vercel                 this deployment's own /api/voice, over wss
+ *   locally                   the `npm run voice` server on ws://localhost
  */
 export function voiceBridge() {
-  const url = process.env.VOICE_BRIDGE_PUBLIC_URL ?? `ws://localhost:${process.env.VOICE_BRIDGE_PORT ?? 8787}`;
-  const available = Boolean(process.env.VOICE_BRIDGE_PUBLIC_URL) || process.env.NODE_ENV !== "production";
-  return { url, available };
+  if (process.env.VOICE_BRIDGE_PUBLIC_URL) {
+    return { url: process.env.VOICE_BRIDGE_PUBLIC_URL, available: true };
+  }
+  if (process.env.VERCEL) {
+    const host =
+      hostOf(process.env.APP_URL) ??
+      (process.env.VERCEL_ENV === "production" ? process.env.VERCEL_PROJECT_PRODUCTION_URL : process.env.VERCEL_URL);
+    return { url: `wss://${host}/api/voice`, available: Boolean(host) };
+  }
+  const url = `ws://localhost:${process.env.VOICE_BRIDGE_PORT ?? 8787}`;
+  return { url, available: process.env.NODE_ENV !== "production" };
+}
+
+function hostOf(url: string | undefined) {
+  if (!url) return undefined;
+  try {
+    return new URL(url).host;
+  } catch {
+    return undefined;
+  }
 }

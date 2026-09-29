@@ -683,3 +683,39 @@ export async function conversationStats(brandId: string) {
     live: rows.filter((r) => r.status === "live" && r.active).length,
   };
 }
+
+/**
+ * Everything live on a brand right now, newest first.
+ *
+ * The live console shows one conversation at a time; this is the strip above
+ * it, so a voice call that starts while you are watching a chat is one click
+ * away rather than invisible.
+ */
+export async function listLiveConversations(brandId: string) {
+  const rows = await db
+    .select({
+      id: s.conversations.id,
+      channel: s.conversations.channel,
+      status: s.conversations.status,
+      externalRef: s.conversations.externalRef,
+      handledBy: s.conversations.handledBy,
+      startedAt: s.conversations.startedAt,
+      customer: s.customers.name,
+    })
+    .from(s.conversations)
+    .leftJoin(s.customers, eq(s.customers.id, s.conversations.customerId))
+    .where(
+      and(
+        eq(s.conversations.brandId, brandId),
+        inArray(s.conversations.status, ["live", "waiting_human"]),
+        stillLive(),
+      ),
+    )
+    .orderBy(desc(s.conversations.startedAt))
+    .limit(12);
+  return rows.map((r) => ({
+    ...r,
+    // Voice: anything on the phone channel, including calls from a website.
+    kind: r.channel === "phone" ? (r.externalRef?.startsWith("web-voice:") ? "Voice · website" : "Call") : "Chat",
+  }));
+}

@@ -28,6 +28,7 @@
     "@ai-sdk/google": "^4.0.63",
     "@clerk/nextjs": "^7.9.0",
     "@neondatabase/serverless": "^1.1.0",
+    "@vercel/functions": "^3.9.9",
     "ai": "^7.0.91",
     "drizzle-orm": "^0.45.2",
     "next": "16.3.4",

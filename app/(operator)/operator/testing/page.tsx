@@ -2,12 +2,11 @@ import { DarkKicker, OperatorHeader } from "@/components/operator-ui";
 import Link from "next/link";
 import { ChatTester } from "@/components/ChatTester";
 import { VoicePlayground } from "@/components/VoicePlayground";
-import { endTestChat, pollTestChat, sendTestChat, startTestChat } from "@/lib/actions/test-chat";
+import { dialToken, endTestChat, pollTestChat, sendTestChat, startTestChat } from "@/lib/actions/test-chat";
 import { requireStaff } from "@/lib/auth/context";
 import { callersFor, dialableNumbers } from "@/lib/voice/session";
 import { modelOptions } from "@/lib/queries/models";
 import {
-  BRIDGE_PORT,
   COST_PER_MINUTE_PAISE,
   LIVE_MODELS,
   SESSION_CAP_SECONDS,
@@ -123,7 +122,7 @@ export default async function VoiceTestingPage({
         />
       ) : (
         <VoicePlayground
-          bridgeUrl={`ws://localhost:${BRIDGE_PORT}`}
+          onToken={dialToken}
           numbers={numbers}
           callers={callers}
           liveModels={[...LIVE_MODELS]}

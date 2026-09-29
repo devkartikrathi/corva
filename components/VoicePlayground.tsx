@@ -61,14 +61,15 @@ const digits = (n: string) => {
 };
 
 export function VoicePlayground({
-  bridgeUrl,
+  onToken,
   numbers,
   callers,
   liveModels,
   costPerMinutePaise,
   initialDial,
 }: {
-  bridgeUrl: string;
+  /** Signs a token for this call (staff only) and says where the bridge is. */
+  onToken: (input: { dialed: string; callerPhone: string; countsInMetrics: boolean }) => Promise<{ token: string; bridgeUrl: string }>;
   /** Every number that has a business and an AI behind it. */
   numbers: { number: string; brandId: string; business: string; agentName: string | null; industry: string }[];
   /** Known customers per business, for ringing in as someone it already knows. */
@@ -186,20 +187,21 @@ export function VoicePlayground({
       return;
     }
 
-    const socket = new WebSocket(bridgeUrl);
+    let session: { token: string; bridgeUrl: string };
+    try {
+      session = await onToken({ dialed, callerPhone, countsInMetrics });
+    } catch (e) {
+      stream.current?.getTracks().forEach((t) => t.stop());
+      setError(e instanceof Error && !e.message.startsWith("Minified React error") ? e.message : "Could not start the call.");
+      setStatus("idle");
+      return;
+    }
+
+    const socket = new WebSocket(session.bridgeUrl);
     socket.binaryType = "arraybuffer";
     ws.current = socket;
 
-    socket.onopen = () =>
-      socket.send(
-        JSON.stringify({
-          type: "start",
-          dialed,
-          callerPhone,
-          countsInMetrics,
-          liveModel,
-        }),
-      );
+    socket.onopen = () => socket.send(JSON.stringify({ type: "start", token: session.token, liveModel }));
 
     socket.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) {
@@ -258,7 +260,12 @@ export function VoicePlayground({
       }
     };
 
-    socket.onerror = () => setError("Could not reach the bridge. Is `npm run voice` running?");
+    socket.onerror = () =>
+      setError(
+        session.bridgeUrl.startsWith("ws://localhost")
+          ? "Could not reach the voice bridge. Is `npm run voice` running?"
+          : "Could not reach the voice bridge.",
+      );
     socket.onclose = () => setStatus((s) => (s === "closed" ? s : "closed"));
 
     // Downsample the browser's native rate to the 16kHz the Live API wants.
