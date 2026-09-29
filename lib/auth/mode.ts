@@ -9,3 +9,17 @@
  * Set CORVA_DEMO=0 to require real authentication.
  */
 export const DEMO_MODE = process.env.CORVA_DEMO !== "0";
+
+/**
+ * Whether Corva's own console opens without signing in.
+ *
+ * Separate from `DEMO_MODE` on purpose: the business console can run on real
+ * Clerk logins while the operator console stays open for the team building
+ * it. Open by default in development and closed in production — an operator
+ * console anyone can reach can create and delete businesses — unless
+ * `CORVA_OPERATOR_OPEN=1` says otherwise in so many words.
+ */
+export const OPERATOR_OPEN =
+  DEMO_MODE ||
+  process.env.CORVA_OPERATOR_OPEN === "1" ||
+  (process.env.CORVA_OPERATOR_OPEN !== "0" && process.env.NODE_ENV !== "production");

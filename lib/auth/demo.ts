@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { cache } from "react";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
-import { DEMO_MODE } from "./mode";
+import { DEMO_MODE, OPERATOR_OPEN } from "./mode";
 import { PROFILE_COOKIE } from "./profile";
 import type { StaffSession, TenantSession } from "./session";
 
@@ -95,8 +95,13 @@ export const getDemoTenantSession = cache(async (): Promise<TenantSession | null
   };
 });
 
+/**
+ * The stand-in staff member while the operator console is open — which can be
+ * true even when the business console requires a real sign-in (see
+ * `OPERATOR_OPEN`).
+ */
 export const getDemoStaffSession = cache(async (): Promise<StaffSession | null> => {
-  if (!demoEnabled()) return null;
+  if (!OPERATOR_OPEN) return null;
 
   const [row] = await db.select().from(s.staff).where(eq(s.staff.email, DEMO_STAFF_EMAIL)).limit(1);
   if (!row) return null;

@@ -1,5 +1,5 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import { cache } from "react";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
@@ -38,19 +38,39 @@ export type StaffSession = {
 };
 
 /**
- * On first sign-in a seeded membership is claimed by matching email, so the
- * fixture team becomes real accounts rather than a parallel set.
+ * Bind whatever is waiting for this email to the account that just signed in.
+ *
+ * An invitation is a membership row with an email and no Clerk id — made by
+ * onboarding for a business's Owner, or by a colleague from the Team screen.
+ * Signing in (or up) with that email *is* accepting it: the row gets the
+ * Clerk id, turns active, and its single-use token is spent. The same goes
+ * for rows the seed or demo mode created, so the fixture team and demo
+ * businesses become real accounts rather than a parallel set.
+ *
+ * Only a verified email counts. Clerk verifies at sign-up, but an unverified
+ * secondary address must never be enough to walk into someone's workspace.
  */
-async function linkSeededMembership(clerkUserId: string, email: string) {
+async function claimByEmail(clerkUserId: string, email: string) {
+  const address = email.trim().toLowerCase();
   await db
     .update(s.memberships)
-    .set({ clerkUserId, lastActiveAt: new Date() })
-    .where(and(eq(s.memberships.email, email), eq(s.memberships.clerkUserId, `seed:${email}`)));
+    .set({ clerkUserId, status: "active", inviteToken: null, lastActiveAt: new Date() })
+    .where(
+      and(
+        sql`lower(${s.memberships.email}) = ${address}`,
+        or(
+          isNull(s.memberships.clerkUserId),
+          like(s.memberships.clerkUserId, "seed:%"),
+          like(s.memberships.clerkUserId, "demo:%"),
+        ),
+        inArray(s.memberships.status, ["invited", "active"]),
+      ),
+    );
 
   await db
     .update(s.staff)
     .set({ clerkUserId })
-    .where(and(eq(s.staff.email, email), eq(s.staff.clerkUserId, "staff_seed_operator")));
+    .where(and(eq(s.staff.email, address), eq(s.staff.clerkUserId, "staff_seed_operator")));
 }
 
 /** The signed-in tenant member, or null. Memoised per request. */
@@ -63,9 +83,20 @@ export const getTenantSession = cache(async (): Promise<TenantSession | null> =>
   const { userId } = await auth();
   if (!userId) return null;
 
-  const user = await currentUser();
-  const email = user?.primaryEmailAddress?.emailAddress;
-  if (email) await linkSeededMembership(userId, email);
+  // Only look for something to claim when there is nothing bound yet — this
+  // runs on every request, and a claimed account never needs it again.
+  const [bound] = await db
+    .select({ id: s.memberships.id })
+    .from(s.memberships)
+    .where(and(eq(s.memberships.clerkUserId, userId), eq(s.memberships.status, "active")))
+    .limit(1);
+  if (!bound) {
+    const user = await currentUser();
+    const primary = user?.primaryEmailAddress;
+    if (primary && primary.verification?.status === "verified") {
+      await claimByEmail(userId, primary.emailAddress);
+    }
+  }
 
   const [row] = await db
     .select({
@@ -74,7 +105,8 @@ export const getTenantSession = cache(async (): Promise<TenantSession | null> =>
     })
     .from(s.memberships)
     .innerJoin(s.organizations, eq(s.organizations.id, s.memberships.orgId))
-    .where(eq(s.memberships.clerkUserId, userId))
+    .where(and(eq(s.memberships.clerkUserId, userId), eq(s.memberships.status, "active")))
+    .orderBy(s.memberships.createdAt)
     .limit(1);
 
   if (!row) return null;

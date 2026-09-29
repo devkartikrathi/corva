@@ -33,5 +33,5 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   // Clerk throws if mounted without keys. Demo mode runs without them, so the
   // provider is only mounted once the workspace has real authentication.
-  return DEMO_MODE ? shell : <ClerkProvider>{shell}</ClerkProvider>;
+  return DEMO_MODE ? shell : <ClerkProvider afterSignOutUrl="/sign-in">{shell}</ClerkProvider>;
 }

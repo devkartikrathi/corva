@@ -6,6 +6,8 @@ import * as s from "@/lib/db/schema";
 import { DEFAULT_MODEL_ID, isKnownModel } from "@/lib/agent/models";
 import { bootstrapBusiness, resolvePhoneNumber } from "./bootstrap";
 import { industryFor } from "./industries";
+import { inviteEmail, sendEmail } from "@/lib/email";
+import { ROLE_LABELS } from "@/lib/auth/permissions";
 
 /**
  * Adding a business.
@@ -200,6 +202,21 @@ export async function createBusiness(
     phoneNumber,
     authorName: staff.name,
   });
+  // With real sign-in, the Owner and team get their invitations by email.
+  if (!DEMO_MODE) {
+    const invited = await db
+      .select({ email: s.memberships.email, role: s.memberships.role, token: s.memberships.inviteToken })
+      .from(s.memberships)
+      .where(eq(s.memberships.orgId, org.id));
+    let unsent = 0;
+    for (const m of invited) {
+      if (!m.token) continue;
+      const mail = inviteEmail({ orgName: businessName, role: ROLE_LABELS[m.role], invitedBy: `${staff.name} at Corva`, token: m.token });
+      const r = await sendEmail({ to: m.email, ...mail });
+      if (!r.sent) unsent++;
+    }
+    if (unsent) setup.warnings.push(`${unsent} invitation email${unsent === 1 ? "" : "s"} could not be sent — share the invite link instead.`);
+  }
   if (team.skipped.length) {
     setup.warnings.push(`Skipped team lines that did not read as "Name, email, role": ${team.skipped.join("; ")}`);
   }

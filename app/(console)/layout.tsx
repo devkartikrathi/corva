@@ -19,7 +19,7 @@ export const metadata = {
 export default async function ConsoleLayout({ children }: { children: React.ReactNode }) {
   // Every /app route passes through here, so this is the gate. Pages call the
   // same memoised context again for the brand they need.
-  const { session, brand, brands } = await getConsoleContext();
+  const { session, brand, brands, isDemo } = await getConsoleContext();
   const [stats, profiles] = await Promise.all([
     conversationStats(brand.id),
     demoEnabled() ? switchableProfiles(session.orgId) : Promise.resolve([]),
@@ -62,7 +62,7 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
         {/* The console's layouts are built for a wide viewport; below this the
             main pane scrolls sideways rather than reflowing. */}
         <div style={{ minWidth: 1180 }}>
-          <TopBar live={stats.live} waiting={stats.waiting} />
+          <TopBar live={stats.live} waiting={stats.waiting} signedIn={!isDemo} />
           {children}
         </div>
       </main>

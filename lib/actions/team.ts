@@ -2,6 +2,8 @@
 
 import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { inviteEmail, sendEmail } from "@/lib/email";
+import { ROLE_LABELS } from "@/lib/auth/permissions";
 import { revalidatePath } from "next/cache";
 import { getConsoleContext } from "@/lib/auth/context";
 import { assertCan, ROLES, type Role } from "@/lib/auth/permissions";
@@ -98,16 +100,27 @@ export async function inviteMember(input: {
     }
   }
 
+  // The invitation itself. Best-effort: the row exists either way, and the
+  // Team screen can show the link if the email did not go.
+  const mail = inviteEmail({
+    orgName: session.orgName,
+    role: ROLE_LABELS[input.role],
+    invitedBy: session.name,
+    token: membership.inviteToken!,
+  });
+  const sent = await sendEmail({ to: email, ...mail, replyTo: session.email });
+
   await audit({
     orgId: session.orgId,
     actorId: session.membershipId,
     actorName: session.name,
     action: "people.invited",
     target: email,
-    meta: { role: input.role },
+    meta: { role: input.role, emailed: sent.sent },
   });
 
   revalidatePath("/app/team");
+  return { emailed: sent.sent, reason: sent.reason ?? null };
 }
 
 export async function changeRole(membershipId: string, role: Role) {

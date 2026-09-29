@@ -7,9 +7,9 @@ export const metadata = { title: "Sign in" };
 export default function SignInPage() {
   return (
     <AuthFrame
-      kicker="Operator console"
-      title="Sign in to Corva"
-      lede="Every action you take here is written to your workspace's audit log."
+      kicker="Corva"
+      title="Sign in to your business"
+      lede="Use the email your invitation was sent to. Invited but new here? Create an account with that email instead."
     >
       {DEMO_MODE ? (
         <p style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--color-neutral-800)", maxWidth: "38ch" }}>
@@ -18,7 +18,7 @@ export default function SignInPage() {
           authentication back on.
         </p>
       ) : (
-        <SignIn />
+        <SignIn fallbackRedirectUrl="/app" />
       )}
     </AuthFrame>
   );

@@ -67,7 +67,9 @@ export const requireStaff = cache(
     const staff = real ?? (await getDemoStaffSession());
 
     if (!staff) {
-      redirect(demoEnabled() ? "/no-workspace" : "/sign-in?redirect_url=%2Foperator");
+      // The operator console is closed (production) and this person is not
+      // on the staff list — there is no sign-in that would change that yet.
+      redirect(demoEnabled() ? "/no-workspace" : "/operator-closed");
     }
 
     return { staff, isDemo: !real };

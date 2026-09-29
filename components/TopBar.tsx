@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { AccountMenu } from "./AccountMenu";
 import { LiveDot } from "./ui";
 
 /** The sticky 52px strip above every screen. */
-export function TopBar({ live, waiting }: { live: number; waiting: number }) {
+export function TopBar({ live, waiting, signedIn = false }: { live: number; waiting: number; signedIn?: boolean }) {
   return (
     <div
       style={{
@@ -96,6 +97,12 @@ export function TopBar({ live, waiting }: { live: number; waiting: number }) {
             minute: "2-digit",
           })}
         </span>
+        {signedIn && (
+          <>
+            <span style={{ height: 20, width: 1, background: "var(--color-neutral-300)" }} />
+            <AccountMenu />
+          </>
+        )}
       </div>
     </div>
   );

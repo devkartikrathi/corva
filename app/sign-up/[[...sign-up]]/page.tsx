@@ -4,12 +4,19 @@ import { AuthFrame } from "@/components/AuthFrame";
 
 export const metadata = { title: "Create an account" };
 
-export default function SignUpPage() {
+export default async function SignUpPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ email_address?: string }>;
+}) {
+  // An invite link carries the invited address, so the one that will be
+  // claimed is the one already in the box.
+  const { email_address } = await searchParams;
   return (
     <AuthFrame
       kicker="Get started"
       title="Create your account"
-      lede="You'll be placed in the workspace that invited you."
+      lede="Use the email your invitation was sent to — that is how Corva knows which business you belong to."
     >
       {DEMO_MODE ? (
         <p style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--color-neutral-800)", maxWidth: "38ch" }}>
@@ -18,7 +25,7 @@ export default function SignUpPage() {
           authentication back on.
         </p>
       ) : (
-        <SignUp />
+        <SignUp fallbackRedirectUrl="/app" initialValues={email_address ? { emailAddress: email_address } : undefined} />
       )}
     </AuthFrame>
   );
