@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  Bar,
   Kicker,
   PrimaryButton,
   ScreenTitle,
@@ -16,7 +15,6 @@ import {
   SortTh,
   Tab,
   TabStrip,
-  ThresholdFilter,
 } from "@/components/filters";
 import { ExportCsvButton } from "@/components/ExportCsvButton";
 import { SaveViewButton } from "@/components/SaveViewButton";
@@ -30,13 +28,6 @@ import { customerScope } from "@/lib/auth/scope";
 import { listSavedViews, matchView } from "@/lib/queries/views";
 
 const PATH = "/app/customers";
-
-/** The axes worth a threshold in the rail — the ones people actually filter on. */
-const AXIS_FILTERS = [
-  { key: "churn_risk", label: "Churn risk" },
-  { key: "escalation_likelihood", label: "Escalation likelihood" },
-  { key: "expansion_potential", label: "Expansion potential" },
-];
 
 const BEHAVIOUR_FLAGS = [
   { key: "on_call", label: "On a call right now" },
@@ -62,13 +53,6 @@ export default async function AllCustomersPage({
   const params = normalise(await searchParams);
   const ctx = { pathname: PATH, params };
 
-  // Axis thresholds ride in the URL as `axis_<key>=60`.
-  const axisMinimums: Record<string, number> = {};
-  for (const axis of AXIS_FILTERS) {
-    const value = Number(params[`axis_${axis.key}`]);
-    if (Number.isFinite(value) && value > 0) axisMinimums[axis.key] = value;
-  }
-
   /**
    * An Agent's list is their own accounts, not the brand's.
    *
@@ -81,8 +65,6 @@ export default async function AllCustomersPage({
     listCustomers(brand.id, {
       ownedBy: scope.kind === "own" ? scope.membershipId : undefined,
       q: params.q,
-      minScore: intOf(params, "minScore", 0, 0, 100) || undefined,
-      axisMinimums,
       segment: listOf(params, "segment"),
       tier: listOf(params, "tier"),
       flag: listOf(params, "flag"),
@@ -109,14 +91,14 @@ export default async function AllCustomersPage({
           title={scope.kind === "own" ? "My customers" : "All customers"}
         />
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "flex-start", gap: 8 }}>
-          <SearchBox ctx={ctx} placeholder="Name, reference, email, town" width={230} />
+          <SearchBox ctx={ctx} placeholder="Name, phone, email, town" width={230} />
           <ExportCsvButton
             filename={`corva-customers-${brand.slug}.csv`}
             query={params}
             onExport={exportCustomersCsv}
           />
-          <PrimaryButton href={href(PATH, params, { minScore: "70", sort: "score:desc" })} style={{ fontWeight: 600 }}>
-            Needs attention
+          <PrimaryButton href="/app/leads" style={{ fontWeight: 600 }}>
+            Leads →
           </PrimaryButton>
         </div>
       </div>
@@ -155,21 +137,6 @@ export default async function AllCustomersPage({
             <span style={{ marginLeft: "auto" }}>
               <ActiveFilters ctx={ctx} ignore={["page", "sort"]} />
             </span>
-          </div>
-
-          <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--color-neutral-300)" }}>
-            <Kicker style={{ letterSpacing: "0.12em" }}>Score thresholds</Kicker>
-            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 14 }}>
-              <ThresholdFilter ctx={ctx} paramKey="minScore" label="Blended priority" />
-              {AXIS_FILTERS.map((ax) => (
-                <ThresholdFilter
-                  key={ax.key}
-                  ctx={ctx}
-                  paramKey={`axis_${ax.key}`}
-                  label={ax.label}
-                />
-              ))}
-            </div>
           </div>
 
           <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--color-neutral-300)" }}>
@@ -288,7 +255,7 @@ export default async function AllCustomersPage({
               {result.total} customer{result.total === 1 ? "" : "s"}
             </span>
             <span style={{ color: "var(--color-neutral-700)" }}>
-              {params.sort ? `sorted by ${params.sort.replace(":", " ")}` : "sorted by blended priority"}
+              {params.sort ? `sorted by ${params.sort.replace(":", " ")}` : "most important first"}
             </span>
           </div>
 
@@ -296,12 +263,11 @@ export default async function AllCustomersPage({
             <thead>
               <tr style={{ borderBottom: "2px solid var(--color-divider)" }}>
                 <SortTh ctx={ctx} field="name">Customer</SortTh>
-                <SortTh ctx={ctx} field="score" width={78}>Priority</SortTh>
-                <SortTh ctx={ctx} field="value" width={84}>LTV</SortTh>
-                <SortTh ctx={ctx} field="churn" width={82}>Churn</SortTh>
-                <Th width={82} padding="8px 8px">Sentiment</Th>
-                <SortTh ctx={ctx} field="last" width={96}>Last contact</SortTh>
-                <Th width={104} padding="8px 8px">Owner</Th>
+                <Th width={150} padding="8px 8px">Phone</Th>
+                <Th width={90} padding="8px 8px">Open leads</Th>
+                <SortTh ctx={ctx} field="value" width={96}>LTV</SortTh>
+                <SortTh ctx={ctx} field="last" width={110}>Last contact</SortTh>
+                <Th width={130} padding="8px 8px">Owner</Th>
                 <Th width={118} padding="8px 24px">Flags</Th>
               </tr>
             </thead>
@@ -320,17 +286,11 @@ export default async function AllCustomersPage({
                       </span>
                     </Link>
                   </td>
-                  <td style={{ padding: "10px 8px" }}>
-                    <b style={{ fontSize: 14, color: c.pColor }}>{c.priority}</b>
+                  <td style={{ padding: "10px 8px", color: "var(--color-neutral-800)", whiteSpace: "nowrap" }}>{c.phone ?? "—"}</td>
+                  <td style={{ padding: "10px 8px", fontWeight: 700, color: c.openLeads ? "var(--color-accent-700)" : "var(--color-neutral-500)" }}>
+                    {c.openLeads || "—"}
                   </td>
                   <td style={{ padding: "10px 8px", fontWeight: 600 }}>{c.ltv}</td>
-                  <td style={{ padding: "10px 8px" }}>
-                    <Bar width={c.churnBar} color={c.churnColor} />
-                    <span style={{ fontSize: 10.5, color: "var(--color-neutral-700)" }}>{c.churn}</span>
-                  </td>
-                  <td style={{ padding: "10px 8px", color: c.sentColor, fontWeight: 600 }}>
-                    {c.sentiment}
-                  </td>
                   <td style={{ padding: "10px 8px", color: "var(--color-neutral-800)" }}>{c.last}</td>
                   <td style={{ padding: "10px 8px", color: "var(--color-neutral-800)" }}>{c.owner}</td>
                   <td style={{ padding: "10px 24px" }}>

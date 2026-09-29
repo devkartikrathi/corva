@@ -112,6 +112,7 @@ export async function listCustomers(brandId: string, filters: CustomerFilters = 
         ilike(s.customers.externalRef, pattern),
         ilike(s.customers.email, pattern),
         ilike(s.customers.location, pattern),
+        ilike(s.customers.phone, pattern),
       )!,
     );
   }
@@ -126,7 +127,7 @@ export async function listCustomers(brandId: string, filters: CustomerFilters = 
   }
 
   const ids = rows.map((r) => r.id);
-  const [scores, signals, live, lastContact] = await Promise.all([
+  const [scores, signals, live, lastContact, openLeads] = await Promise.all([
     latestScores(ids),
     db.select().from(s.customerSignals).where(inArray(s.customerSignals.customerId, ids)),
     db
@@ -143,9 +144,16 @@ export async function listCustomers(brandId: string, filters: CustomerFilters = 
         at: sql<Date>`max(${s.conversations.startedAt})`,
       })
       .from(s.conversations)
-      .where(and(inArray(s.conversations.customerId, ids), eq(s.conversations.isTest, false)))
+      // Test calls count: "when did we last speak to them" is operational, not a metric.
+      .where(inArray(s.conversations.customerId, ids))
       .groupBy(s.conversations.customerId),
+    db
+      .select({ customerId: s.leads.customerId, n: sql<number>`count(*)::int` })
+      .from(s.leads)
+      .where(and(inArray(s.leads.customerId, ids), inArray(s.leads.stage, ["new", "contacted", "qualified", "proposal"])))
+      .groupBy(s.leads.customerId),
   ]);
+  const leadsBy = new Map(openLeads.map((l) => [l.customerId, l.n]));
 
   const byCustomer = new Map<string, Map<string, (typeof signals)[number]>>();
   for (const sig of signals) {
@@ -188,6 +196,8 @@ export async function listCustomers(brandId: string, filters: CustomerFilters = 
        */
       owner: c.owner ?? "AI only",
       meta: [c.segment, c.tier, c.location].filter(Boolean).join(" · "),
+      phone: c.phone,
+      openLeads: leadsBy.get(c.id) ?? 0,
       priority: Math.round(priority),
       pColor: scoreColor(priority),
       ltv: money(c.ltvPaise),
