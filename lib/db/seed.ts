@@ -50,90 +50,11 @@ const ENTERPRISE_FLOOR = 99_000;
 const monthlyRupees = (plan: keyof typeof PLAN_PRICE, seats: number) =>
   plan === "trial" ? 0 : seats * PLAN_PRICE[plan] + (plan === "enterprise" ? ENTERPRISE_FLOOR : 0);
 
-/**
- * Where a tenant's rows physically live.
- *
- * Mumbai first and by default, because that is where the customers are and
- * because voice is the channel that cannot hide a round trip — 200ms of extra
- * latency is audible on a phone call in a way it never is on a dashboard.
- * Singapore is the fallback, and Dublin exists for the one thing residency is
- * actually asked about: a tenant with European end customers.
- */
-const REGIONS = [
-  { key: "ap-south-1", label: "ap-south-1 · Mumbai", voiceP95Ms: 1200, uptime30d: "99.98", state: "healthy" },
-  { key: "ap-south-2", label: "ap-south-2 · Hyderabad", voiceP95Ms: 2900, uptime30d: "99.81", state: "degraded" },
-  { key: "ap-southeast-1", label: "ap-southeast-1 · Singapore", voiceP95Ms: 1600, uptime30d: "99.97", state: "healthy" },
-  { key: "eu-west-1", label: "eu-west-1 · Dublin", voiceP95Ms: 2400, uptime30d: "99.96", state: "edge_only" },
-] as const;
-
-const FLAGS = [
-  { key: "multi_brand", label: "Multi-brand workspaces", note: "Generally available", defaultOn: true, stage: "ga", rollout: 100 },
-  { key: "custom_axes_sql", label: "Custom scoring axes (SQL)", note: "Beta", defaultOn: false, stage: "beta", rollout: 16 },
-  { key: "private_fine_tuning", label: "Private fine-tuning", note: "Enterprise only", defaultOn: false, stage: "beta", rollout: 8 },
-  { key: "voice_43_canary", label: "corva-voice-4.3 canary", note: "Rolling out", defaultOn: false, stage: "alpha", rollout: 4 },
-  { key: "proactive_outbound", label: "Proactive outbound calls", note: "Alpha · needs legal sign-off", defaultOn: false, stage: "alpha", rollout: 2 },
-  { key: "agent_copilot", label: "Agent copilot in the console", note: "Internal only", defaultOn: false, stage: "internal", rollout: 1 },
-] as const;
-
 /* ─── Tenants ──────────────────────────────────────────────────────────── */
 
 const ORGS = [
   { slug: "aurelius-group", name: "Aurelius Group", plan: "operator", region: "ap-south-1", health: 91, seats: 34, renews: "2027-02-01" },
-  { slug: "northmoor-estates", name: "Northmoor Interiors", plan: "operator", region: "ap-south-1", health: 54, seats: 41 },
-  { slug: "halvard-retail", name: "Halvard Retail", plan: "trial", region: "ap-south-1", health: 31, seats: 3 },
-  { slug: "vantage-living", name: "Vantage Living", plan: "enterprise", region: "ap-southeast-1", health: 62, seats: 88 },
-  { slug: "kessel-co", name: "Kesari & Co", plan: "studio", region: "ap-south-1", health: 78, seats: 12 },
-  { slug: "pemberton-interiors", name: "Pemberton Interiors", plan: "studio", region: "ap-south-1", health: 71, seats: 14 },
-  { slug: "casa-verde", name: "Casa Verde Ltd", plan: "studio", region: "ap-south-1", health: 84, seats: 6 },
-  { slug: "lindqvist-mobler", name: "Lokhande Furniture", plan: "operator", region: "ap-south-1", health: 88, seats: 22 },
-  { slug: "marchetti-cucine", name: "Mistry Kitchens", plan: "studio", region: "ap-south-1", health: 86, seats: 9 },
-  { slug: "bruun-interior", name: "Bhandari Interior", plan: "operator", region: "ap-southeast-1", health: 94, seats: 17 },
 ] as const;
-
-/**
- * The other 138 tenants.
- *
- * The operator console's whole job is judgement across a fleet, and a fleet of
- * ten does not exercise it — sorting, filtering, the health cutoff and the
- * revenue mix all only mean something at scale. These are generated from a
- * fixed seed so the numbers are stable between runs and a screenshot taken
- * today still matches the database tomorrow.
- */
-function generatedOrgs() {
-  const first = ["Anantara", "Bhavani", "Chandra", "Devkota", "Ekanth", "Gulmohar", "Haveli", "Indira", "Jamuna", "Kanchan", "Lalbagh", "Mahindra", "Nilgiri", "Orchid", "Palash", "Rajwada", "Sarvam", "Tarangini", "Udyan", "Vasant", "Wadia", "Yamuna", "Zarina", "Amrapali", "Banyan", "Chinar"];
-  const second = ["Interiors", "Living", "& Sons", "Furnishings", "Studio", "Group", "Home", "Atelier", "Works", "Collective", "Furniture", "Design"];
-  const plans = ["trial", "studio", "studio", "operator", "operator", "enterprise"] as const;
-  // Weighted to Mumbai, because that is where almost everyone is.
-  const regions = ["ap-south-1", "ap-south-1", "ap-south-1", "ap-south-2", "ap-southeast-1"] as const;
-
-  // A small deterministic PRNG. Math.random would make every run a new fleet.
-  let state = 0x2f6e2b1;
-  const next = () => ((state = (state * 1664525 + 1013904223) >>> 0) / 0x100000000);
-  const pick = <T,>(xs: readonly T[]) => xs[Math.floor(next() * xs.length)];
-
-  const seen = new Set<string>();
-  const out: { slug: string; name: string; plan: (typeof plans)[number]; region: string; health: number; mrr: number; seats: number; renewDays: number }[] = [];
-
-  while (out.length < 138) {
-    const name = `${pick(first)} ${pick(second)}`;
-    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    if (seen.has(slug)) continue;
-    seen.add(slug);
-
-    const plan = pick(plans);
-    const seats = plan === "trial" ? 2 + Math.floor(next() * 5)
-      : plan === "studio" ? 5 + Math.floor(next() * 15)
-      : plan === "operator" ? 15 + Math.floor(next() * 40)
-      : 50 + Math.floor(next() * 120);
-    const mrr = monthlyRupees(plan, seats);
-    // Health skews high — a fleet where half the tenants are failing is not a
-    // fleet anyone is still operating.
-    const health = Math.min(99, Math.max(18, Math.round(58 + next() * 46 - (plan === "trial" ? 22 : 0))));
-
-    out.push({ slug, name, plan, region: pick(regions), health, mrr, seats, renewDays: 10 + Math.floor(next() * 340) });
-  }
-  return out;
-}
 
 /**
  * `modelId` is spread on purpose rather than left to default.
@@ -318,42 +239,6 @@ const SAVED_VIEWS = [
   { surface: "conversations", name: "Phone only", query: { channel: "phone" }, isDefault: false, shared: true },
 ] as const;
 
-/* ─── Platform dependencies ────────────────────────────────────────────── */
-
-const DEPENDENCIES = [
-  { key: "voice_asr", label: "Speech recognition", provider: "Deepgram", state: "healthy", note: "p95 210ms", latencyMs: 210 },
-  { key: "voice_tts", label: "Speech synthesis", provider: "ElevenLabs", state: "healthy", note: "p95 340ms", latencyMs: 340 },
-  { key: "llm_primary", label: "Primary model", provider: "Anthropic", state: "healthy", note: "p95 1.1s", latencyMs: 1100 },
-  { key: "llm_fallback", label: "Fallback model", provider: "Google", state: "healthy", note: "Cold, last used 32d ago", latencyMs: 1400 },
-  { key: "embeddings", label: "Embeddings", provider: "Google", state: "healthy", note: "p95 90ms", latencyMs: 90 },
-  { key: "telephony", label: "Telephony", provider: "Exotel", state: "degraded", note: "Carrier route degraded in ap-south-2", latencyMs: 2900 },
-  { key: "postgres", label: "Primary database", provider: "Neon", state: "healthy", note: "p95 14ms", latencyMs: 14 },
-  { key: "whatsapp", label: "WhatsApp Business", provider: "Meta", state: "healthy", note: "Webhook lag 1.2s", latencyMs: 1200 },
-] as const;
-
-/* ─── Cross-tenant quality ─────────────────────────────────────────────── */
-
-const QUALITY = [
-  { failureClass: "unsupported_claim", summary: "Promised a delivery slot the courier feed had not confirmed", rootCause: "Retrieval returned the service promise but not the capacity check", owner: "corva", status: "triaged", daysAgo: 1 },
-  { failureClass: "no_citation", summary: "Quoted a trade discount with no document behind it", rootCause: "Two documents contradict; the model picked the shorter one", owner: "tenant", status: "open", daysAgo: 1 },
-  { failureClass: "invented_date", summary: "Gave a restock date that appears in no source", rootCause: "Model filled a gap rather than escalating", owner: "corva", status: "open", daysAgo: 2 },
-  { failureClass: "wrong_entitlement", summary: "Applied a Premier window to a standard account", rootCause: "Entitlement lookup timed out and the agent proceeded anyway", owner: "corva", status: "triaged", daysAgo: 3 },
-  { failureClass: "no_citation", summary: "Answered a fabric-care question from general knowledge", rootCause: "No document covers care beyond 24 months", owner: "tenant", status: "fixed", daysAgo: 6 },
-  { failureClass: "unsupported_claim", summary: "Said a refund had been issued before it was", rootCause: "Action was refused; the reply was generated before the refusal landed", owner: "corva", status: "fixed", daysAgo: 8 },
-  { failureClass: "tone_breach", summary: "Apologised four times in one exchange", rootCause: "Persona says never apologise twice; nothing enforces it", owner: "tenant", status: "open", daysAgo: 4 },
-  { failureClass: "authority_bypass", summary: "Offered to waive an installation fee", rootCause: "Waiver is blocked for the AI but phrased as a suggestion, not an action", owner: "corva", status: "triaged", daysAgo: 5 },
-] as const;
-
-/* ─── Account notes (staff only) ───────────────────────────────────────── */
-
-const ACCOUNT_NOTES = [
-  { org: "northmoor-estates", kind: "risk", body: "Containment fell 11 points after they imported 300 Freshdesk macros as documents. Half contradict their own policy. Offered a cleanup session; no reply in nine days.", daysAgo: 3 },
-  { org: "northmoor-estates", kind: "note", body: "Renewal is 41 days out and the champion left in July. New contact is in procurement, not CX.", daysAgo: 9 },
-  { org: "halvard-retail", kind: "risk", body: "Trial ends Friday. Two brands created, no documents uploaded, agent never went live. This is a failed onboarding, not a pricing objection.", daysAgo: 1 },
-  { org: "vantage-living", kind: "expansion", body: "Asked about private fine-tuning twice. 88 seats and growing; the flag is on for them already.", daysAgo: 6 },
-  { org: "aurelius-group", kind: "note", body: "Best reference account on the fleet. Happy to be quoted; ask Priya, not the CX team.", daysAgo: 21 },
-] as const;
-
 /* ─── Business hours ───────────────────────────────────────────────────── */
 
 /** Mon–Fri 09:00–18:00, Saturday 10:00–16:00, closed Sunday. */
@@ -526,25 +411,14 @@ async function main() {
   await db.insert(s.scoringAxes).values(
     AXES.map((a) => ({ key: a.key, label: a.label, source: a.source, inverted: a.inverted })),
   );
-  await db.insert(s.regions).values(REGIONS.map((r) => ({ ...r })));
-  await db.insert(s.featureFlags).values(
-    FLAGS.map((f) => ({
-      key: f.key,
-      label: f.label,
-      note: f.note,
-      defaultOn: f.defaultOn,
-      stage: f.stage,
-      rolloutPercent: f.rollout,
-    })),
-  );
 
+  // The demo staff session signs in as this row (lib/auth/demo.ts).
   const [operator] = await db
     .insert(s.staff)
     .values({ clerkUserId: "staff_seed_operator", email: "you@corva.systems", name: "Corva Operator", isAdmin: true })
     .returning();
 
   console.log("Organizations…");
-  const fleet = generatedOrgs();
   const orgRows = await db
     .insert(s.organizations)
     .values([
@@ -558,38 +432,10 @@ async function main() {
         seatCount: o.seats,
         renewsAt: "renews" in o && o.renews ? new Date(o.renews) : null,
       })),
-      ...fleet.map((o) => ({
-        slug: o.slug,
-        name: o.name,
-        plan: o.plan,
-        region: o.region,
-        healthScore: o.health,
-        mrrPaise: paise(o.mrr),
-        seatCount: o.seats,
-        renewsAt: daysAgo(-o.renewDays),
-      })),
     ])
     .returning();
   const orgBySlug = new Map(orgRows.map((o) => [o.slug, o]));
   const aurelius = orgBySlug.get("aurelius-group")!;
-
-  // Feature flags per tenant. Aurelius is explicit; the rest of the fleet is
-  // spread to match each flag's stated rollout, so "Beta · 24 companies" on
-  // the operator screen is a count of rows rather than a caption.
-  const flagRows: { orgId: string; flagKey: string; enabled: boolean }[] = FLAGS.map((f) => ({
-    orgId: aurelius.id,
-    flagKey: f.key,
-    enabled: f.defaultOn || f.key === "custom_axes_sql" || f.key === "private_fine_tuning",
-  }));
-  for (const [i, org] of orgRows.entries()) {
-    if (org.id === aurelius.id) continue;
-    for (const f of FLAGS) {
-      // A stable hash of the position, so the same tenants keep the same flags.
-      const on = ((i * 37 + f.key.length * 11) % 100) < f.rollout;
-      if (on || f.defaultOn) flagRows.push({ orgId: org.id, flagKey: f.key, enabled: on || f.defaultOn });
-    }
-  }
-  await db.insert(s.orgFeatureFlags).values(flagRows);
 
   console.log("Brands…");
   const brandRows = await db
@@ -932,110 +778,6 @@ async function main() {
     updatedAt: daysAgo(48),
   });
 
-  console.log("Platform ops…");
-  await db.insert(s.platformDependencies).values(
-    DEPENDENCIES.map((d) => ({ ...d, checkedAt: minsAgo(1) })),
-  );
-
-  // Ninety days of traffic per tenant. Weekends dip, health scales volume,
-  // and containment tracks health — so the operator charts have a shape that
-  // means something rather than noise.
-  const usage: (typeof s.usageDaily.$inferInsert)[] = [];
-  const mrr: (typeof s.mrrSnapshots.$inferInsert)[] = [];
-  for (const [i, org] of orgRows.entries()) {
-    const health = org.healthScore ?? 60;
-    const base = Math.max(4, Math.round(org.seatCount * 3.2));
-    for (let d = 89; d >= 0; d--) {
-      const day = new Date(daysAgo(d).toISOString().slice(0, 10));
-      const weekend = day.getUTCDay() === 0 || day.getUTCDay() === 6;
-      const wobble = 0.85 + (((i * 13 + d * 7) % 30) / 100);
-      const total = Math.round(base * wobble * (weekend ? 0.42 : 1));
-      const containment = Math.min(0.95, Math.max(0.3, health / 100 - 0.05));
-      const contained = Math.round(total * containment);
-      usage.push({
-        orgId: org.id,
-        day,
-        conversations: total,
-        contained,
-        handoffs: total - contained,
-        aiMinutes: Math.round(total * 3.4),
-        humanMinutes: Math.round((total - contained) * 7.1),
-        /**
-         * Roughly ₹3.20 of model and telephony cost per AI minute.
-         *
-         * A blend across channels rather than a voice rate: a voice minute
-         * costs several times a chat one, and most traffic is not voice. The
-         * per-conversation truth is measured on the row itself
-         * (`conversations.cost_paise`); this is the fleet-level approximation
-         * the operator's charts read, and it is deliberately conservative
-         * against the ₹27–36 a conversation is sold for.
-         */
-        costPaise: Math.round(total * 3.4 * 320),
-      });
-    }
-
-    // Twelve months of recurring revenue, growing into today's figure.
-    for (let m = 11; m >= 0; m--) {
-      const month = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() - m, 1));
-      const ramp = 1 - m * 0.035;
-      mrr.push({
-        orgId: org.id,
-        month,
-        mrrPaise: Math.max(0, Math.round(org.mrrPaise * ramp)),
-        seatCount: Math.max(1, Math.round(org.seatCount * ramp)),
-        plan: org.plan,
-      });
-    }
-  }
-  // Chunked: a single insert of ~15,000 rows exceeds the driver's statement size.
-  for (let i = 0; i < usage.length; i += 2000) await db.insert(s.usageDaily).values(usage.slice(i, i + 2000));
-  for (let i = 0; i < mrr.length; i += 2000) await db.insert(s.mrrSnapshots).values(mrr.slice(i, i + 2000));
-
-  await db.insert(s.accountNotes).values(
-    ACCOUNT_NOTES.map((n) => ({
-      orgId: orgBySlug.get(n.org)!.id,
-      staffId: operator.id,
-      authorName: operator.name,
-      kind: n.kind,
-      body: n.body,
-      createdAt: daysAgo(n.daysAgo),
-    })),
-  );
-
-  await db.insert(s.incidents).values([
-    { title: "Voice latency in ap-south-2", severity: "Sev 2", regionKey: "ap-south-2", note: "Carrier route degraded. Failover staged; 14 companies affected, 3 past their SLA threshold.", startedAt: minsAgo(42), affectedOrgCount: 14 },
-    { title: "Retrieval index lag", severity: "Sev 3", regionKey: "ap-south-1", note: "New documents took up to 9 minutes to become answerable. No wrong answers served.", startedAt: daysAgo(5), resolvedAt: daysAgo(5), affectedOrgCount: 61 },
-    { title: "Dashboard read timeouts", severity: "Sev 3", regionKey: "ap-south-2", note: "Analytics queries only; calls unaffected.", startedAt: daysAgo(13), resolvedAt: daysAgo(13), affectedOrgCount: 48 },
-    { title: "WhatsApp webhook backlog", severity: "Sev 2", regionKey: null, note: "Messages delivered late. 22 companies notified, credits applied automatically.", startedAt: daysAgo(23), resolvedAt: daysAgo(23), affectedOrgCount: 22 },
-    { title: "Model provider rate limit", severity: "Sev 3", regionKey: null, note: "Fell back to the secondary provider; containment dipped 4 points for the window.", startedAt: daysAgo(32), resolvedAt: daysAgo(32), affectedOrgCount: 148 },
-  ]);
-
-  const incidentRows = await db.select().from(s.incidents);
-  const byTitle = new Map(incidentRows.map((i) => [i.title, i]));
-  const voice = byTitle.get("Voice latency in ap-south-2")!;
-  await db.insert(s.incidentUpdates).values([
-    { incidentId: voice.id, stage: "investigating", body: "Voice p95 in ap-south-2 crossed 2.5s. Paging the telephony on-call.", authorName: "R. Vance", at: minsAgo(42) },
-    { incidentId: voice.id, stage: "identified", body: "Carrier route degraded upstream of Exotel. Not our path; failover to the secondary carrier is staged and needs a go.", authorName: "R. Vance", at: minsAgo(28) },
-    { incidentId: voice.id, stage: "monitoring", body: "Failover applied for the 14 affected companies. p95 back to 1.6s. Holding before we move the rest.", authorName: "S. Okonjo", at: minsAgo(9) },
-    { incidentId: byTitle.get("Retrieval index lag")!.id, stage: "resolved", body: "Index workers scaled out. Backlog cleared in 6 minutes; no wrong answers were served during the window.", authorName: "S. Okonjo", at: daysAgo(5) },
-  ]);
-
-  await db.insert(s.qualityFlags).values(
-    QUALITY.map((q, i) => ({
-      // Spread across the fleet, because the point of the screen is that these
-      // are patterns Corva owns rather than one tenant's problem.
-      orgId: orgRows[(i * 17) % orgRows.length].id,
-      failureClass: q.failureClass,
-      summary: q.summary,
-      rootCause: q.rootCause,
-      owner: q.owner,
-      status: q.status,
-      assignedToStaffId: q.status === "open" ? null : operator.id,
-      resolvedAt: q.status === "fixed" ? daysAgo(q.daysAgo - 1) : null,
-      createdAt: daysAgo(q.daysAgo),
-    })),
-  );
-
   await db.insert(s.auditLog).values([
     { orgId: aurelius.id, brandId: home.id, actorType: "user", actorId: memberByEmail.get("dania@aureliusgroup.com")!.id, actorName: "D. Rahman", action: "authority.ceiling_raised", target: "goodwill_credit", meta: { to: "₹5,000" }, at: minsAgo(120) },
     { orgId: aurelius.id, brandId: home.id, actorType: "user", actorId: memberByEmail.get("joseph@aureliusgroup.com")!.id, actorName: "J. Okhandiar", action: "credit_note.approved", target: "₹7,36,000", meta: {}, at: minsAgo(240) },
@@ -1047,8 +789,6 @@ async function main() {
 
   console.log("\nSeeded.");
   console.log(`  organizations ${orgRows.length}`);
-  console.log(`  usage rows    ${usage.length} (90 days × fleet)`);
-  console.log(`  mrr snapshots ${mrr.length} (12 months × fleet)`);
   console.log(`  brands        ${brandRows.length}`);
   console.log(`  people        ${memberRows.length}`);
   console.log(`  customers     ${customerRows.length + otherCustomerRows.length} across ${brandRows.length} brands`);
@@ -1056,6 +796,7 @@ async function main() {
   console.log(`  agent versions${versionRows.length}`);
   console.log("\nNext: npm run db:embed   — embed the chunks so retrieval works");
   console.log("      npm run db:conversations — replay the seeded conversations");
+  console.log("      npm run db:crm   — a week of leads and follow-ups");
 }
 
 main().then(

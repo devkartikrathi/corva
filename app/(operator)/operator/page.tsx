@@ -16,9 +16,8 @@ export default async function BusinessesPage({ searchParams }: { searchParams: P
   await requireStaff();
   const { all } = await searchParams;
   const everything = await listBusinesses();
-  // The seed carries ~150 placeholder companies from the old fleet dashboard,
-  // with no assistant and no number. They are hidden unless asked for, so the
-  // list is the businesses you can actually ring.
+  // Brands with neither an assistant nor a number cannot be rung, so they are
+  // tucked away unless asked for — the list is the businesses you can call.
   const set = (b: (typeof everything)[number]) => Boolean(b.agentName || b.phone);
   const businesses = all ? everything : everything.filter(set);
   const hidden = everything.length - everything.filter(set).length;
@@ -132,11 +131,11 @@ export default async function BusinessesPage({ searchParams }: { searchParams: P
         <p style={{ padding: "14px 24px", margin: 0, fontSize: 12, color: "var(--color-neutral-500)" }}>
           {all ? (
             <Link href="/operator" style={{ color: "var(--color-neutral-300)" }}>
-              Hide the {hidden} placeholder companies
+              Hide the {hidden} not set up
             </Link>
           ) : (
             <>
-              {hidden} placeholder companies from the seed data have no assistant or number and are hidden.{" "}
+              {hidden} {hidden === 1 ? "business has" : "businesses have"} no assistant or number yet and {hidden === 1 ? "is" : "are"} hidden.{" "}
               <Link href="/operator?all=1" style={{ color: "var(--color-neutral-300)" }}>
                 Show them
               </Link>
