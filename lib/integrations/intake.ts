@@ -88,6 +88,12 @@ async function upsertVisitor(
         lastSeenAt: new Date(),
         ...(opts.countPage ? { pageViews: sql`${s.visitors.pageViews} + 1` } : {}),
         ...(opts.path ? { lastPath: opts.path } : {}),
+        // "First" means first *consented*: a visit before the banner was
+        // answered kept nothing, so the first one after it fills these in.
+        ...(opts.referrer ? { firstReferrer: sql`coalesce(${s.visitors.firstReferrer}, ${opts.referrer})` } : {}),
+        ...(opts.utm && Object.keys(opts.utm).length
+          ? { firstUtm: sql`case when ${s.visitors.firstUtm} = '{}'::jsonb then ${JSON.stringify(opts.utm)}::jsonb else ${s.visitors.firstUtm} end` }
+          : {}),
         ...(opts.customerId ? { customerId: opts.customerId } : {}),
         // Withdrawing consent forgets what was only kept because of it.
         ...(opts.consent === "necessary" ? { firstReferrer: null, firstUtm: {}, lastPath: null } : {}),
