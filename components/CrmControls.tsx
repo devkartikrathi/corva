@@ -364,3 +364,76 @@ export function AddFollowUpForm({
     </Disclosure>
   );
 }
+
+/** Value and notes on a lead — the two things a person learns after the AI wrote it. */
+export function LeadEditor({
+  valueRupees,
+  notes,
+  onSave,
+}: {
+  valueRupees: number | null;
+  notes: string | null;
+  onSave: (input: { valueRupees: number | null; notes: string }) => Promise<unknown>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(valueRupees ? String(valueRupees) : "");
+  const [text, setText] = useState(notes ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="hov-invert"
+        style={{ fontSize: 11, fontWeight: 600, border: "1px solid var(--color-neutral-400)", padding: "4px 8px" }}
+      >
+        Edit
+      </button>
+    );
+  }
+  return (
+    <span style={{ display: "inline-flex", flexDirection: "column", gap: 4 }}>
+      <span style={{ display: "flex", gap: 4 }}>
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value.replace(/[^0-9]/g, ""))}
+          placeholder="Value ₹"
+          inputMode="numeric"
+          aria-label="Value in rupees"
+          style={{ ...inputStyle, width: 90 }}
+        />
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Notes"
+          aria-label="Notes"
+          style={{ ...inputStyle, width: 220 }}
+        />
+        <button
+          type="button"
+          className="hov-accent"
+          disabled={pending}
+          onClick={() => {
+            setError(null);
+            start(async () => {
+              try {
+                await onSave({ valueRupees: value ? Number(value) : null, notes: text });
+                setOpen(false);
+              } catch (e) {
+                setError(message(e));
+              }
+            });
+          }}
+          style={{ fontSize: 11, fontWeight: 700, background: "var(--color-accent)", color: "var(--color-bg)", padding: "0 10px" }}
+        >
+          {pending ? "Saving…" : "Save"}
+        </button>
+        <button type="button" onClick={() => setOpen(false)} style={{ fontSize: 11, color: "var(--color-neutral-700)" }}>
+          Cancel
+        </button>
+      </span>
+      {error && <span style={errorStyle}>{error}</span>}
+    </span>
+  );
+}

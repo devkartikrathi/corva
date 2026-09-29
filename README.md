@@ -20,9 +20,11 @@ npm run voice   # the voice bridge, for test calls
    wants the AI to know, and the team (`Name, email, role` per line). Corva reads the website,
    turns it into knowledge, sets up an AI assistant from the industry template, and gives the
    business a phone number (a free `+91 40 7xxx xxxx` test line unless you give one).
-2. **Call it** — `/operator/testing`. Dial the number. Your own number decides who you are: a
-   number the business has never seen makes you a new caller, which is where leads come from;
-   pick a known customer to be recognised instead.
+2. **Call it** — `/operator/testing`. Dial the number, or switch to **Chat** and type as a
+   customer (same AI, no microphone needed). Your own number decides who you are: a number the
+   business has never seen makes you a new caller, which is where leads come from; pick a known
+   customer to be recognised instead. A new caller who hangs up without leaving details still
+   gets a "call them back" follow-up.
 3. **Watch it land** — "Open their console" (demo mode signs you in as the owner). The call is
    on Live calls with a *Recorded on this call* panel; the AI's lead is on **Leads** with an
    owner; its promised callback is on **Follow-ups** and on **Home**. Take the line at any point
@@ -34,7 +36,7 @@ npm run voice   # the voice bridge, for test calls
 The same path without a browser or a microphone:
 
 ```bash
-npm run smoke:business                       # add a clinic, chat as a new caller, check lead + follow-up
+npm run smoke:business                       # add a clinic, chat as a new caller, check lead + follow-up, remove it
 VOICE_BRIDGE_PORT=8787 npm run smoke:voice -- "+91 40 7xxx xxxx"   # does that number reach its AI?
 ```
 
@@ -73,7 +75,7 @@ Corva's own console can open any business as its owner (`lib/auth/enter.ts`).
 | `/operator` | Businesses — whether each can take a call, its number, calls and leads this week |
 | `/operator/onboarding` | Add a business |
 | `/operator/companies/[slug]` | One business — number, model, what its AI knows, team, recent calls, remove |
-| `/operator/testing` | Test calls — the dialer |
+| `/operator/testing` | Test calls — the dialer, and a chat tester |
 
 ## How the AI turns calls into work
 
@@ -90,7 +92,8 @@ Corva's own console can open any business as its owner (`lib/auth/enter.ts`).
 - **Knowledge from the website** (`lib/business/website.ts`) — the home page and the few pages
   most likely to hold answers, rewritten into "Topic: fact" paragraphs. Retrieval falls back to
   word matching when embeddings are unavailable, and model calls fall through to a sibling Gemini
-  model when one is overloaded (`lib/agent/model.ts`).
+  model when one is overloaded or slow to start, skipping it for five minutes afterwards
+  (`lib/agent/model.ts`).
 - **Handing over.** When the AI hits a limit it writes a brief and rings a named person
   (`lib/agent/routing.ts`, `components/TransferAlert.tsx`). Taking the line silences the AI —
   on voice too: the bridge drops its audio and refuses its tools while a person holds the call.

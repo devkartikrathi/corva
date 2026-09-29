@@ -28,13 +28,14 @@ const CONSENT_KINDS = [
   { kind: "data_sharing", label: "Sharing with third parties" },
 ];
 import { getCustomer } from "@/lib/queries/customers";
-import { ActionSelect, AddFollowUpForm, FollowUpButtons } from "@/components/CrmControls";
+import { ActionSelect, AddFollowUpForm, FollowUpButtons, LeadEditor } from "@/components/CrmControls";
 import {
   addFollowUp,
   completeFollowUp,
   postponeFollowUp,
   reopenFollowUp,
   setLeadStage,
+  updateLead,
 } from "@/lib/actions/crm";
 import { industryFor, LEAD_STAGES } from "@/lib/business/industries";
 import { listFollowUps, listLeads } from "@/lib/queries/crm";
@@ -362,6 +363,14 @@ export default async function Customer360Page({
                     {l.notes ? ` · ${l.notes}` : ""}
                   </div>
                 </div>
+                <LeadEditor
+                  valueRupees={l.valuePaise ? l.valuePaise / 100 : null}
+                  notes={l.notes}
+                  onSave={async (input) => {
+                    "use server";
+                    await updateLead(l.id, input);
+                  }}
+                />
                 <ActionSelect
                   label="Stage"
                   value={l.stage}
