@@ -77,6 +77,45 @@ Corva's own console can open any business as its owner (`lib/auth/enter.ts`).
 | `/operator/companies/[slug]` | One business — number, model, what its AI knows, team, recent calls, remove |
 | `/operator/testing` | Test calls — the dialer, and a chat tester |
 
+## Signing in
+
+- **Business console (`/app`)** — Clerk. With `CORVA_DEMO=0` every screen needs a sign-in;
+  roles stay in Postgres (`memberships`). Signing in with a *verified* email claims whatever
+  is waiting for it — an invitation, or a demo/seeded row — so accepting an invite is simply
+  creating an account with the invited address (`claimByEmail`, `lib/auth/session.ts`).
+  Invitations are emailed from onboarding and from Team. `CORVA_DEMO=1` opens everything
+  without signing in, as before.
+- **Corva's own console (`/operator`)** — open in development, closed in production unless
+  `CORVA_OPERATOR_OPEN=1` (`OPERATOR_OPEN`, `lib/auth/mode.ts`). Staff sign-in comes later.
+
+## A business's website → Corva
+
+Per-business API keys (Settings → *Website & API keys*, or `scripts/create-api-key.ts`) let
+a site's **server** call:
+
+| Endpoint | What it does |
+| --- | --- |
+| `POST /api/v1/leads` | A pickup / callback / enquiry → customer (by phone), lead with an owner, follow-up with a time, confirmation email to the customer and a heads-up to the owner |
+| `POST /api/v1/chats` | The site chat's transcript, mirrored into one conversation per session |
+| `POST /api/v1/visits` | Visitor + cookie consent; page, referrer and campaign only with analytics consent |
+| `POST /api/v1/voice-sessions` | A five-minute signed token for a voice call from the visitor's browser |
+
+Tumble Days (`../tumbledays`, branch `corva-integration`) is the first site wired up; set it
+up with `scripts/setup-tumbledays.ts`.
+
+## Environment
+
+| Variable | Why |
+| --- | --- |
+| `DATABASE_URL` | Neon Postgres (pgvector holds the knowledge-base embeddings) |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini: answers, embeddings, voice |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Sign-in |
+| `CORVA_DEMO` | `0` for real sign-in, `1` (default) for the open demo |
+| `CORVA_OPERATOR_OPEN` | `1` to open `/operator` in production |
+| `RESEND_API_KEY`, `EMAIL_FROM` | Email (Resend, via the Vercel Marketplace); `EMAIL_FROM` once a domain is verified |
+| `APP_URL` | Where links in emails point |
+| `VOICE_BRIDGE_PUBLIC_URL`, `VOICE_TOKEN_SECRET`, `VOICE_REQUIRE_TOKEN` | Hosting the voice bridge publicly for website calls |
+
 ## How the AI turns calls into work
 
 - **Routing by number.** `lib/business/phone.ts` normalises numbers to digits; the voice bridge
