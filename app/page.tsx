@@ -1,8 +1,8 @@
 import Link from "next/link";
+import { INDUSTRIES } from "@/lib/business/industries";
 import type { CSSProperties, ReactNode } from "react";
 import {
-  axes,
-  axisNotes,
+  industryNotes,
   footerColumns,
   heroStats,
   heroWave,
@@ -167,7 +167,7 @@ export default function LandingPage() {
             {[
               ["#platform", "Platform"],
               ["#loop", "How it works"],
-              ["#signals", "Customer signals"],
+              ["#signals", "Industries"],
               ["#pricing", "Pricing"],
             ].map(([href, label]) => (
               <a key={label} href={href} className="hov-ink" style={{ color: "var(--color-neutral-700)" }}>
@@ -184,7 +184,7 @@ export default function LandingPage() {
               Sign in
             </Link>
             <Link
-              href="#pricing"
+              href="/operator/onboarding"
               className="hov-accent"
               style={{
                 fontSize: 13,
@@ -194,7 +194,7 @@ export default function LandingPage() {
                 padding: "11px 18px",
               }}
             >
-              Book a demo
+              Try it
             </Link>
           </div>
         </div>
@@ -225,7 +225,7 @@ export default function LandingPage() {
                   animation: "cv-pulse 2.4s ease-in-out infinite",
                 }}
               />
-              Customer operations platform
+              AI front office for Indian businesses
             </div>
 
             <h1
@@ -238,7 +238,7 @@ export default function LandingPage() {
                 maxWidth: "15ch",
               }}
             >
-              Every customer. Every conversation. One surface.
+              Every call answered. Every lead followed up.
             </h1>
 
             <p
@@ -251,16 +251,16 @@ export default function LandingPage() {
                 textWrap: "pretty",
               }}
             >
-              Corva answers your helpline with an AI trained on your own documentation, scores every
-              customer on eleven live signals, and hands a human the full brief the moment judgement
-              is needed.
+              Corva answers your phone around the clock with an AI that knows your business. Every
+              caller becomes a customer record, anyone who wants something becomes a lead with an
+              owner, and every promised callback has a name and a time on it.
             </p>
 
             <div style={{ marginTop: 36, display: "flex", gap: 10 }}>
               <AccentLink href="#platform" arrow minWidth={200}>
                 See the platform
               </AccentLink>
-              <OutlineLink href="#loop">Watch a live call</OutlineLink>
+              <OutlineLink href="#loop">How it works</OutlineLink>
             </div>
 
             <div
@@ -276,7 +276,7 @@ export default function LandingPage() {
                 color: "var(--color-neutral-500)",
               }}
             >
-              <span>Trusted by operators at</span>
+              <span>Built for</span>
               <span style={{ height: 1, flex: 1, background: "var(--color-neutral-300)" }} />
               {logos.map((l) => (
                 <span key={l} style={{ color: "var(--color-neutral-700)" }}>
@@ -403,7 +403,7 @@ export default function LandingPage() {
               <span style={{ height: 20, width: 2, background: "var(--color-neutral-300)" }} />
               <span style={{ fontSize: 13, fontWeight: 600 }}>Marguerite Okonkwo</span>
               <span style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>
-                +44 7700 900 118 · Aurelius Home · Tier 1
+                +91 98200 41187 · Aurelius Home · Tier 1
               </span>
               <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
                 <span
@@ -791,8 +791,8 @@ export default function LandingPage() {
           }}
         >
           <div>
-            <Eyebrow color="var(--color-neutral-500)">Customer signals</Eyebrow>
-            <SectionHeading>Eleven axes. One number you can argue with.</SectionHeading>
+            <Eyebrow color="var(--color-neutral-500)">Industries</Eyebrow>
+            <SectionHeading>It already knows the job.</SectionHeading>
             <p
               style={{
                 margin: "20px 0 0",
@@ -802,9 +802,9 @@ export default function LandingPage() {
                 textWrap: "pretty",
               }}
             >
-              Priority is a blend: a model score plus the overrides your team writes. Hover any score in
-              the product and you get the arithmetic — which axis moved, by how much, and which call
-              caused it.
+              A clinic, an estate agent and a furniture shop do not want the same things from a call.
+              Each starts from a template that knows what to ask, what it may do on its own, and what
+              its pipeline is called.
             </p>
             <div
               style={{
@@ -818,7 +818,7 @@ export default function LandingPage() {
                 color: "var(--color-neutral-400)",
               }}
             >
-              {axisNotes.map((n) => (
+              {industryNotes.map((n) => (
                 <div key={n} style={{ display: "flex", gap: 12 }}>
                   <span style={{ color: "var(--color-accent-500)", fontWeight: 700 }}>→</span>
                   <span>{n}</span>
@@ -849,51 +849,29 @@ export default function LandingPage() {
                 borderBottom: "2px solid var(--color-neutral-800)",
               }}
             >
-              <span>Axis</span>
-              <span>Weight · Aurelius Home</span>
+              <span>Industry</span>
+              <span>Pipeline</span>
             </div>
 
-            {axes.map((a) => (
+            {INDUSTRIES.filter((ind) => ind.key !== "general").map((ind) => (
               <div
-                key={a.label}
+                key={ind.key}
                 style={{
+                  gridColumn: "1 / -1",
                   padding: "13px 0",
                   borderBottom: "1px solid var(--color-neutral-800)",
                   display: "flex",
-                  alignItems: "center",
+                  alignItems: "baseline",
                   gap: 14,
                 }}
               >
-                <span style={{ fontSize: 13.5, flex: 1 }}>{a.label}</span>
-                <span style={{ width: 56, height: 5, background: "var(--color-neutral-800)" }}>
-                  <span style={{ display: "block", height: "100%", width: a.weight, background: "var(--color-accent)" }} />
+                <span style={{ fontSize: 13.5, width: 190 }}>{ind.label}</span>
+                <span style={{ flex: 1, fontSize: 12.5, color: "var(--color-neutral-400)" }}>
+                  {ind.stages.new} → {ind.stages.qualified} →{" "}
+                  <b style={{ color: "var(--color-accent-500)" }}>{ind.stages.won}</b>
                 </span>
               </div>
             ))}
-
-            <div
-              style={{
-                padding: "13px 0",
-                borderBottom: "1px solid var(--color-neutral-800)",
-                display: "flex",
-                alignItems: "center",
-                gap: 14,
-              }}
-            >
-              <span style={{ fontSize: 13.5, flex: 1, color: "var(--color-neutral-600)" }}>
-                + your own custom axis
-              </span>
-              <span
-                style={{
-                  fontSize: 11,
-                  color: "var(--color-neutral-600)",
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                }}
-              >
-                SQL or API
-              </span>
-            </div>
           </div>
         </div>
       </section>

@@ -1,15 +1,20 @@
 /**
- * Content for the marketing site, ported from `design/Corva Landing.dc.html`.
+ * Content for the marketing site.
+ *
+ * The layout came from `design/Corva Landing.dc.html`; the words describe
+ * what Corva is now — an AI front office that answers the phone and turns
+ * every call into a customer record, a lead and a follow-up. Nothing here
+ * claims a feature the product does not have.
  */
 
 export const heroStats = [
-  { label: "Resolved without a human", value: "71", suffix: "%", suffixAccent: true },
-  { label: "Median time to answer", value: "1.4", suffix: "s", suffixAccent: false },
-  { label: "Signals per customer", value: "11" },
-  { label: "Handoffs with a written brief", value: "100", suffix: "%", suffixAccent: true },
+  { label: "Calls answered, day or night", value: "24", suffix: "/7", suffixAccent: true },
+  { label: "Callers who become a record", value: "100", suffix: "%", suffixAccent: true },
+  { label: "From website to answering calls", value: "5", suffix: "min", suffixAccent: false },
+  { label: "Callbacks with a name and a time", value: "100", suffix: "%", suffixAccent: true },
 ] as const;
 
-export const logos = ["Aurelius", "Northmoor", "Kessel & Co", "Vantage"] as const;
+export const logos = ["Clinics", "Real estate", "Retail", "Coaching", "Home services"] as const;
 
 /** The waveform in the console mock — heights as percentages. */
 export const heroWave = [40, 70, 100, 55, 85, 30, 65, 95, 45, 75, 35, 60, 90, 50, 25, 70, 40, 80] as const;
@@ -32,127 +37,113 @@ export const loopSteps = [
   {
     n: "01",
     title: "The AI answers",
-    body: "A customer calls the helpline. The AI identifies them from the number, loads their record, and speaks with your tone, your policies and your limits.",
+    body: "Someone rings your number. The AI knows a returning customer by their number and loads their record; anyone new becomes a contact the moment they call.",
   },
   {
     n: "02",
-    title: "It resolves, or it stops",
-    body: "Answers come only from your documentation, with the source cited. Beyond its authority it doesn't improvise — it escalates.",
+    title: "It helps, within your limits",
+    body: "Answers come only from what your business told it — your website, your prices, your policies. Beyond its authority it does not improvise: it hands over with a written brief.",
   },
   {
     n: "03",
-    title: "A human picks it up warm",
-    body: "The agent receives a written brief: the issue, what was tried, what's permitted, and the one decision left to make. No re-asking.",
+    title: "Every call becomes work",
+    body: "What the caller wants is saved as a lead with an owner on your team. Every \u201cwe'll call you back\u201d is a follow-up with a name and a time.",
   },
   {
     n: "04",
-    title: "The system learns",
-    body: "Every unresolved call becomes a documentation gap, a tuning suggestion and a moved score on the customer's record.",
+    title: "Your team closes it",
+    body: "Leads move through your pipeline, follow-ups get ticked off, and you can see who is winning business and who is keeping their promises.",
   },
 ] as const;
 
-/** The eleven scoring axes, with Aurelius Home's weights. */
-export const axes = [
-  { label: "Revenue / LTV", weight: "90%" },
-  { label: "Churn risk", weight: "100%" },
-  { label: "Sentiment from calls", weight: "75%" },
-  { label: "Escalation likelihood", weight: "65%" },
-  { label: "Engagement / usage", weight: "45%" },
-  { label: "Payment reliability", weight: "70%" },
-  { label: "Cost to serve", weight: "55%" },
-  { label: "Advocacy / NPS", weight: "50%" },
-  { label: "Contract tier & SLA", weight: "85%" },
-  { label: "Expansion potential", weight: "40%" },
-  { label: "Risk flags", weight: "30%" },
-] as const;
-
-export const axisNotes = [
-  "Weights are per brand. A subscription business and a furniture retailer do not care about the same things.",
-  "Every score is timestamped, so you can see the customer as they were three months ago.",
+/** The industries section: each template's own words for its pipeline. */
+export const industryNotes = [
+  "Pick an industry when you add a business. The AI already knows what to ask a new caller and what it may do on its own.",
+  "Your pipeline uses your words — an appointment booked, a site visit fixed, a demo class attended.",
 ] as const;
 
 export const platformCards = [
   {
-    title: "Customer 360",
-    body: "Identity, contracts, entitlements, orders, devices, every call and message, and the score history — on one scrolling record with no tabs to hunt through.",
+    title: "An AI that answers the phone",
+    body: "Speaks with your tone, knows returning customers by their number, and answers only from what your business told it — with the source on record.",
   },
   {
-    title: "Priority queue",
-    body: "A queue ordered by what it costs you to ignore. Filter on any axis, save the view, share it with the team, alert on it.",
+    title: "Leads, captured on the call",
+    body: "A new caller who wants something becomes a lead with an owner before they hang up. Your pipeline, in your industry's own stage names.",
   },
   {
-    title: "Knowledge that answers",
-    body: "Keep policies and playbooks here. Corva tells you which documents the AI leans on, which are stale, and where the gaps are.",
+    title: "Follow-ups that happen",
+    body: "Every promised callback lands with a person and a time. Overdue ones are the first thing anyone sees in the morning.",
   },
   {
-    title: "Tuning & guardrails",
-    body: "Set the persona, the refund ceiling, the forbidden promises and the escalation triggers. Test against real past calls before you ship a version.",
+    title: "One record per customer",
+    body: "Every call and chat, their leads and follow-ups, notes and consent — on one page, whoever on the team picks it up.",
   },
   {
-    title: "Multi-brand workspaces",
-    body: "One company, many brands. Separate numbers, documentation, tone and weights — with roles that scope people to the brand they work on.",
+    title: "Take the line any time",
+    body: "Watch a call live, with what the AI has recorded so far. Press one button and it goes quiet while you talk.",
   },
   {
-    title: "Audit & residency",
-    body: "Every AI action is logged with its citation. SSO, SCIM, regional storage, redaction of card and health data at capture.",
+    title: "Handoffs with a brief",
+    body: "When the AI reaches a limit it writes up the call and rings the right person — whoever owns the account, or whoever is free.",
   },
   {
-    title: "Analytics on the AI itself",
-    body: "Containment, first-call resolution, cost per contact, and the top intents it still can't finish — ranked by what fixing them would return.",
+    title: "Team performance",
+    body: "Leads owned and won, follow-ups done on time, handoffs picked up — per person, without a made-up combined score.",
   },
   {
-    title: "Every channel, one thread",
-    body: "Phone, WhatsApp, email and web chat land on the same conversation record, so the customer never repeats themselves.",
+    title: "Set up from your website",
+    body: "Give Corva your web address. It reads your services, prices and policies and the AI can take calls the same afternoon.",
   },
   {
-    title: "Open by default",
-    body: "Read and write anything through the API, stream events to your warehouse, and pull records from the CRM you already run.",
+    title: "Limits you set",
+    body: "What the AI may refund, waive or book on its own, what it must never say, and when it hands over — changed in minutes, logged every time.",
   },
 ] as const;
 
 export const plans = [
   {
-    name: "Studio",
+    name: "Starter",
     price: "₹36",
     unit: " / conversation",
-    blurb: "One brand, one helpline, the full customer record. For teams under ten.",
+    blurb: "One business, one number, the full customer record. For teams under ten.",
     features: [
-      "Unlimited seats & customers",
-      "Knowledge base up to 200 docs",
-      "Standard tuning presets",
+      "AI on phone and web chat",
+      "Leads & follow-ups",
+      "Knowledge from your website",
       "90-day transcript retention",
     ],
     cta: "Start free",
     featured: false,
   },
   {
-    name: "Operator",
+    name: "Growth",
     price: "₹27",
     unit: " / conversation",
-    blurb: "Up to five brands, custom scoring weights, and the full tuning workbench.",
+    blurb: "Several brands or branches, a bigger team, and the numbers to manage it.",
     features: [
-      "Everything in Studio",
-      "Custom axes & priority rules",
-      "Guardrails, versions & test suites",
-      "SSO, roles, audit log",
+      "Everything in Starter",
+      "Up to five brands",
+      "Team performance",
+      "Roles, audit log",
       "2-year retention",
     ],
     cta: "Book a demo",
     featured: true,
-    badge: "Most brands",
+    badge: "Most businesses",
   },
   {
-    name: "Enterprise",
+    name: "Business",
     price: "Talk to us",
     unit: "",
-    blurb: "Unlimited brands, private model tuning, regional residency, dedicated review.",
+    blurb: "Many branches, your own phone lines, and help moving over from what you use today.",
     features: [
-      "Everything in Operator",
-      "Private fine-tuning on your calls",
-      "Data residency & BYO keys",
-      "99.95% SLA, named engineer",
+      "Everything in Growth",
+      "Your existing numbers",
+      "Custom industry setup",
+      "A named person at Corva",
     ],
-    cta: "Contact sales",
+    cta: "Contact us",
     featured: false,
   },
 ] as const;
@@ -161,9 +152,9 @@ export const footerColumns = [
   {
     title: "Product",
     links: [
-      { label: "Customer 360", href: "#platform" },
-      { label: "AI helpline", href: "#platform" },
-      { label: "Signals", href: "#signals" },
+      { label: "AI phone assistant", href: "#platform" },
+      { label: "Leads & follow-ups", href: "#platform" },
+      { label: "Industries", href: "#signals" },
     ],
   },
   {
