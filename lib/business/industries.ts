@@ -237,6 +237,41 @@ export const INDUSTRIES: Industry[] = [
     ],
   },
   {
+    key: "laundry",
+    label: "Laundry / dry cleaning",
+    callers: "customers",
+    stages: {
+      new: "New enquiry",
+      contacted: "Contacted",
+      qualified: "Pickup booked",
+      proposal: "Picked up",
+      won: "Delivered",
+      lost: "Lost",
+    },
+    leadQuestions: [
+      "their name",
+      "what needs cleaning (clothes, dry-cleaning, shoes, carpets, curtains…)",
+      "the pickup address — flat, society and sector",
+      "a preferred pickup day and time",
+    ],
+    describe: (name) => `${name} is a laundry and dry-cleaning service with doorstep pickup and delivery.`,
+    authority: [
+      { action: "book_pickup", label: "Book a pickup", ceilingRupees: null },
+      { action: "reschedule_pickup", label: "Reschedule a pickup", ceilingRupees: null },
+      { action: "apply_offer", label: "Apply a published offer code", ceilingRupees: null },
+      { action: "goodwill_credit", label: "Goodwill credit", ceilingRupees: 200, escalateTo: "manager" },
+      { action: "refund", label: "Refund", ceilingRupees: null, blocked: true, escalateTo: "manager" },
+    ],
+    never: [
+      ...COMMON_NEVER,
+      "Promise a delivery time or an item price the business has not published",
+      "Accept a pickup outside the service area",
+    ],
+    starter: [
+      "Pickup: Pickup and delivery are free and happen at the customer's doorstep. The team confirms the slot by phone.",
+    ],
+  },
+  {
     key: "restaurant",
     label: "Restaurant / café",
     callers: "guests",
