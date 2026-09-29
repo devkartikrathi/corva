@@ -99,6 +99,12 @@ a site's **server** call:
 | `POST /api/v1/chats` | The site chat's transcript, mirrored into one conversation per session |
 | `POST /api/v1/visits` | Visitor + cookie consent; page, referrer and campaign only with analytics consent |
 | `POST /api/v1/voice-sessions` | A five-minute signed token for a voice call from the visitor's browser |
+| `POST /api/v1/chat` | Corva's own agent, for sites without an AI: send a message, get the reply (`GET` for a person's replies once they take over) |
+| `GET /api/v1/health` | Checks a key; says which features (voice, secure voice) the business can use |
+
+Developer documentation for a business's web developer is at **`/developers`**, and the same
+endpoints as OpenAPI at `/api/v1/openapi.json`. A business can also skip the API entirely and
+use a Corva phone number: callers reach the same agent.
 
 Tumble Days (`../tumbledays`, branch `corva-integration`) is the first site wired up; set it
 up with `scripts/setup-tumbledays.ts`.
