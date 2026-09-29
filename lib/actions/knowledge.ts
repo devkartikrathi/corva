@@ -3,6 +3,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { reindex } from "@/lib/knowledge";
+import { readWebsite } from "@/lib/business/website";
 import { getConsoleContext } from "@/lib/auth/context";
 import { assertCan, can } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
@@ -316,4 +317,27 @@ export async function getDocument(documentId: string) {
   ]);
 
   return { document: doc, revisions, chunks, citationCount: citations[0].n };
+}
+
+/**
+ * Read a website into the knowledge base.
+ *
+ * The same reader onboarding uses: the home page and the few pages most likely
+ * to hold answers, rewritten into "Topic: fact" paragraphs and published, so
+ * the AI can answer from it on the next call.
+ */
+export async function importWebsite(url: string) {
+  const { brand } = await getConsoleContext();
+  const site = await readWebsite(url, brand.name);
+  if (!site.body.trim()) throw new Error("That website had no readable text.");
+  const id = await createDocument({
+    title: `From ${new URL(site.url).hostname}`,
+    collection: "Website",
+    kind: "Reference",
+    body: site.body,
+    publish: true,
+  });
+  await db.update(s.documents).set({ sourceSystem: site.url }).where(eq(s.documents.id, id));
+  revalidatePath("/app/knowledge");
+  return { id, pages: site.pages.length, rewritten: site.rewritten };
 }

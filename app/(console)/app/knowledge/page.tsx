@@ -4,7 +4,8 @@ import { ActionButton } from "@/components/ActionButton";
 import { SearchBox } from "@/components/filters";
 import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { href, normalise, type RawParams } from "@/lib/params";
-import { dismissGap, reindexBrand, syncSource } from "@/lib/actions/knowledge";
+import { dismissGap, importWebsite, reindexBrand, syncSource } from "@/lib/actions/knowledge";
+import { ImportWebsite } from "@/components/ImportWebsite";
 import { draftFromGap } from "@/lib/actions/workspace";
 import { getKnowledge } from "@/lib/queries/workspace";
 
@@ -58,6 +59,7 @@ export default async function KnowledgeBasePage({
             Re-index {readiness.chunks - readiness.indexed}
           </ActionButton>
         )}
+        <ImportWebsite onImport={importWebsite} />
         <PrimaryButton href="/app/knowledge/new">New document</PrimaryButton>
       </ScreenHeader>
 
