@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { reindex } from "@/lib/knowledge";
@@ -63,17 +63,18 @@ export async function createLiveAgent(opts: {
   businessName: string;
   agentName: string;
   industry: Industry;
-  about?: string;
   authorName: string;
 }) {
-  const { brandId, businessName, agentName, industry, about, authorName } = opts;
+  const { brandId, businessName, agentName, industry, authorName } = opts;
 
   const [version] = await db
     .insert(s.agentVersions)
     .values({
       brandId,
       version: 1,
-      persona: defaultPersona({ agentName, businessName, industry, about: about?.split("\n")[0] }),
+      // Facts belong in the knowledge base, not in who the agent is — a pasted
+      // "Consultation: ₹500" line read as the business's description.
+      persona: defaultPersona({ agentName, businessName, industry }),
       tone: { warmth: 7, brevity: 8, formality: 4, persistence: 3 },
       status: "live",
       notes: `Started from the ${industry.label} template`,
@@ -160,7 +161,6 @@ export async function bootstrapBusiness(input: BootstrapInput): Promise<Bootstra
       businessName: input.businessName,
       agentName: input.agentName,
       industry,
-      about: input.about,
       authorName: input.authorName,
     });
   }
@@ -221,6 +221,18 @@ export async function bootstrapBusiness(input: BootstrapInput): Promise<Bootstra
     } catch (e) {
       warnings.push((e as Error).message);
     }
+  }
+
+  // Embedding can fail on a rate limit mid-onboarding. The AI still answers
+  // (retrieval falls back to matching words), but say so, and where to fix it.
+  const [unindexed] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(s.documentChunks)
+    .where(and(eq(s.documentChunks.brandId, input.brandId), isNull(s.documentChunks.embedding)));
+  if (unindexed && unindexed.n > 0) {
+    warnings.push(
+      `${unindexed.n} passage${unindexed.n === 1 ? " was" : "s were"} saved but not indexed (the AI service was busy). The AI still answers from them by keyword; press Re-index on their Knowledge screen to finish.`,
+    );
   }
 
   // The number the business answers on, and web chat so the text path works too.

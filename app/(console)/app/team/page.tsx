@@ -8,12 +8,11 @@ import { can, CAPABILITIES, MATRIX, ROLES, grantLabel, grantWeight } from "@/lib
 
 /** How each capability reads on the matrix. */
 const CAPABILITY_LABELS: Record<string, string> = {
-  "customers.read": "See customer records",
-  "calls.handle": "Take and end live calls",
+  "customers.read": "See customers & leads",
+  "calls.handle": "Take calls, work leads & follow-ups",
   "actions.approve_above_ceiling": "Approve above-ceiling actions",
   "agent.edit": "Edit AI persona & guardrails",
   "documents.publish": "Publish knowledge documents",
-  "scoring.edit": "Change scoring weights & rules",
   "transcripts.export": "Export transcripts",
   "people.manage": "Manage people & roles",
   "billing.manage": "Billing, plan & residency",
@@ -49,7 +48,8 @@ export default async function TeamPage() {
 
   // The matrix renders from the same rules the server enforces, so the screen
   // cannot drift from what is actually permitted.
-  const matrix = CAPABILITIES.map((cap) => ({
+  // Scoring weights have no screen any more; a row nobody can act on is noise.
+  const matrix = CAPABILITIES.filter((cap) => cap !== "scoring.edit").map((cap) => ({
     cap: CAPABILITY_LABELS[cap] ?? cap,
     cells: ROLES.map((role) => grantLabel(cap, MATRIX[cap][role])),
     c: ROLES.map((role) => WEIGHT_COLOR[grantWeight(MATRIX[cap][role])]),
@@ -105,8 +105,7 @@ export default async function TeamPage() {
         <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
           <SectionTitle size={16}>What each role can do</SectionTitle>
           <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-            Roles are scoped to a brand — an agent on Aurelius Home never sees Northmoor&rsquo;s
-            customers
+            An Agent sees the customers and leads they own; a Manager sees the whole business
           </span>
         </div>
         <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 14, fontSize: 12.5 }}>

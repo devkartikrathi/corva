@@ -101,7 +101,8 @@ export default async function ConversationsPage({
   const convos = result.rows;
   const currentView = matchView(views, params);
 
-  if (stats.total === 0) {
+  // `stats` leaves test calls out, so an archive of only rehearsals is not empty.
+  if (stats.total === 0 && result.total === 0) {
     return (
       <section style={{ padding: "20px 24px" }}>
         <ScreenTitle kicker="Nothing recorded yet" title="Conversations" />
