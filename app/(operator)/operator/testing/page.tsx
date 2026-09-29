@@ -1,5 +1,8 @@
 import { DarkKicker, OperatorHeader } from "@/components/operator-ui";
+import Link from "next/link";
+import { ChatTester } from "@/components/ChatTester";
 import { VoicePlayground } from "@/components/VoicePlayground";
+import { endTestChat, pollTestChat, sendTestChat, startTestChat } from "@/lib/actions/test-chat";
 import { requireStaff } from "@/lib/auth/context";
 import { callersFor, dialableNumbers } from "@/lib/voice/session";
 import { modelOptions } from "@/lib/queries/models";
@@ -25,10 +28,11 @@ import {
 export default async function VoiceTestingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ dial?: string }>;
+  searchParams: Promise<{ dial?: string; mode?: string; brand?: string }>;
 }) {
   await requireStaff();
-  const { dial } = await searchParams;
+  const { dial, mode: rawMode, brand } = await searchParams;
+  const mode = rawMode === "chat" ? "chat" : "call";
 
   const numbers = await dialableNumbers();
   const callers = Object.fromEntries(
@@ -44,10 +48,35 @@ export default async function VoiceTestingPage({
   return (
     <section>
       <OperatorHeader
-        kicker={`Speech to speech · capped at ${SESSION_CAP_SECONDS}s`}
+        kicker={mode === "chat" ? "Web chat · the same AI a real chat gets" : `Speech to speech · capped at ${SESSION_CAP_SECONDS}s`}
         title="Test calls"
-        lede="Dial a business's number and talk to its AI assistant as a customer would. The call shows up live in that business's console, and whatever the AI records — leads, follow-ups, handoffs — lands there too."
+        lede="Ring a business, or chat to it, as a customer would. The conversation shows up live in that business's console, and whatever the AI records — leads, follow-ups, handoffs — lands there too."
       />
+
+      <div style={{ display: "flex", padding: "0 24px", borderBottom: "2px solid var(--color-neutral-700)" }}>
+        {(
+          [
+            ["call", "Call", "Speak, over Gemini Live"],
+            ["chat", "Chat", "Type, as on web chat"],
+          ] as const
+        ).map(([key, label, note]) => (
+          <Link
+            key={key}
+            href={`/operator/testing?mode=${key}${dial ? `&dial=${encodeURIComponent(dial)}` : ""}`}
+            className="hov-dark"
+            style={{
+              padding: "11px 16px",
+              fontSize: 12.5,
+              fontWeight: 700,
+              color: "var(--color-bg)",
+              borderBottom: `3px solid ${mode === key ? "var(--color-accent)" : "transparent"}`,
+              marginBottom: -2,
+            }}
+          >
+            {label} <span style={{ fontWeight: 400, color: "var(--color-neutral-500)" }}>· {note}</span>
+          </Link>
+        ))}
+      </div>
 
       <div
         style={{
@@ -82,6 +111,16 @@ export default async function VoiceTestingPage({
           </a>{" "}
           — it gets a number straight away.
         </div>
+      ) : mode === "chat" ? (
+        <ChatTester
+          businesses={[...new Map(numbers.map((n) => [n.brandId, n])).values()]}
+          callers={callers}
+          initialBrandId={brand ?? numbers.find((n) => dial && n.number.replace(/\D/g, "").endsWith(dial.replace(/\D/g, "").slice(-10)))?.brandId}
+          onStart={startTestChat}
+          onSend={sendTestChat}
+          onPoll={pollTestChat}
+          onEnd={endTestChat}
+        />
       ) : (
         <VoicePlayground
           bridgeUrl={`ws://localhost:${BRIDGE_PORT}`}
