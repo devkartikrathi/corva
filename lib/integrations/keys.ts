@@ -94,3 +94,16 @@ export function verifyVoiceToken(token: string): VoiceGrant | null {
     return null;
   }
 }
+
+/**
+ * Where browsers reach the voice bridge, and whether they can.
+ *
+ * `VOICE_BRIDGE_PUBLIC_URL` (a `wss://` address) when the bridge is hosted;
+ * without it, the local bridge — which only a browser on the same machine can
+ * reach, so it is reported as available only outside production.
+ */
+export function voiceBridge() {
+  const url = process.env.VOICE_BRIDGE_PUBLIC_URL ?? `ws://localhost:${process.env.VOICE_BRIDGE_PORT ?? 8787}`;
+  const available = Boolean(process.env.VOICE_BRIDGE_PUBLIC_URL) || process.env.NODE_ENV !== "production";
+  return { url, available };
+}

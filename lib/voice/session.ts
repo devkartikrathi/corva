@@ -110,6 +110,7 @@ export const TOOLS = [
           type: "OBJECT",
           properties: {
             name: { type: "STRING", description: "The caller's name, as they said it" },
+            phone: { type: "STRING", description: "A phone number they gave, if different from the one they are calling from" },
             interest: { type: "STRING", description: "What they want, in one line, with specifics" },
             email: { type: "STRING", description: "Email, if they gave one" },
             notes: { type: "STRING", description: "Anything else useful: budget, timing, preferences" },
@@ -294,6 +295,7 @@ export async function handleToolCall(
       brandId: ctx.brandId,
       customerId: ctx.customerId,
       name: typeof args.name === "string" ? args.name : undefined,
+      phone: typeof args.phone === "string" ? args.phone : undefined,
       email: typeof args.email === "string" ? args.email : undefined,
       interest: typeof args.interest === "string" ? args.interest : undefined,
       notes: typeof args.notes === "string" ? args.notes : undefined,

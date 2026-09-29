@@ -329,6 +329,7 @@ export async function* respondStream(opts: {
             "you know their name and what they are after, and again whenever you learn more.",
           inputSchema: z.object({
             name: z.string().optional().describe("Their name, as they gave it"),
+            phone: z.string().optional().describe("A phone number they gave, if any"),
             interest: z.string().describe("What they want, in one line, with specifics"),
             email: z.string().optional(),
             notes: z.string().optional().describe("Budget, timing, preferences"),

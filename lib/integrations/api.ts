@@ -33,13 +33,13 @@ export class ApiError extends Error {
   }
 }
 
-export function handle<T>(fn: (brand: Brand, body: T) => Promise<unknown>) {
+export function handle<T>(fn: (brand: Brand, body: T, req: Request) => Promise<unknown>) {
   return async (req: Request) => {
     const brand = await brandForRequest(req);
     if (!brand) return Response.json({ error: "Missing or invalid API key." }, { status: 401 });
     if (limited(brand.id)) return Response.json({ error: "Too many requests. Slow down." }, { status: 429 });
 
-    const raw = await req.text();
+    const raw = req.method === "GET" ? "" : await req.text();
     if (raw.length > MAX_BODY) return Response.json({ error: "Request body too large." }, { status: 413 });
     let body: T;
     try {
@@ -49,7 +49,7 @@ export function handle<T>(fn: (brand: Brand, body: T) => Promise<unknown>) {
     }
 
     try {
-      return Response.json(await fn(brand, body));
+      return Response.json(await fn(brand, body, req));
     } catch (e) {
       if (e instanceof ApiError) return Response.json({ error: e.message }, { status: e.status });
       // Validation messages from the intake layer are meant to be read.

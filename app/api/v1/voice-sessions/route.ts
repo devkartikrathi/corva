@@ -1,7 +1,7 @@
 import { handle } from "@/lib/integrations/api";
 import { isPlausiblePhone, formatPhone } from "@/lib/business/phone";
-import { signVoiceToken } from "@/lib/integrations/keys";
-import { BRIDGE_PORT } from "@/lib/voice/config";
+import { ApiError } from "@/lib/integrations/api";
+import { signVoiceToken, voiceBridge } from "@/lib/integrations/keys";
 
 /**
  * POST /api/v1/voice-sessions — let a visitor talk to the assistant, by voice,
@@ -12,6 +12,8 @@ import { BRIDGE_PORT } from "@/lib/voice/config";
  * for five minutes and one business; the bridge checks it on its own.
  */
 export const POST = handle<{ visitorId?: string; name?: string; phone?: string }>(async (brand, body) => {
+  const bridge = voiceBridge();
+  if (!bridge.available) throw new ApiError(503, "Voice calls are not available for this business yet.");
   const phone = body.phone && isPlausiblePhone(body.phone) ? formatPhone(body.phone) : null;
   const { token, expiresInSeconds } = signVoiceToken({
     brandId: brand.id,
@@ -22,7 +24,7 @@ export const POST = handle<{ visitorId?: string; name?: string; phone?: string }
   return {
     token,
     expiresInSeconds,
-    bridgeUrl: process.env.VOICE_BRIDGE_PUBLIC_URL ?? `ws://localhost:${BRIDGE_PORT}`,
+    bridgeUrl: bridge.url,
     agentName: brand.agentName,
   };
 });

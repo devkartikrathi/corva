@@ -3,7 +3,7 @@ import { candidatesFor } from "@/lib/agent/routing";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { OPEN_STAGES } from "@/lib/business/industries";
-import { formatPhone, phoneDigits } from "@/lib/business/phone";
+import { formatPhone, isPlausiblePhone, phoneDigits } from "@/lib/business/phone";
 
 /**
  * What the AI writes into the CRM while it talks.
@@ -115,6 +115,8 @@ export async function saveCallerDetails(opts: {
   brandId: string;
   customerId: string | null;
   name?: string;
+  /** A number the person gave in the conversation — it decides who they are. */
+  phone?: string;
   email?: string;
   interest?: string;
   notes?: string;
@@ -124,13 +126,24 @@ export async function saveCallerDetails(opts: {
   const name = opts.name?.trim();
   const email = opts.email?.trim().toLowerCase();
 
-  // Put what we learned on the customer record.
+  // Who this is. A phone number the person gave outranks whoever the
+  // conversation started as: a shared browser, or a family member ringing
+  // from someone else's line, is a different person with their own record.
   let customer = opts.customerId
     ? (await db.select().from(s.customers).where(eq(s.customers.id, opts.customerId)).limit(1))[0]
     : undefined;
+  if (opts.phone && isPlausiblePhone(opts.phone) && (!customer?.phone || phoneDigits(customer.phone) !== phoneDigits(opts.phone))) {
+    const byPhone = await customerForCaller(opts.brandId, opts.phone);
+    if (byPhone && byPhone.id !== customer?.id) {
+      customer = byPhone;
+      await db.update(s.conversations).set({ customerId: customer.id }).where(eq(s.conversations.id, opts.conversationId));
+    }
+  }
   if (customer) {
     const updates: Partial<typeof s.customers.$inferInsert> = {};
-    if (name && (isUnnamed(customer.name) || customer.name !== name)) updates.name = name;
+    // Only ever fill in a name we did not have. Someone saying a different
+    // name must not rename a customer we already know.
+    if (name && isUnnamed(customer.name)) updates.name = name;
     if (email && !customer.email) updates.email = email;
     if (Object.keys(updates).length) {
       [customer] = await db.update(s.customers).set(updates).where(eq(s.customers.id, customer.id)).returning();
@@ -152,9 +165,11 @@ export async function saveCallerDetails(opts: {
     .where(
       and(
         eq(s.leads.brandId, opts.brandId),
+        // The same person's lead from this conversation, or their open one —
+        // never a lead that belongs to whoever the conversation started as.
         customer
-          ? sql`(${s.leads.conversationId} = ${opts.conversationId} or (${s.leads.customerId} = ${customer.id} and ${s.leads.stage} in ('new','contacted','qualified','proposal')))`
-          : eq(s.leads.conversationId, opts.conversationId),
+          ? sql`${s.leads.customerId} = ${customer.id} and (${s.leads.conversationId} = ${opts.conversationId} or ${s.leads.stage} in ('new','contacted','qualified','proposal'))`
+          : and(eq(s.leads.conversationId, opts.conversationId), sql`${s.leads.customerId} is null`),
       ),
     )
     .orderBy(desc(s.leads.createdAt))

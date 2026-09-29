@@ -5,6 +5,7 @@ import { formatPhone, isPlausiblePhone } from "@/lib/business/phone";
 import { OPEN_STAGES, industryFor } from "@/lib/business/industries";
 import { customerForCaller, isUnnamed, pickOwner, scheduleFollowUp } from "@/lib/crm/capture";
 import { APP_URL, layout, sendEmail } from "@/lib/email";
+import { ApiError } from "./api";
 
 /**
  * What a business's website sends Corva, turned into records.
@@ -255,6 +256,34 @@ export async function intakeLead(brand: Brand, input: LeadInput) {
   const ref = clip(input.reference, 40) ?? reference(brand.initials.replace(/[^A-Z]/gi, "").slice(0, 2).toUpperCase() || "CV");
   const industry = industryFor(brand.industry);
 
+  // Idempotent on the site's reference: a retry after a timeout must not make
+  // a second lead, a second follow-up and a second email.
+  if (input.reference) {
+    const [seen] = await db
+      .select({ followUp: s.followUps, assignee: s.memberships.name, lead: s.leads })
+      .from(s.followUps)
+      .leftJoin(s.memberships, eq(s.memberships.id, s.followUps.assigneeMembershipId))
+      .leftJoin(s.leads, eq(s.leads.id, s.followUps.leadId))
+      .where(
+        and(
+          eq(s.followUps.brandId, brand.id),
+          sql`${s.followUps.detail} like ${`%Ref ${ref}%`}`,
+          sql`${s.followUps.createdAt} > now() - interval '7 days'`,
+        ),
+      )
+      .limit(1);
+    if (seen) {
+      return {
+        reference: ref,
+        customerId: seen.followUp.customerId,
+        leadId: seen.lead?.id ?? null,
+        followUp: { id: seen.followUp.id, assignee: seen.assignee, dueAt: seen.followUp.dueAt.toISOString() },
+        emailed: { customer: false, team: false },
+        duplicate: true,
+      };
+    }
+  }
+
   // The person.
   let customer = (await customerForCaller(brand.id, input.phone))!;
   const updates: Partial<typeof s.customers.$inferInsert> = {};
@@ -379,6 +408,7 @@ export async function intakeLead(brand: Brand, input: LeadInput) {
     leadId: lead.id,
     followUp: { id: followUp.id, assignee: assigneeName, dueAt: dueAt.toISOString() },
     emailed: { customer: customerMail.sent, team: teamMail.sent },
+    duplicate: false,
   };
 }
 
@@ -438,4 +468,109 @@ async function notifyOwner(
     subject: mail.subject,
     ...layout({ heading: mail.heading, lines: mail.lines, button: { label: "Open in Corva", href: mail.href } }),
   });
+}
+
+/* ─── Corva's own agent, over the API ──────────────────────────────────── */
+
+export type AgentChatInput = {
+  sessionId: string;
+  message: string;
+  visitorId?: string;
+  /** Whatever the site already knows about the person, so the agent does too. */
+  customer?: { name?: string; phone?: string; email?: string };
+};
+
+/**
+ * One turn with the business's Corva agent, for a site that does not run its
+ * own AI.
+ *
+ * The same `respond()` that answers web chat and the console: grounded in the
+ * business's knowledge, bound by its limits, and writing leads, follow-ups
+ * and handoffs as it goes. One conversation per `sessionId`, kept separate
+ * from mirrored transcripts (`chat:`), because this one Corva is having.
+ */
+export async function agentChat(brand: Brand, input: AgentChatInput) {
+  const session = clip(input.sessionId, 80);
+  if (!session || !/^[\w-]{6,80}$/.test(session)) throw new Error("A sessionId (6–80 letters, digits, - or _) is required.");
+  const message = typeof input.message === "string" ? input.message.trim() : "";
+  if (!message) throw new Error("A message is required.");
+  if (message.length > 2000) throw new Error("That message is too long (2,000 characters at most).");
+
+  // Who it is, if the site knows.
+  let customerId: string | null = null;
+  const phone = input.customer?.phone;
+  if (phone && isPlausiblePhone(phone)) {
+    let customer = (await customerForCaller(brand.id, phone))!;
+    const name = input.customer?.name?.trim();
+    const email = input.customer?.email?.trim().toLowerCase();
+    const updates: Partial<typeof s.customers.$inferInsert> = {};
+    if (name && name.length > 1 && isUnnamed(customer.name)) updates.name = name.slice(0, 120);
+    if (email && EMAIL.test(email) && !customer.email) updates.email = email;
+    if (Object.keys(updates).length) {
+      [customer] = await db.update(s.customers).set(updates).where(eq(s.customers.id, customer.id)).returning();
+    }
+    customerId = customer.id;
+  }
+
+  const visitorId = clip(input.visitorId, 80);
+  let visitor = visitorId ? await findVisitor(brand.id, visitorId) : null;
+  if (!customerId && visitor?.customerId) customerId = visitor.customerId;
+
+  const conversation = await conversationFor(brand, `agent:${session}`, customerId);
+  if (conversation.status === "resolved" || conversation.status === "abandoned") {
+    throw new ApiError(409, "This conversation has ended. Start a new sessionId.");
+  }
+  if (visitorId && !visitor) {
+    visitor = await upsertVisitor(brand.id, visitorId, { consent: "necessary", customerId: customerId ?? undefined });
+  }
+
+  // A person has taken over: record what the customer said, and let them reply.
+  if (conversation.handledBy) {
+    const [last] = await db
+      .select({ ordinal: s.turns.ordinal })
+      .from(s.turns)
+      .where(eq(s.turns.conversationId, conversation.id))
+      .orderBy(desc(s.turns.ordinal))
+      .limit(1);
+    await db.insert(s.turns).values({
+      conversationId: conversation.id,
+      ordinal: (last?.ordinal ?? -1) + 1,
+      speaker: "customer",
+      body: message,
+    });
+    return { conversationId: conversation.id, reply: null, heldBy: conversation.handledBy, actions: [], escalation: null, closed: false };
+  }
+
+  const { respond } = await import("@/lib/agent/respond");
+  const reply = await respond({ conversationId: conversation.id, message });
+  return {
+    conversationId: conversation.id,
+    reply: reply.text,
+    heldBy: null,
+    actions: reply.actions,
+    escalation: reply.escalation ? { reason: reply.escalation.reason, routedTo: reply.escalation.routedTo } : null,
+    closed: Boolean(reply.closure),
+  };
+}
+
+/** Any new replies from a person on the console, for a site polling a held chat. */
+export async function agentChatUpdates(brand: Brand, sessionId: string, afterOrdinal: number) {
+  const [conversation] = await db
+    .select()
+    .from(s.conversations)
+    .where(and(eq(s.conversations.brandId, brand.id), eq(s.conversations.externalRef, `agent:${clip(sessionId, 80)}`)))
+    .limit(1);
+  if (!conversation) throw new ApiError(404, "No conversation with that sessionId.");
+  const turns = await db
+    .select({ ordinal: s.turns.ordinal, speaker: s.turns.speaker, author: s.turns.authorName, body: s.turns.body })
+    .from(s.turns)
+    .where(and(eq(s.turns.conversationId, conversation.id), sql`${s.turns.ordinal} > ${afterOrdinal}`))
+    .orderBy(s.turns.ordinal);
+  return {
+    heldBy: conversation.handledBy,
+    ended: conversation.status === "resolved" || conversation.status === "abandoned",
+    messages: turns
+      .filter((t) => t.speaker === "human" || t.speaker === "ai")
+      .map((t) => ({ ordinal: t.ordinal, from: t.speaker === "human" ? (t.author ?? "Team") : "assistant", text: t.body })),
+  };
 }
