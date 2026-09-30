@@ -246,7 +246,12 @@ function describeRequest(input: LeadInput) {
  * from, and two emails: a confirmation to the customer and a heads-up to
  * whoever now owns it. Emails are best-effort; the records are not.
  */
-export async function intakeLead(brand: Brand, input: LeadInput) {
+export async function intakeLead(
+  brand: Brand,
+  input: LeadInput,
+  /** The agent's own chat it came from, when Corva's agent took the request. */
+  from?: { conversationId: string },
+) {
   const name = clip(input.name, 120)?.trim() ?? "";
   if (name.length < 2) throw new Error("A name is required.");
   if (!isPlausiblePhone(input.phone ?? "")) throw new Error("A valid phone number is required.");
@@ -310,7 +315,18 @@ export async function intakeLead(brand: Brand, input: LeadInput) {
   }
 
   // The chat it came from, if any.
-  const conversation = input.sessionId ? await conversationFor(brand, `chat:${clip(input.sessionId, 80)}`, customer.id) : null;
+  const conversation = from
+    ? { id: from.conversationId }
+    : input.sessionId
+      ? await conversationFor(brand, `chat:${clip(input.sessionId, 80)}`, customer.id)
+      : null;
+  if (from) {
+    await db
+      .update(s.conversations)
+      .set({ customerId: customer.id })
+      .where(and(eq(s.conversations.id, from.conversationId), sql`${s.conversations.customerId} is null`));
+  }
+  const fromChat = Boolean(from || input.sessionId);
 
   // The opportunity: reuse an open one rather than stacking duplicates.
   const interest = describeRequest(input).slice(0, 300);
@@ -352,8 +368,8 @@ export async function intakeLead(brand: Brand, input: LeadInput) {
         // A booked pickup is further along than a request to talk.
         stage: kind === "pickup" ? "qualified" : "new",
         ownerMembershipId: owner?.membershipId ?? null,
-        source: input.sessionId ? "web_chat" : "website",
-        createdByAi: Boolean(input.sessionId),
+        source: fromChat ? "web_chat" : "website",
+        createdByAi: fromChat,
       })
       .returning();
     if (owner && !customer.ownerMembershipId) {
@@ -374,7 +390,7 @@ export async function intakeLead(brand: Brand, input: LeadInput) {
     detail: [interest, input.preferredTime && `Asked for: ${input.preferredTime}`, `Ref ${ref}`].filter(Boolean).join("\n"),
     due: new Date(Date.now() + (kind === "pickup" ? 60 : 30) * 60_000).toISOString(),
     createdByName: brand.agentName ?? "Website",
-    createdByAi: Boolean(input.sessionId),
+    createdByAi: fromChat,
     assigneeMembershipId: lead.ownerMembershipId,
   });
   await db.update(s.followUps).set({ leadId: lead.id }).where(eq(s.followUps.id, followUp.id));
@@ -478,6 +494,8 @@ export type AgentChatInput = {
   visitorId?: string;
   /** Whatever the site already knows about the person, so the agent does too. */
   customer?: { name?: string; phone?: string; email?: string };
+  /** Answer as server-sent events, so the reply can be shown as it is written. */
+  stream?: boolean;
 };
 
 /**
@@ -538,19 +556,189 @@ export async function agentChat(brand: Brand, input: AgentChatInput) {
       speaker: "customer",
       body: message,
     });
-    return { conversationId: conversation.id, reply: null, heldBy: conversation.handledBy, actions: [], escalation: null, closed: false };
+    const held = { conversationId: conversation.id, reply: null, heldBy: conversation.handledBy, actions: [], escalation: null, closed: false, proposal: null };
+    if (!input.stream) return held;
+    return new Response(`event: done\ndata: ${JSON.stringify(held)}\n\n`, {
+      headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store" },
+    });
   }
 
-  const { respond } = await import("@/lib/agent/respond");
-  const reply = await respond({ conversationId: conversation.id, message });
+  // Typing instead of tapping answers the card too: whatever they say next is
+  // what the agent works from, so the old card can no longer be confirmed.
+  await db
+    .update(s.chatProposals)
+    .set({ status: "superseded", decidedAt: new Date() })
+    .where(and(eq(s.chatProposals.conversationId, conversation.id), eq(s.chatProposals.status, "pending")));
+
+  const { respond, respondStream } = await import("@/lib/agent/respond");
+  const turn = { conversationId: conversation.id, message, webChat: true };
+
+  if (!input.stream) return publicReply(conversation.id, await respond(turn));
+
+  // Server-sent events: `delta` as the words arrive, `proposal` when a card
+  // should show, and `done` with the same body the JSON answer has.
+  const encoder = new TextEncoder();
+  const body = new ReadableStream({
+    async start(controller) {
+      const send = (event: string, data: unknown) =>
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      try {
+        for await (const event of respondStream(turn)) {
+          if (event.type === "delta") send("delta", { text: event.text });
+          else if (event.type === "proposal") send("proposal", event.proposal);
+          else if (event.type === "done") send("done", publicReply(conversation.id, event.reply));
+        }
+      } catch (e) {
+        console.error("[api] chat stream", e);
+        send("error", { error: "Something went wrong." });
+      }
+      controller.close();
+    },
+  });
+  return new Response(body, {
+    headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", "x-accel-buffering": "no" },
+  });
+}
+
+/** One agent turn as the API reports it. */
+function publicReply(conversationId: string, reply: import("@/lib/agent/respond").AgentReply) {
   return {
-    conversationId: conversation.id,
+    conversationId,
     reply: reply.text,
     heldBy: null,
     actions: reply.actions,
     escalation: reply.escalation ? { reason: reply.escalation.reason, routedTo: reply.escalation.routedTo } : null,
     closed: Boolean(reply.closure),
+    proposal: reply.proposal,
   };
+}
+
+async function addTurns(conversationId: string, turns: { speaker: "customer" | "ai"; body: string }[]) {
+  const [last] = await db
+    .select({ ordinal: s.turns.ordinal })
+    .from(s.turns)
+    .where(eq(s.turns.conversationId, conversationId))
+    .orderBy(desc(s.turns.ordinal))
+    .limit(1);
+  const start = (last?.ordinal ?? -1) + 1;
+  await db.insert(s.turns).values(turns.map((t, i) => ({ conversationId, ordinal: start + i, ...t })));
+}
+
+export type AgentChatConfirmInput = {
+  sessionId: string;
+  proposalId: string;
+  /** True for Confirm, false for Edit. */
+  approved: boolean;
+  visitorId?: string;
+};
+
+/**
+ * The customer's answer to a card: Confirm makes the booking or callback —
+ * customer, lead, owner, follow-up, emails — and Edit hands the conversation
+ * back to the agent to change the details.
+ *
+ * Safe to repeat: confirming a card twice returns the first result.
+ */
+export async function agentChatConfirm(brand: Brand, input: AgentChatConfirmInput) {
+  const session = clip(input.sessionId, 80);
+  if (!session || !/^[\w-]{6,80}$/.test(session)) throw new Error("A sessionId (6–80 letters, digits, - or _) is required.");
+  if (!/^[0-9a-f-]{36}$/i.test(String(input.proposalId ?? ""))) throw new Error("A proposalId is required.");
+  if (typeof input.approved !== "boolean") throw new Error("approved (true or false) is required.");
+
+  const [conversation] = await db
+    .select()
+    .from(s.conversations)
+    .where(and(eq(s.conversations.brandId, brand.id), eq(s.conversations.externalRef, `agent:${session}`)))
+    .limit(1);
+  if (!conversation) throw new ApiError(404, "No conversation with that sessionId.");
+  const [proposal] = await db
+    .select()
+    .from(s.chatProposals)
+    .where(and(eq(s.chatProposals.id, input.proposalId), eq(s.chatProposals.conversationId, conversation.id)))
+    .limit(1);
+  if (!proposal) throw new ApiError(404, "No such card in this conversation.");
+
+  type Receipt = { reference: string; owner: string | null; emailed: boolean };
+  if (proposal.status === "confirmed") {
+    return { conversationId: conversation.id, reply: null, proposal: { id: proposal.id, status: "confirmed" }, receipt: proposal.result as Receipt, duplicate: true };
+  }
+  if (proposal.status !== "pending") throw new ApiError(409, "That card is out of date — the details changed after it was shown.");
+
+  const booking = industryFor(brand.industry).booking;
+  const noun = proposal.kind === "booking" ? (booking?.noun ?? "booking") : "callback";
+
+  if (!input.approved) {
+    await db.update(s.chatProposals).set({ status: "declined", decidedAt: new Date() }).where(eq(s.chatProposals.id, proposal.id));
+    const reply = "Of course — what would you like to change?";
+    await addTurns(conversation.id, [
+      { speaker: "customer", body: `(Chose to edit the ${noun} details.)` },
+      { speaker: "ai", body: reply },
+    ]);
+    return { conversationId: conversation.id, reply, proposal: { id: proposal.id, status: "declined" }, receipt: null, duplicate: false };
+  }
+
+  // Checked again: a card left open overnight can have a date in the past.
+  const { checkBooking, checkCallback } = await import("@/lib/agent/proposals");
+  type Details = import("@/lib/agent/proposals").BookingDetails & import("@/lib/agent/proposals").CallbackDetails;
+  const d = proposal.details as Details;
+  const problem =
+    proposal.kind === "booking"
+      ? booking
+        ? checkBooking(d, booking)
+        : "This business no longer takes bookings in chat."
+      : checkCallback(d);
+  if (problem) throw new ApiError(422, problem);
+
+  // Claimed before the work, so two taps cannot book twice.
+  const [claimed] = await db
+    .update(s.chatProposals)
+    .set({ status: "confirmed", decidedAt: new Date() })
+    .where(and(eq(s.chatProposals.id, proposal.id), eq(s.chatProposals.status, "pending")))
+    .returning({ id: s.chatProposals.id });
+  if (!claimed) throw new ApiError(409, "That card was just answered.");
+
+  let lead: Awaited<ReturnType<typeof intakeLead>>;
+  try {
+    lead = await intakeLead(
+      brand,
+      {
+        // The laundry pickup is the booking the emails are written for; any
+        // other kind of booking goes out as a plain enquiry until it has its own.
+        kind: proposal.kind === "callback" ? "callback" : noun === "pickup" ? "pickup" : "enquiry",
+        name: d.name,
+        phone: d.phone,
+        email: d.email,
+        services: d.services,
+        address: d.address,
+        pickupDate: d.date,
+        timeSlot: d.timeSlot,
+        notes: d.notes,
+        promoCode: d.promoCode,
+        preferredTime: d.preferredTime,
+        topic: d.topic ?? (proposal.kind === "booking" ? undefined : "Asked in chat"),
+        visitorId: clip(input.visitorId, 80),
+      },
+      { conversationId: conversation.id },
+    );
+  } catch (e) {
+    await db.update(s.chatProposals).set({ status: "pending", decidedAt: null }).where(eq(s.chatProposals.id, proposal.id));
+    throw e;
+  }
+
+  const receipt: Receipt = { reference: lead.reference, owner: lead.followUp.assignee, emailed: lead.emailed.customer };
+  await db.update(s.chatProposals).set({ result: receipt }).where(eq(s.chatProposals.id, proposal.id));
+
+  const who = receipt.owner ? `${receipt.owner.split(" ")[0]} from our team` : "Our team";
+  const inbox = receipt.emailed ? " A confirmation is on its way to your inbox." : "";
+  const reply =
+    proposal.kind === "booking"
+      ? `Done — your ${noun} is booked. Your reference is **${receipt.reference}**. ${who} will call you shortly to confirm.${inbox}`
+      : `Done — ${receipt.owner ? who : "our team"} will call you back${d.preferredTime ? ` (${d.preferredTime})` : " shortly"}. Your reference is **${receipt.reference}**.${inbox}`;
+  await addTurns(conversation.id, [
+    { speaker: "customer", body: `(Confirmed the ${noun} details.)` },
+    { speaker: "ai", body: reply },
+  ]);
+  return { conversationId: conversation.id, reply, proposal: { id: proposal.id, status: "confirmed" }, receipt, duplicate: false };
 }
 
 /** Any new replies from a person on the console, for a site polling a held chat. */

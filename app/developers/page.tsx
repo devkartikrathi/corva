@@ -183,12 +183,15 @@ export default function DevelopersPage() {
             Pick your shape:
             <ul style={{ paddingLeft: 18 }}>
               <li>
-                <b>No AI of your own</b> — send each customer message to <C>POST /api/v1/chat</C> and show the reply.
-                Corva does the rest.
+                <b>Corva&rsquo;s assistant</b> (how Tumble Days&rsquo; Tumbly works) — send each customer message to{" "}
+                <C>POST /api/v1/chat</C> and show the reply, streamed if you like. When the assistant has a booking or
+                callback ready it returns a <C>proposal</C>: show it as a card, and send the customer&rsquo;s Confirm or
+                Edit to <C>POST /api/v1/chat/confirm</C>. Knowledge, bookings, the team&rsquo;s follow-ups and emails
+                all happen in Corva.
               </li>
               <li>
-                <b>Your own assistant</b> (like Tumble Days&rsquo; Tumbly) — keep it, and send Corva what matters:
-                bookings and callbacks to <C>POST /api/v1/leads</C>, the transcript to <C>POST /api/v1/chats</C>.
+                <b>Your own assistant</b> — keep it, and send Corva what matters: bookings and callbacks to{" "}
+                <C>POST /api/v1/leads</C>, the transcript to <C>POST /api/v1/chats</C>.
               </li>
             </ul>
           </li>
@@ -225,7 +228,8 @@ const { reply } = await corva("chat", { sessionId: "chat_8c1f2a", message: "Do y
               ["200", "Done. The body is the result."],
               ["400", "Something in the request is wrong. `error` says what, in words you can show a user."],
               ["401", "The key is missing, wrong, or revoked."],
-              ["409", "The chat has ended — start a new sessionId."],
+              ["409", "The chat has ended (start a new sessionId), or a card was answered or replaced already."],
+              ["422", "A card can no longer be confirmed as it is — e.g. its date has passed. Show `error` and let them edit."],
               ["413", "The body is over 64 KB."],
               ["429", "Over 120 requests a minute for this key. Back off and retry."],
               ["5xx", "Our side. Retry; /leads is safe to retry with the same reference."],

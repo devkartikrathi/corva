@@ -49,7 +49,9 @@ export function handle<T>(fn: (brand: Brand, body: T, req: Request) => Promise<u
     }
 
     try {
-      return Response.json(await fn(brand, body, req));
+      const result = await fn(brand, body, req);
+      // A streamed reply is already a response.
+      return result instanceof Response ? result : Response.json(result);
     } catch (e) {
       if (e instanceof ApiError) return Response.json({ error: e.message }, { status: e.status });
       // Validation messages from the intake layer are meant to be read.

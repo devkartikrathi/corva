@@ -6,8 +6,11 @@ import { agentChat, agentChatUpdates, type AgentChatInput } from "@/lib/integrat
  *
  * For sites that do not run their own AI: send the customer's message, get
  * the agent's reply. Grounded in the business's knowledge, and it records
- * leads, follow-ups and handoffs exactly as the phone line does.
+ * leads, follow-ups and handoffs exactly as the phone line does. With
+ * `stream: true` the reply comes as server-sent events.
  */
+export const maxDuration = 60;
+
 export const POST = handle<AgentChatInput>((brand, body) => agentChat(brand, body));
 
 /**

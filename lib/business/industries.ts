@@ -43,6 +43,19 @@ export type Industry = {
   never: string[];
   /** A few example lines for the starter document, in "Topic: text" form. */
   starter: string[];
+  /**
+   * What a customer can book in a web chat, when the business takes bookings
+   * that way. The agent collects the details and the customer confirms them
+   * on a card; without this, a chat can still ask for a callback.
+   */
+  booking?: {
+    /** "pickup", "appointment" — the word the customer sees. */
+    noun: string;
+    /** Whether the booking needs the customer's address. */
+    needsAddress: boolean;
+    /** How far ahead a booking may be made. */
+    maxDaysAhead: number;
+  };
 };
 
 const COMMON_NEVER = [
@@ -270,6 +283,7 @@ export const INDUSTRIES: Industry[] = [
     starter: [
       "Pickup: Pickup and delivery are free and happen at the customer's doorstep. The team confirms the slot by phone.",
     ],
+    booking: { noun: "pickup", needsAddress: true, maxDaysAhead: 30 },
   },
   {
     key: "restaurant",

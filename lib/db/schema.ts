@@ -1368,6 +1368,37 @@ export const apiKeys = pgTable(
 );
 
 /**
+ * Something the agent offered to do in a web chat, waiting on the customer.
+ *
+ * A booking or a callback is only made when the person taps Confirm on the
+ * card their site shows — not when the model decides it has enough details —
+ * so what the agent proposed is kept here until they answer. The details are
+ * checked when proposed and again, unchanged, when confirmed.
+ */
+export const chatProposals = pgTable(
+  "chat_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    /** "booking" or "callback". */
+    kind: text("kind").notNull(),
+    details: jsonb("details").notNull(),
+    /** pending → confirmed | declined | superseded */
+    status: text("status").notNull().default("pending"),
+    /** What confirming it produced: reference, owner, emailed. */
+    result: jsonb("result"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (t) => [index("chat_proposals_conversation_idx").on(t.conversationId)],
+);
+
+/**
  * Someone who has been on a business's website.
  *
  * Keyed by the first-party visitor id the site sets (a strictly necessary

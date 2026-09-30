@@ -100,7 +100,8 @@ a site's **server** call:
 | `POST /api/v1/chats` | The site chat's transcript, mirrored into one conversation per session |
 | `POST /api/v1/visits` | Visitor + cookie consent; page, referrer and campaign only with analytics consent |
 | `POST /api/v1/voice-sessions` | A five-minute signed token for a voice call from the visitor's browser |
-| `POST /api/v1/chat` | Corva's own agent, for sites without an AI: send a message, get the reply (`GET` for a person's replies once they take over) |
+| `POST /api/v1/chat` | Corva's own agent — how Tumble Days' Tumbly works: send a message, get the reply (streamed with `stream: true`), and a `proposal` card when a booking or callback is ready (`GET` for a person's replies once they take over) |
+| `POST /api/v1/chat/confirm` | The customer's Confirm or Edit on a card: Confirm makes the booking — lead, owner, follow-up, emails |
 | `GET /api/v1/health` | Checks a key; says which features (voice, secure voice) the business can use |
 
 Developer documentation for a business's web developer is at **`/developers`**, and the same

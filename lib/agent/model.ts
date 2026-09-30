@@ -56,7 +56,10 @@ function isOverloaded(e: unknown): boolean {
  * that long for the first word. For a stream this is time to the first byte
  * of the response, not the whole answer.
  */
-const FIRST_RESPONSE_MS = Number(process.env.MODEL_FIRST_RESPONSE_MS ?? 15_000);
+const FIRST_RESPONSE_MS = Number(process.env.MODEL_FIRST_RESPONSE_MS ?? 30_000);
+
+/** How long a stream's model gets to start before a second one is asked too. */
+const HEDGE_MS = Number(process.env.MODEL_HEDGE_MS ?? 4_000);
 
 /**
  * The same limit for a call that only returns once it is finished — a brief,
@@ -79,6 +82,8 @@ class SlowModel extends Error {
  * spend its first fifteen seconds rediscovering it.
  */
 const COOL_DOWN_MS = 5 * 60_000;
+/** A model that was merely slower than another rests for less time. */
+const SLOW_COOL_DOWN_MS = 2 * 60_000;
 const coolingUntil = new Map<string, number>();
 const cooling = (id: string) => (coolingUntil.get(id) ?? 0) > Date.now();
 
@@ -128,12 +133,100 @@ const fallbackMiddleware = (primary: string): LanguageModelMiddleware => {
     throw last;
   };
 
+  /**
+   * For a stream someone is waiting on: ask the next model as well when the
+   * current one has not started answering within HEDGE_MS, and take whichever
+   * answers first. The others are cancelled.
+   *
+   * Gemini's speed moves by the minute — the same model measured at under a
+   * second and at twenty-four seconds to its first word within the hour — so
+   * waiting out a slow model before trying another was the difference between
+   * a chat that answers in two seconds and one that answers in forty. A model
+   * that loses the race is tried later for a couple of minutes, so the next
+   * turn goes straight to the one that is quick right now.
+   */
+  const hedged = <T,>(params: { abortSignal?: AbortSignal }, call: (id: string, signal: AbortSignal) => PromiseLike<T>) =>
+    new Promise<T>((resolve, reject) => {
+      const order = [...candidates.filter((id) => !cooling(id)), ...candidates.filter(cooling)];
+      const running = new Map<string, AbortController>();
+      let next = 0;
+      let done = false;
+      let last: unknown = null;
+      let hedgeTimer: ReturnType<typeof setTimeout> | undefined;
+
+      const finish = () => {
+        done = true;
+        clearTimeout(hedgeTimer);
+        clearTimeout(deadline);
+        params.abortSignal?.removeEventListener("abort", onCallerAbort);
+      };
+      const onCallerAbort = () => {
+        for (const c of running.values()) c.abort(params.abortSignal?.reason);
+        finish();
+        reject(params.abortSignal?.reason ?? new Error("Aborted"));
+      };
+
+      const launch = () => {
+        if (done) return;
+        clearTimeout(hedgeTimer);
+        if (next >= order.length) {
+          if (running.size === 0) {
+            finish();
+            reject(last);
+          }
+          return;
+        }
+        const id = order[next++];
+        if (next > 1) console.warn(`${order[next - 2]} is slow or busy — also asking ${id}`);
+        const controller = new AbortController();
+        running.set(id, controller);
+        hedgeTimer = setTimeout(launch, HEDGE_MS);
+        Promise.resolve(call(id, controller.signal)).then(
+          (result) => {
+            running.delete(id);
+            if (done) return controller.abort();
+            for (const [loser, c] of running) {
+              c.abort();
+              coolingUntil.set(loser, Date.now() + SLOW_COOL_DOWN_MS);
+            }
+            running.clear();
+            finish();
+            // The winner still stops when whoever asked for it goes away.
+            params.abortSignal?.addEventListener("abort", () => controller.abort(params.abortSignal?.reason), { once: true });
+            resolve(result);
+          },
+          (e) => {
+            running.delete(id);
+            if (done) return;
+            // Busy models rest; a model that refused this request (a setting it
+            // does not support, say) may well answer the next one.
+            if (isOverloaded(e)) coolingUntil.set(id, Date.now() + COOL_DOWN_MS);
+            last = e;
+            launch();
+          },
+        );
+      };
+
+      const deadline = setTimeout(() => {
+        if (done) return;
+        for (const [id, c] of running) {
+          c.abort();
+          coolingUntil.set(id, Date.now() + COOL_DOWN_MS);
+        }
+        finish();
+        reject(last ?? new SlowModel("every model", FIRST_RESPONSE_MS));
+      }, FIRST_RESPONSE_MS);
+
+      if (params.abortSignal?.aborted) return onCallerAbort();
+      params.abortSignal?.addEventListener("abort", onCallerAbort);
+      launch();
+    });
+
   return {
     specificationVersion: "v4",
     wrapGenerate: ({ params }) =>
       attempt(params, WHOLE_ANSWER_MS, (id, abortSignal) => google(id).doGenerate({ ...params, abortSignal })),
-    wrapStream: ({ params }) =>
-      attempt(params, FIRST_RESPONSE_MS, (id, abortSignal) => google(id).doStream({ ...params, abortSignal })),
+    wrapStream: ({ params }) => hedged(params, (id, abortSignal) => google(id).doStream({ ...params, abortSignal })),
   };
 };
 
