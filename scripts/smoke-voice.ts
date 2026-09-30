@@ -7,6 +7,7 @@
  *
  *   VOICE_BRIDGE_PORT=8788 npx tsx --tsconfig tsconfig.json scripts/smoke-voice.ts "+91 40 7xxx xxxx"
  *   … scripts/smoke-voice.ts --token <token from POST /api/v1/voice-sessions>
+ *   VOICE_BRIDGE_URL=wss://corva.tiruvi.site/api/voice … --token <token>   (a deployed bridge)
  */
 import WebSocket from "ws";
 
@@ -16,7 +17,7 @@ const token = args[0] === "--token" ? args[1] : null;
 const dialed = token ? null : args[0];
 if (!dialed && !token) throw new Error("Pass the number to dial, or --token <voice token>.");
 
-const ws = new WebSocket(`ws://localhost:${port}`);
+const ws = new WebSocket(process.env.VOICE_BRIDGE_URL ?? `ws://localhost:${port}`);
 const timer = setTimeout(() => {
   console.log("FAIL: no answer within 30s");
   process.exit(1);
