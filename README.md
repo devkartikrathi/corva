@@ -85,8 +85,9 @@ Corva's own console can open any business as its owner (`lib/auth/enter.ts`).
   creating an account with the invited address (`claimByEmail`, `lib/auth/session.ts`).
   Invitations are emailed from onboarding and from Team. `CORVA_DEMO=1` opens everything
   without signing in, as before.
-- **Corva's own console (`/operator`)** — open in development, closed in production unless
-  `CORVA_OPERATOR_OPEN=1` (`OPERATOR_OPEN`, `lib/auth/mode.ts`). Staff sign-in comes later.
+- **Corva's own console (`/operator`)** — runs only on the Corva team's machines, open under
+  `npm run dev`; on any Vercel deployment it does not exist (`OPERATOR_AVAILABLE`,
+  `lib/auth/mode.ts`).
 
 ## A business's website → Corva
 
@@ -115,8 +116,9 @@ Every variable, with notes, is in **`.env.example`**; **`DEPLOYING.md`** walks t
 Corva on Vercel (env vars, Clerk, Resend, domain, connecting Tumble Days). After deploying,
 **`/api/status`** says which pieces are configured without revealing any value.
 
-Sign-in: with Clerk keys present, sign-in is required unless `CORVA_DEMO=1`. `/operator` is for
-emails on `CORVA_STAFF_EMAILS` (open without sign-in only in development).
+Sign-in: with Clerk keys present, sign-in is required unless `CORVA_DEMO=1` — and always on the
+production deployment. `/operator` exists only on the team's machines (`npm run dev`); on Vercel
+it is a 404.
 
 Voice: on Vercel the bridge runs inside the app at `wss://<host>/api/voice`
 (`app/api/voice/route.ts`); locally `npm run voice` runs the same code (`lib/voice/bridge.ts`).

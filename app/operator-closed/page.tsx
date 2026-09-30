@@ -6,16 +6,15 @@ export const metadata = { title: "Corva admin" };
 /**
  * Where a request for the operator console lands when it is closed.
  *
- * Corva's own console is for Corva staff: people whose email is on
- * `CORVA_STAFF_EMAILS`. Someone signed in with any other account lands here —
- * told plainly, rather than sent round the sign-in page again.
+ * Reached from a local production build (`next start`) without
+ * `CORVA_OPERATOR_OPEN=1`. On a deployment /operator does not exist at all.
  */
 export default function OperatorClosedPage() {
   return (
     <AuthFrame
       kicker="Corva admin"
-      title="This console is for Corva staff"
-      lede="You're signed in, but not as a member of Corva's team. If you run a business on Corva, your console is at /app."
+      title="This console runs on Corva's own machines"
+      lede="Onboarding and test calls happen in the operator console, which runs locally for the Corva team. If you run a business on Corva, your console is at /app."
     >
       <Link
         href="/app"

@@ -1,6 +1,6 @@
-import { auth } from "@clerk/nextjs/server";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { OPERATOR_AVAILABLE } from "./mode";
 import { cache } from "react";
 import { BRAND_COOKIE, resolveBrand } from "./brand";
 import type { brands } from "@/lib/db/schema";
@@ -64,15 +64,15 @@ export const getConsoleContext = cache(async (): Promise<ConsoleContext> => {
  */
 export const requireStaff = cache(
   async (): Promise<{ staff: StaffSession; isDemo: boolean }> => {
+    // Not on a deployment: /operator runs on the team's own machines only.
+    if (!OPERATOR_AVAILABLE) notFound();
     const real = await getStaffSession();
     const staff = real ?? (await getDemoStaffSession());
 
     if (!staff) {
       if (demoEnabled()) redirect("/no-workspace");
-      // Not signed in: sign in, and come back. Signed in but not on the staff
-      // list: say so, rather than bouncing them round the sign-in page.
-      const { userId } = await auth();
-      redirect(userId ? "/operator-closed" : "/sign-in?redirect_url=%2Foperator");
+      // A local production build without CORVA_OPERATOR_OPEN=1.
+      redirect("/operator-closed");
     }
 
     return { staff, isDemo: !real };

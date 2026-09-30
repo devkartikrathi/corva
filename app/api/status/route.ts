@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { DEMO_MODE, OPERATOR_OPEN } from "@/lib/auth/mode";
+import { DEMO_MODE, OPERATOR_AVAILABLE, OPERATOR_OPEN } from "@/lib/auth/mode";
 import { APP_URL } from "@/lib/email";
 import { voiceBridge } from "@/lib/integrations/keys";
 
@@ -30,17 +30,16 @@ export async function GET() {
     gemini: Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY),
     clerk: Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY),
     clerkProductionKeys: (process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "").startsWith("pk_live_"),
-    staffEmails: Boolean(process.env.CORVA_STAFF_EMAILS?.trim()),
     email: Boolean(process.env.RESEND_API_KEY),
     emailFromVerifiedDomain: Boolean(process.env.EMAIL_FROM),
     voiceTokenSecret: Boolean(process.env.VOICE_TOKEN_SECRET),
     voiceAvailable: voice.available,
     appUrlSet: Boolean(process.env.APP_URL),
   };
-  const required = ["database", "pgvector", "gemini", "clerk", "staffEmails"] as const;
+  const required = ["database", "pgvector", "gemini", "clerk"] as const;
   return Response.json({
     ok: required.every((k) => checks[k]) && !DEMO_MODE,
-    mode: { demo: DEMO_MODE, operatorOpen: OPERATOR_OPEN },
+    mode: { demo: DEMO_MODE, operatorConsole: OPERATOR_AVAILABLE, operatorOpen: OPERATOR_OPEN },
     appUrl: APP_URL,
     voiceUrl: voice.url,
     checks,

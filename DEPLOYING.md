@@ -1,9 +1,13 @@
 # Deploying Corva to Vercel
 
 Corva is one Next.js app. On Vercel it serves the business console (`/app`),
-Corva's own console (`/operator`), the public API (`/api/v1/*`) for websites
-like Tumble Days, the developer docs (`/developers`), and the voice bridge
-(`/api/voice`, a WebSocket) — no second server to run.
+the public API (`/api/v1/*`) for websites like Tumble Days, the developer docs
+(`/developers`), and the voice bridge (`/api/voice`, a WebSocket) — no second
+server to run.
+
+Corva's own console (`/operator` — onboarding businesses, test calls) is **not**
+part of the deployment: it runs on the Corva team's machines with `npm run dev`,
+against the same database, and returns 404 on Vercel.
 
 ## 1. Import the project
 
@@ -27,14 +31,14 @@ Settings → Environment Variables. `.env.example` has the same list with notes.
 | `CLERK_SECRET_KEY` | yes | Clerk secret key |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | yes | `/sign-in` |
 | `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | yes | `/sign-up` |
-| `CORVA_STAFF_EMAILS` | yes | Your email (comma-separated for more) — who may open `/operator` |
 | `APP_URL` | recommended | `https://corva.tiruvi.site` (or the `…vercel.app` address until the domain is set) |
 | `VOICE_TOKEN_SECRET` | recommended | A long random string: `openssl rand -base64 32` |
 | `RESEND_API_KEY` | recommended | From the Resend integration (step 4) |
 | `EMAIL_FROM` | once a domain is verified | e.g. `Tumble Days <hello@tumbledays.com>` |
 
-Do **not** set `CORVA_DEMO` or `CORVA_OPERATOR_OPEN` in production. (With
-Clerk keys present and `CORVA_DEMO` unset, sign-in is always required.)
+Do **not** set `CORVA_DEMO` or `CORVA_OPERATOR_OPEN` on Vercel. (They are
+ignored on the production deployment anyway: sign-in is always required there,
+and `/operator` does not exist.)
 
 ## 3. Clerk (sign-in)
 
@@ -77,11 +81,14 @@ Open **`https://<your-corva>/api/status`**. It answers yes/no for every piece
 
 ## 7. First sign-in
 
-1. Go to `/sign-up` and create an account with an email on `CORVA_STAFF_EMAILS`.
-   Verify it.
-2. `/operator` now opens: you are Corva staff. Add businesses there.
-3. The same email is Tumble Days' Owner (from `scripts/setup-tumbledays.ts`),
-   so `/app` opens Tumble Days' console.
+Businesses are added from the operator console on your own machine
+(`npm run dev` → `http://localhost:3000/operator/onboarding`). The Owner's
+email you enter there is who can sign in to that business on the live site:
+
+1. On the live site, `/sign-up` (or `/sign-in` if the account exists) with that
+   email, and verify it.
+2. `/app` opens that business's console. For Tumble Days the Owner is
+   `devkartikrathi@gmail.com`.
 
 ## 8. Connect Tumble Days (or any website)
 
@@ -108,8 +115,8 @@ Any other business's developer follows `/developers`.
   record ("On the website"), and a confirmation email.
 - Press the phone button and talk → Corva **Live calls** shows the call in the
   "Live now" strip while it happens; take the line and Tumbly goes quiet.
-- From `/operator/testing`, dial the business's test number or chat as a
-  customer.
+- From your local operator console (`/operator/testing`), dial the business's
+  test number or chat as a customer.
 
 ## Voice: how it runs, and plan B
 

@@ -142,27 +142,8 @@ export const getStaffSession = cache(async (): Promise<StaffSession | null> => {
   const { userId } = await auth();
   if (!userId) return null;
 
-  let [row] = await db.select().from(s.staff).where(eq(s.staff.clerkUserId, userId)).limit(1);
-  if (!row) {
-    // Not staff yet — but on the list? `CORVA_STAFF_EMAILS` is who may run
-    // Corva's own console; a verified address on it becomes a staff member the
-    // first time they sign in. Nothing a tenant controls can put anyone there.
-    const allowed = (process.env.CORVA_STAFF_EMAILS ?? "")
-      .split(",")
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean);
-    if (allowed.length === 0) return null;
-    const user = await currentUser();
-    const primary = user?.primaryEmailAddress;
-    const email = primary?.emailAddress.toLowerCase();
-    if (!email || primary?.verification?.status !== "verified" || !allowed.includes(email)) return null;
-    const name = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || email.split("@")[0];
-    [row] = await db
-      .insert(s.staff)
-      .values({ clerkUserId: userId, email, name, isAdmin: true })
-      .onConflictDoUpdate({ target: s.staff.email, set: { clerkUserId: userId } })
-      .returning();
-  }
+  const [row] = await db.select().from(s.staff).where(eq(s.staff.clerkUserId, userId)).limit(1);
+  if (!row) return null;
 
   return {
     kind: "staff",

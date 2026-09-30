@@ -184,7 +184,7 @@ export default function LandingPage() {
               Sign in
             </Link>
             <Link
-              href="/operator/onboarding"
+              href="#pricing"
               className="hov-accent"
               style={{
                 fontSize: 13,
@@ -194,7 +194,7 @@ export default function LandingPage() {
                 padding: "11px 18px",
               }}
             >
-              Try it
+              Book a demo
             </Link>
           </div>
         </div>
