@@ -31,17 +31,7 @@ export const isUnnamed = (name: string) => PHONE_ONLY.test(name.trim()) || /^(ne
  */
 export async function customerForCaller(brandId: string, callerPhone: string | null | undefined) {
   if (!callerPhone?.trim()) return null;
-  const digits = phoneDigits(callerPhone);
-  const [known] = await db
-    .select()
-    .from(s.customers)
-    .where(
-      and(
-        eq(s.customers.brandId, brandId),
-        sql`regexp_replace(coalesce(${s.customers.phone}, ''), '\\D', '', 'g') in (${digits}, ${digits.slice(2)})`,
-      ),
-    )
-    .limit(1);
+  const known = await customerByPhone(brandId, callerPhone);
   if (known) return known;
 
   const [created] = await db
@@ -55,6 +45,43 @@ export async function customerForCaller(brandId: string, callerPhone: string | n
     })
     .returning();
   return created;
+}
+
+/** The business's customer with this number, if there is one. */
+async function customerByPhone(brandId: string, phone: string) {
+  const digits = phoneDigits(phone);
+  const [known] = await db
+    .select()
+    .from(s.customers)
+    .where(
+      and(
+        eq(s.customers.brandId, brandId),
+        sql`regexp_replace(coalesce(${s.customers.phone}, ''), '\\D', '', 'g') in (${digits}, ${digits.slice(2)})`,
+      ),
+    )
+    .limit(1);
+  return known ?? null;
+}
+
+/**
+ * Fold a nameless-number stand-in into the customer it turned out to be.
+ *
+ * A website caller starts as a record with only the name they gave; when the
+ * number they then give belongs to someone already on file, everything the
+ * call wrote for the stand-in moves to them, and the stand-in is removed so
+ * the customer list does not fill with half-records of the same person.
+ */
+async function mergeStandIn(standInId: string, intoId: string, conversationId: string) {
+  await db.update(s.leads).set({ customerId: intoId }).where(eq(s.leads.customerId, standInId));
+  await db.update(s.followUps).set({ customerId: intoId }).where(eq(s.followUps.customerId, standInId));
+  await db.update(s.visitors).set({ customerId: intoId }).where(eq(s.visitors.customerId, standInId));
+  await db.update(s.conversations).set({ customerId: intoId }).where(eq(s.conversations.customerId, standInId));
+  try {
+    await db.delete(s.customers).where(eq(s.customers.id, standInId));
+  } catch (e) {
+    // Something else still points at it (a score, say). Harmless to keep.
+    console.warn(`kept stand-in customer ${standInId} from ${conversationId}:`, (e as Error).message);
+  }
 }
 
 /**
@@ -126,17 +153,45 @@ export async function saveCallerDetails(opts: {
   const name = opts.name?.trim();
   const email = opts.email?.trim().toLowerCase();
 
-  // Who this is. A phone number the person gave outranks whoever the
-  // conversation started as: a shared browser, or a family member ringing
-  // from someone else's line, is a different person with their own record.
-  let customer = opts.customerId
-    ? (await db.select().from(s.customers).where(eq(s.customers.id, opts.customerId)).limit(1))[0]
+  // Who the conversation is about *now*. An earlier call in this same
+  // conversation may have created or switched the customer, and the id the
+  // caller of this function captured when the conversation opened is stale —
+  // trusting it made a new customer and a new lead every time the agent
+  // saved details on a website call that started anonymous.
+  const [conversation] = await db
+    .select({ customerId: s.conversations.customerId })
+    .from(s.conversations)
+    .where(eq(s.conversations.id, opts.conversationId))
+    .limit(1);
+  const currentId = conversation?.customerId ?? opts.customerId;
+  let customer = currentId
+    ? (await db.select().from(s.customers).where(eq(s.customers.id, currentId)).limit(1))[0]
     : undefined;
+  const repoint = async (to: string) =>
+    db.update(s.conversations).set({ customerId: to }).where(eq(s.conversations.id, opts.conversationId));
+
+  // A phone number the person gave decides who they are.
   if (opts.phone && isPlausiblePhone(opts.phone) && (!customer?.phone || phoneDigits(customer.phone) !== phoneDigits(opts.phone))) {
-    const byPhone = await customerForCaller(opts.brandId, opts.phone);
-    if (byPhone && byPhone.id !== customer?.id) {
-      customer = byPhone;
-      await db.update(s.conversations).set({ customerId: customer.id }).where(eq(s.conversations.id, opts.conversationId));
+    const known = await customerByPhone(opts.brandId, opts.phone);
+    if (known && known.id !== customer?.id) {
+      // Someone already on record. What this conversation wrote down for the
+      // nameless stand-in it started as is theirs, and the stand-in goes.
+      if (customer && !customer.phone) await mergeStandIn(customer.id, known.id, opts.conversationId);
+      customer = known;
+      await repoint(known.id);
+    } else if (!known && customer && !customer.phone) {
+      // The same person we have been talking to — now with their number.
+      [customer] = await db
+        .update(s.customers)
+        .set({ phone: formatPhone(opts.phone) })
+        .where(eq(s.customers.id, customer.id))
+        .returning();
+    } else if (!known) {
+      // A different number from the one on record: a shared browser, or a
+      // family member ringing from someone else's line, is a different
+      // person with their own record.
+      customer = (await customerForCaller(opts.brandId, opts.phone))!;
+      await repoint(customer.id);
     }
   }
   if (customer) {
@@ -153,10 +208,7 @@ export async function saveCallerDetails(opts: {
       .insert(s.customers)
       .values({ brandId: opts.brandId, name, email: email ?? null, segment: "New caller", customerSince: new Date() })
       .returning();
-    await db
-      .update(s.conversations)
-      .set({ customerId: customer.id })
-      .where(eq(s.conversations.id, opts.conversationId));
+    await repoint(customer.id);
   }
 
   const [existing] = await db
@@ -183,6 +235,7 @@ export async function saveCallerDetails(opts: {
       .update(s.leads)
       .set({
         name: name ?? existing.name,
+        phone: existing.phone ?? customer?.phone ?? null,
         email: email ?? existing.email,
         interest: opts.interest?.trim() || existing.interest,
         notes: [existing.notes, opts.notes?.trim()].filter(Boolean).join("\n") || null,
