@@ -101,6 +101,38 @@ export function verifyVoiceToken(token: string): VoiceGrant | null {
 }
 
 /**
+ * A person on the team joining a call they have taken over.
+ *
+ * Signed over a different message from a caller's token ("agent:" + payload),
+ * so neither can ever be passed off as the other. Made by the console only
+ * after it has checked that this person holds this call.
+ */
+export type AgentGrant = { conversationId: string; name: string; exp: number };
+
+export function signAgentToken(grant: Omit<AgentGrant, "exp">) {
+  const payload = Buffer.from(
+    JSON.stringify({ ...grant, exp: Math.floor(Date.now() / 1000) + VOICE_TOKEN_SECONDS }),
+  ).toString("base64url");
+  const sig = createHmac("sha256", secret()).update(`agent:${payload}`).digest("base64url");
+  return `${payload}.${sig}`;
+}
+
+export function verifyAgentToken(token: string): AgentGrant | null {
+  const [payload, sig] = token.split(".");
+  if (!payload || !sig) return null;
+  const expected = createHmac("sha256", secret()).update(`agent:${payload}`).digest();
+  const given = Buffer.from(sig, "base64url");
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+  try {
+    const grant = JSON.parse(Buffer.from(payload, "base64url").toString()) as AgentGrant;
+    if (!grant.conversationId || !grant.name || grant.exp < Date.now() / 1000) return null;
+    return grant;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Where browsers reach the voice bridge, and whether they can.
  *
  *   VOICE_BRIDGE_PUBLIC_URL   an explicit address, if the bridge runs elsewhere

@@ -1,6 +1,8 @@
 import { and, eq } from "drizzle-orm";
 import WebSocket from "ws";
 import {
+  CALL_LIMIT_SECONDS,
+  HELD_IDLE_TIMEOUT_SECONDS,
   HOLD_POLL_MS,
   IDLE_TIMEOUT_SECONDS,
   INPUT_RATE_BYTES_PER_SEC,
@@ -28,6 +30,8 @@ import { followUpIfLost } from "@/lib/crm/capture";
 import { verifyVoiceToken } from "@/lib/integrations/keys";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
+import { handleAgentClient } from "./agent";
+import { openRelay, type Relay } from "./relay";
 
 /**
  * The voice bridge: one browser call, from start to hang-up.
@@ -83,6 +87,14 @@ async function noteVoiceVisit(brandId: string, externalId: string, customerId: s
   }
 }
 
+/** The hand-over line's first sentence. Fragments arrive unspaced ("line.I'm"), so a capital also ends one. */
+function firstSentence(text: string): string | null {
+  return text.match(/^[\s\S]*?[.!?](?=\s|$|[A-Z])/)?.[0] ?? null;
+}
+
+/** Measured off the live model: a 70-character sentence takes about 3.3 seconds. */
+const SECONDS_PER_CHARACTER = 0.05;
+
 export const VOICE_LIMITS = { IDLE_TIMEOUT_SECONDS, MAX_CONCURRENT_SESSIONS, SESSION_CAP_SECONDS, LIVE_MODEL };
 
 export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
@@ -128,6 +140,36 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
   let lastReplyOrdinal = -1;
   let watching = false;
 
+  /**
+   * Handing over, out loud.
+   *
+   * When someone takes the line the AI does not just go quiet — the caller
+   * would hear dead air and wonder if they had been cut off. It finishes the
+   * sentence it is on (dropped, not heard), then says one line: that it is
+   * passing them to a named colleague. Only that line gets through; after it,
+   * the AI is muted for as long as the person holds the call.
+   *
+   *   pending   waiting for the model to stop what it was saying
+   *   speaking  the hand-over line is playing
+   *   done      the person has the line
+   */
+  let announce: "pending" | "speaking" | "done" = "done";
+  let announceTimer: NodeJS.Timeout | null = null;
+  /** Audio sent during the hand-over line — capped, in case the model runs on. */
+  let handOverBytes = 0;
+  /** The hand-over sentence, once its end is in the transcript. */
+  let handOverLine: string | null = null;
+  /** How much audio that sentence takes to say; nothing past it is sent. */
+  let handOverBudget: number | null = null;
+  /** True while the model is producing a turn, so the hand-over waits for it. */
+  let generating = false;
+  /** The person's voice, once they open the call screen. See ./relay.ts. */
+  let relay: Relay | null = null;
+  /** The AI may speak: nobody holds the line, or it is saying the hand-over. */
+  const aiAudible = () => !heldBy || announce === "speaking";
+  /** Set when the first message is a person joining, not a caller starting. */
+  let agentMode = false;
+
   let capTimer: NodeJS.Timeout | null = null;
   let idleTimer: NodeJS.Timeout | null = null;
   let holdTimer: NodeJS.Timeout | null = null;
@@ -157,6 +199,8 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
     if (capTimer) clearTimeout(capTimer);
     if (idleTimer) clearTimeout(idleTimer);
     if (holdTimer) clearInterval(holdTimer);
+    if (announceTimer) clearTimeout(announceTimer);
+    closeLine({ t: "closed", reason });
 
     const seconds = Math.round((Date.now() - startedAt.getTime()) / 1000);
     try {
@@ -204,7 +248,89 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
   // the expensive failure here, so it is timed out rather than trusted.
   const touch = () => {
     if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => void shutdown("idle"), IDLE_TIMEOUT_SECONDS * 1000);
+    const seconds = heldBy ? HELD_IDLE_TIMEOUT_SECONDS : IDLE_TIMEOUT_SECONDS;
+    idleTimer = setTimeout(() => void shutdown("idle"), seconds * 1000);
+  };
+
+  /** The model says the one hand-over line. */
+  const sayHandOver = () => {
+    if (announce !== "pending" || !heldBy || live?.readyState !== WebSocket.OPEN) return;
+    announce = "speaking";
+    handOverBytes = 0;
+    handOverLine = null;
+    handOverBudget = null;
+    const first = heldBy.split(" ")[0];
+    live.send(
+      JSON.stringify({
+        clientContent: {
+          turns: [
+            {
+              role: "user",
+              parts: [
+                {
+                  text:
+                    `[Not from the caller.] ${heldBy}, a colleague on the team, is taking over this call now. ` +
+                    `Tell the caller in one short, warm sentence, in the language of the call, that you are ` +
+                    `transferring them to ${first} from the team and to please stay on the line. Say nothing else.`,
+                },
+              ],
+            },
+          ],
+          turnComplete: true,
+        },
+      }),
+    );
+    // If the model never finishes the line, the person still gets the call.
+    announceTimer = setTimeout(finishHandOver, 10_000);
+  };
+
+  /**
+   * The hand-over line has been said: mute the AI for good.
+   *
+   * Called at the end of its turn, or just after its first full sentence —
+   * the live model sometimes says the line two or three times over in one
+   * breath, and the caller should hear it once. Only that sentence is kept.
+   */
+  const finishHandOver = () => {
+    if (announce !== "speaking") return;
+    announce = "done";
+    if (announceTimer) clearTimeout(announceTimer);
+    announceTimer = null;
+    const line = handOverLine ?? firstSentence(said) ?? said;
+    said = "";
+    if (line.trim() && conversationId) {
+      const id = conversationId;
+      serialise(() => persistTurn(id, "ai", line, startedAt));
+    }
+  };
+
+  /** The person's voice in and the caller's out, through Postgres. */
+  const openLine = async (name: string) => {
+    if (relay || !conversationId) return;
+    try {
+      relay = await openRelay(conversationId, "caller", (m) => {
+        if (m.t === "join") {
+          relay?.send({ t: "here", startedAt: startedAt.toISOString(), limitSeconds: CALL_LIMIT_SECONDS });
+        } else if (m.t === "audio" && heldBy) {
+          touch();
+          if (client.readyState === WebSocket.OPEN) client.send(Buffer.from(m.d, "base64"), { binary: true });
+        } else if (m.t === "hangup") {
+          void shutdown(`ended by ${m.name}`);
+        }
+      });
+      console.log(`  line open for ${name}`);
+    } catch (e) {
+      // Typed replies still reach the caller; only the voice path is missing.
+      console.error("  could not open the line:", (e as Error).message);
+    }
+  };
+
+  const closeLine = (message?: Parameters<Relay["send"]>[0]) => {
+    if (!relay) return;
+    if (message) relay.send(message);
+    const r = relay;
+    relay = null;
+    setTimeout(() => void r.close(), 300);
   };
 
   /**
@@ -242,13 +368,23 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
             const id = conversationId;
             serialise(() => persistTurn(id, "ai", cut, startedAt));
           }
+          // A person on the line gets the time a real call needs.
+          if (capTimer) clearTimeout(capTimer);
+          const left = CALL_LIMIT_SECONDS - (Date.now() - startedAt.getTime()) / 1000;
+          capTimer = setTimeout(() => void shutdown("call time limit reached"), Math.max(left, 30) * 1000);
+          touch();
+          announce = "pending";
+          if (!generating) sayHandOver();
+          void openLine(heldBy);
         }
         send({ type: "held", by: heldBy });
-        console.log(`  ${heldBy} took the line — AI muted`);
+        console.log(`  ${heldBy} took the line — AI hands over`);
       } else if (!line.heldBy && heldBy) {
         const note = handBackNote(heldBy, heldReplies);
         heldBy = null;
         heldReplies = [];
+        announce = "done";
+        closeLine({ t: "released" });
         // Context only: `turnComplete: false` tells the model more is coming,
         // so it waits for the caller rather than answering the note.
         if (live?.readyState === WebSocket.OPEN) {
@@ -270,11 +406,26 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
   };
 
   client.on("message", async (raw, isBinary) => {
-    if (closed) return;
+    if (closed || agentMode) return;
 
-    // Binary frames are microphone audio, forwarded as-is.
+    // A person on the team joining a call they took, not a caller.
+    if (!isBinary && !conversationId) {
+      let first: { type?: string; token?: unknown } = {};
+      try {
+        first = JSON.parse(raw.toString());
+      } catch {}
+      if (first.type === "join") {
+        agentMode = true;
+        void handleAgentClient(client, String(first.token ?? ""));
+        return;
+      }
+    }
+
+    // Binary frames are microphone audio, forwarded as-is — to the model,
+    // which keeps transcribing, and to whoever has taken the line.
     if (isBinary) {
       touch();
+      if (heldBy) relay?.sendAudio(raw as Buffer);
       audioInBytes += (raw as Buffer).length;
       if (live?.readyState === WebSocket.OPEN) {
         live.send(
@@ -439,8 +590,10 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
           if (sc.inputTranscription?.text) {
             heard += sc.inputTranscription.text;
             send({ type: "heard", text: heard });
+            relay?.send({ t: "heard", text: heard });
           }
-          if (sc.outputTranscription?.text && !heldBy) {
+          if (sc.modelTurn) generating = true;
+          if (sc.outputTranscription?.text && aiAudible()) {
             // The AI has started answering, so the caller has finished: write
             // their words now rather than at the end of the reply, so whoever
             // is watching the console reads them while the AI is still talking.
@@ -450,7 +603,19 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
               await persistTurn(conversationId!, "customer", words, startedAt);
             }
             said += sc.outputTranscription.text;
-            send({ type: "said", text: said });
+            send({ type: "said", text: announce === "speaking" ? (firstSentence(said) ?? said) : said });
+            // The end of the hand-over sentence is in the transcript: let
+            // through as much audio as that sentence takes to say, and no more.
+            if (announce === "speaking" && handOverLine === null) {
+              const line = firstSentence(said);
+              if (line) {
+                handOverLine = line;
+                handOverBudget =
+                  Math.max(handOverBytes, Math.round(line.length * SECONDS_PER_CHARACTER * OUTPUT_RATE_BYTES_PER_SEC)) +
+                  Math.round(0.3 * OUTPUT_RATE_BYTES_PER_SEC);
+                if (handOverBytes >= handOverBudget) finishHandOver();
+              }
+            }
           }
 
           for (const part of sc.modelTurn?.parts ?? []) {
@@ -461,14 +626,29 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
               audioOutBytes += audio.length;
               // Audio goes back as a binary frame; JSON-wrapping base64 audio
               // triples the bytes on a path that is already the latency budget.
-              if (!heldBy && client.readyState === WebSocket.OPEN) {
-                client.send(audio, { binary: true });
+              let out = audio;
+              if (announce === "speaking" && heldBy) {
+                // Past the end of the sentence (or past five seconds, which is
+                // more than one sentence): the model is saying it again.
+                const budget = handOverBudget ?? OUTPUT_RATE_BYTES_PER_SEC * 5;
+                const room = Math.max(0, budget - handOverBytes) & ~1;
+                if (out.length >= room) {
+                  out = out.subarray(0, room);
+                  handOverBytes += out.length;
+                  if (out.length && client.readyState === WebSocket.OPEN) client.send(out, { binary: true });
+                  finishHandOver();
+                  out = Buffer.alloc(0);
+                } else handOverBytes += out.length;
+              }
+              if (out.length && aiAudible() && client.readyState === WebSocket.OPEN) {
+                client.send(out, { binary: true });
               }
             }
           }
 
           // The model stopping is what makes a fragment into a turn.
           if (sc.turnComplete) {
+            if (announce === "speaking") finishHandOver();
             if (heard.trim()) await persistTurn(conversationId!, "customer", heard, startedAt);
             if (said.trim()) await persistTurn(conversationId!, "ai", said, startedAt);
 
@@ -485,9 +665,17 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
             send({ type: "turn_complete", heard: heard.trim(), said: said.trim() });
             heard = "";
             said = "";
+            generating = false;
+            // The hand-over line has been said; or the model has stopped the
+            // answer it was giving, so the line can be said now.
+            if (announce === "pending") sayHandOver();
           }
 
-          if (sc.interrupted) send({ type: "interrupted" });
+          if (sc.interrupted) {
+            generating = false;
+            if (announce === "pending") sayHandOver();
+            send({ type: "interrupted" });
+          }
           }),
         );
 
@@ -517,6 +705,10 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
     if (msg.type === "stop") await shutdown("stopped by the operator");
   });
 
-  client.on("close", () => void shutdown("browser disconnected"));
-  client.on("error", () => void shutdown("browser socket error"));
+  client.on("close", () => {
+    if (!agentMode) void shutdown("browser disconnected");
+  });
+  client.on("error", () => {
+    if (!agentMode) void shutdown("browser socket error");
+  });
 }

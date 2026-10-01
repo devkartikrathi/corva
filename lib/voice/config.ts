@@ -17,6 +17,20 @@ export const SESSION_CAP_SECONDS = Number(process.env.VOICE_SESSION_CAP_SECONDS 
 export const IDLE_TIMEOUT_SECONDS = Number(process.env.VOICE_IDLE_TIMEOUT_SECONDS ?? 45);
 
 /**
+ * How long a call may run in all once a person has taken it over.
+ *
+ * The AI's cap is short because an open model costs money every second; a
+ * person talking to a customer is the point of the call. The real ceiling on
+ * Vercel is the function's own duration — five minutes on the Hobby plan, so
+ * just under that by default. On Pro, set this (and `maxDuration` in
+ * app/api/voice/route.ts) up to 800 seconds.
+ */
+export const CALL_LIMIT_SECONDS = Number(process.env.VOICE_CALL_LIMIT_SECONDS ?? (process.env.VERCEL ? 290 : 1800));
+
+/** With a person on the line, the caller may listen quietly for longer. */
+export const HELD_IDLE_TIMEOUT_SECONDS = Number(process.env.VOICE_HELD_IDLE_TIMEOUT_SECONDS ?? 180);
+
+/**
  * How many calls one bridge process takes at once.
  *
  * Two on a laptop, where it guards the bill during testing. On Vercel it is

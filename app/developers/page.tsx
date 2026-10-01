@@ -274,7 +274,10 @@ const { reply } = await corva("chat", { sessionId: "chat_8c1f2a", message: "Do y
 ← receive   {"type":"said","text":"…"}     what the assistant said, so far
 ← receive   {"type":"turn_complete"}
 ← receive   {"type":"held","by":"Kavya Rao"}   a person took over; stop playback
-← receive   {"type":"human","name":"…","text":"…"}  what they typed
+            the assistant says one line handing over, then their voice
+            arrives as the same 24 kHz binary frames — keep playing them
+← receive   {"type":"human","name":"…","text":"…"}  what they said or typed
+← receive   {"type":"released"}              handed back to the assistant
 ← receive   {"type":"closed","reason":"…"}  /  {"type":"error","message":"…"}
 → send      {"type":"stop"}                  hang up`}</Code>
         <P>

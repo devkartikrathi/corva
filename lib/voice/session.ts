@@ -583,6 +583,30 @@ export async function persistTurn(
 }
 
 /**
+ * What a person who took the call said aloud, as their browser transcribed it.
+ *
+ * Written as a `human` turn under their name, the same as a typed reply, so
+ * the bridge relays it to the caller's screen as a caption and the AI is told
+ * it when the call is handed back.
+ */
+export async function persistHumanTurn(conversationId: string, author: string, body: string) {
+  const text = body.replace(/\s+/g, " ").trim();
+  if (!text) return;
+  // The ordinal is picked inside the insert, as in persistTurn.
+  await db.execute(sql`
+    INSERT INTO ${s.turns} (conversation_id, ordinal, speaker, author_name, body, at_seconds)
+    SELECT ${conversationId}::uuid,
+           coalesce((SELECT max(t.ordinal) FROM ${s.turns} t WHERE t.conversation_id = ${conversationId}::uuid), -1) + 1,
+           'human'::speaker,
+           ${author},
+           ${text},
+           greatest(0, floor(extract(epoch FROM now() - c.started_at)))::int
+    FROM ${s.conversations} c
+    WHERE c.id = ${conversationId}::uuid
+  `);
+}
+
+/**
  * Who has the line, and what they have typed since `afterOrdinal`.
  *
  * Taking the line happens in the console, which is a different process, so the

@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { audit } from "./audit";
 import { billConversation } from "@/lib/agent/respond";
+import { signAgentToken, voiceBridge } from "@/lib/integrations/keys";
 
 /**
  * Everything a person can do to a conversation.
@@ -147,6 +148,28 @@ export async function releaseCall(conversationId: string) {
   });
 
   refreshConversationScreens(conversationId);
+}
+
+/**
+ * Join the audio of a call you have taken.
+ *
+ * Signs a short-lived token for the voice bridge, only for the person who
+ * holds this call — the bridge trusts the token, so this is where "only the
+ * person who took the line can hear the caller" is decided.
+ */
+export async function joinCallAudio(conversationId: string) {
+  const { session, brand } = await getConsoleContext();
+  assertCan(session.actor, "calls.handle", { brandId: brand.id });
+
+  const conversation = await scoped(conversationId, brand.id);
+  if (conversation.status === "resolved" || conversation.status === "abandoned") {
+    throw new Error("That call has already ended.");
+  }
+  if (conversation.handledBy !== session.name) throw new Error("Take the line first.");
+
+  const bridge = voiceBridge();
+  if (!bridge.available) throw new Error("Voice is not available on this deployment.");
+  return { token: signAgentToken({ conversationId, name: session.name }), bridgeUrl: bridge.url };
 }
 
 /** A person types a reply into a call they hold. */

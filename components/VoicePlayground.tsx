@@ -242,7 +242,7 @@ export function VoicePlayground({
         playAt.current = 0;
         heldRef.current = true;
         setStatus("ready");
-        push({ kind: "system", text: `${m.by} took the line. The AI has stopped replying.` });
+        push({ kind: "system", text: `${m.by} took the line. The AI says it is transferring you, then goes quiet; their voice comes through this call.` });
       } else if (m.type === "released") {
         heldRef.current = false;
         push({ kind: "system", text: "Handed back to the AI." });

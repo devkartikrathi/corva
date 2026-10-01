@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Bar, Kicker, LinkAction, LiveDot, PrimaryButton, ScreenRefusal } from "@/components/ui";
 import { ActionButton } from "@/components/ActionButton";
 import { CallComposer } from "@/components/CallComposer";
+import { CallRoom } from "@/components/CallRoom";
 import { LiveRefresh } from "@/components/LiveRefresh";
 import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { loadAgentConfig } from "@/lib/agent/config";
@@ -9,6 +10,7 @@ import { formatRupees } from "@/lib/money";
 import { getLiveCall, listLiveConversations } from "@/lib/queries/conversations";
 import { normalise, type RawParams } from "@/lib/params";
 import {
+  joinCallAudio,
   releaseCall,
   resolveConversation,
   sendHumanReply,
@@ -281,6 +283,22 @@ export default async function LiveCallPage({
           ) : null}
         </div>
       </div>
+
+      {/*
+        You took a voice call: you are on it now, speaking and listening from
+        this screen. Keyed by conversation so moving to another call starts a
+        fresh line rather than carrying this one's audio across.
+      */}
+      {heldByYou && !call.ended && call.conversation.channel === "phone" && (
+        <CallRoom
+          key={conversationId}
+          conversationId={conversationId}
+          caller={call.customer?.name ?? "the caller"}
+          aiName={config?.agentName ?? "the AI"}
+          joinCallAudio={joinCallAudio}
+          handBack={releaseCall}
+        />
+      )}
 
       {/*
         The one line, directly under the call bar.
