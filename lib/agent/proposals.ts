@@ -60,7 +60,7 @@ export function checkBooking(d: BookingDetails, booking: NonNullable<Industry["b
   if (!isPlausiblePhone(d.phone ?? "")) return "The phone number is not a valid mobile number.";
   if (booking.needsAddress && (d.address ?? "").trim().length < 10)
     return "The address is too short — it needs the house or flat, the building or society, and the area.";
-  if (!d.services?.filter((x) => x.trim()).length) return "What they need done is missing.";
+  if (!d.services?.filter((x) => x.trim()).length) return "What the booking is for is missing.";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d.date ?? "")) return "The date must be YYYY-MM-DD.";
   const parsed = new Date(`${d.date}T00:00:00Z`);
   if (isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== d.date) return "That date does not exist.";
@@ -106,7 +106,7 @@ export function proposalInstructions(industryKey: string | null | undefined, age
 The customer can confirm requests on a card in this chat.${
     booking
       ? `
-- propose_booking books a ${noun}. Needed: name, mobile number,${booking.needsAddress ? " full address," : ""} what they need done, date and time slot. Optional: email, notes, offer code.`
+- propose_booking books ${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}. Needed: name, mobile number,${booking.needsAddress ? " full address," : ""} what it is for (the service, treatment, property or occasion), date and time slot. Optional: email, notes, offer code.`
       : ""
   }
 - propose_callback asks the team to phone them back — for prices you do not have, bulk orders, or anything you cannot answer. Needed: name, mobile number and email (the confirmation is emailed). Optional: preferred time, topic.
@@ -196,14 +196,14 @@ export function proposalTools(opts: {
   if (!booking) return { propose_callback };
 
   const propose_booking = tool({
-    description: `Offer to book a ${booking.noun}. They confirm it on a card. Call only once every required detail is known.`,
+    description: `Offer to book the customer's ${booking.noun}. They confirm it on a card. Call only once every required detail is known.`,
     inputSchema: z.object({
       name: z.string().describe("Their name"),
       phone: z.string().describe("Their mobile number"),
       address: booking.needsAddress
         ? z.string().describe("Full address: house or flat, building or society, sector or area")
         : z.string().optional(),
-      services: z.array(z.string()).describe("What they need done, using the business's own service names"),
+      services: z.array(z.string()).describe("What the booking is for — the service, treatment, property or occasion — in the business's own words"),
       date: z.string().describe("The date, YYYY-MM-DD"),
       timeSlot: z.string().describe("Preferred time window, e.g. '8–10 AM', 'evening', 'anytime'"),
       email: z.string().optional().describe("Email, only if they gave one"),

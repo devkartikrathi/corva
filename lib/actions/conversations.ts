@@ -10,6 +10,7 @@ import * as s from "@/lib/db/schema";
 import { audit } from "./audit";
 import { billConversation } from "@/lib/agent/respond";
 import { signAgentToken, voiceBridge } from "@/lib/integrations/keys";
+import { conversationPayload, emit } from "@/lib/integrations/webhooks";
 
 /**
  * Everything a person can do to a conversation.
@@ -340,6 +341,7 @@ export async function resolveConversation(conversationId: string, outcome: "huma
       durationSeconds: Math.floor((endedAt.getTime() - conversation.startedAt.getTime()) / 1000),
     })
     .where(eq(s.conversations.id, conversationId));
+  emit(brand.id, "conversation.ended", () => conversationPayload(conversationId));
 
   await db
     .update(s.handoffs)

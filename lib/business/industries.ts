@@ -105,6 +105,7 @@ export const INDUSTRIES: Industry[] = [
   {
     key: "clinic",
     label: "Clinic / healthcare",
+    booking: { noun: "appointment", needsAddress: false, maxDaysAhead: 60 },
     callers: "patients",
     stages: {
       new: "New enquiry",
@@ -140,6 +141,7 @@ export const INDUSTRIES: Industry[] = [
   {
     key: "real_estate",
     label: "Real estate",
+    booking: { noun: "site visit", needsAddress: false, maxDaysAhead: 30 },
     callers: "buyers",
     stages: {
       new: "New enquiry",
@@ -197,6 +199,7 @@ export const INDUSTRIES: Industry[] = [
   {
     key: "education",
     label: "Education / coaching",
+    booking: { noun: "counselling session", needsAddress: false, maxDaysAhead: 30 },
     callers: "students and parents",
     stages: {
       new: "New enquiry",
@@ -227,6 +230,7 @@ export const INDUSTRIES: Industry[] = [
   {
     key: "home_services",
     label: "Home services / repairs",
+    booking: { noun: "visit", needsAddress: true, maxDaysAhead: 30 },
     callers: "customers",
     stages: {
       new: "New request",
@@ -306,6 +310,7 @@ export const INDUSTRIES: Industry[] = [
   {
     key: "restaurant",
     label: "Restaurant / café",
+    booking: { noun: "reservation", needsAddress: false, maxDaysAhead: 60 },
     callers: "guests",
     stages: {
       new: "New enquiry",

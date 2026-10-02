@@ -1445,6 +1445,39 @@ export const chatProposals = pgTable(
 );
 
 /**
+ * Where Corva tells a business's own systems what just happened.
+ *
+ * The API is how a business's website talks to Corva; a webhook is the other
+ * direction — a new lead, a follow-up, a handoff, posted to a URL the business
+ * gives us, signed with a secret only they hold so they can trust it came from
+ * here. The last delivery's result is kept so a broken endpoint is visible in
+ * Settings rather than discovered weeks later.
+ */
+export const webhooks = pgTable(
+  "webhooks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    /** Signs every delivery (HMAC-SHA256). Shown once, when the webhook is made. */
+    secret: text("secret").notNull(),
+    /** Event types to send; empty means all of them. */
+    events: jsonb("events").$type<string[]>().notNull().default([]),
+    createdByName: text("created_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastDeliveryAt: timestamp("last_delivery_at", { withTimezone: true }),
+    /** HTTP status of the last delivery; 0 when it could not connect. */
+    lastStatus: integer("last_status"),
+    lastError: text("last_error"),
+    /** Deliveries failed in a row. Reset by a success. */
+    failures: integer("failures").notNull().default(0),
+  },
+  (t) => [index("webhooks_brand_idx").on(t.brandId)],
+);
+
+/**
  * Someone who has been on a business's website.
  *
  * Keyed by the first-party visitor id the site sets (a strictly necessary

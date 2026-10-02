@@ -631,7 +631,7 @@ export default async function Customer360Page({
                         {({
                           chat_started: "Chatted with the assistant",
                           callback_requested: "Asked for a callback",
-                          pickup_requested: "Booked a pickup",
+                          pickup_requested: "Made a booking",
                           voice_call: "Talked to the assistant by voice",
                           enquiry: "Sent an enquiry",
                           consent: "Answered the cookie banner",

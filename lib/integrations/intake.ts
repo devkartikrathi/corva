@@ -3,9 +3,11 @@ import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { formatPhone, isPlausiblePhone } from "@/lib/business/phone";
 import { OPEN_STAGES, industryFor } from "@/lib/business/industries";
+import { cleanDetails, intakeFieldsFor } from "@/lib/business/intake";
 import { customerForCaller, isUnnamed, pickOwner, scheduleFollowUp } from "@/lib/crm/capture";
 import { APP_URL, layout, sendEmail } from "@/lib/email";
 import { ApiError } from "./api";
+import { emit, leadPayload } from "./webhooks";
 
 /**
  * What a business's website sends Corva, turned into records.
@@ -195,10 +197,14 @@ async function conversationFor(brand: Brand, externalRef: string, customerId: st
   return created;
 }
 
-/* ─── Requests: pickups and callbacks ──────────────────────────────────── */
+/* ─── Requests: bookings, callbacks and enquiries ──────────────────────── */
 
 export type LeadInput = {
-  kind: "pickup" | "callback" | "enquiry";
+  /**
+   * "booking" is whatever the business books — a pickup, an appointment, a
+   * site visit, a table. "pickup" is the same thing under its first name.
+   */
+  kind: "booking" | "pickup" | "callback" | "enquiry";
   name: string;
   phone: string;
   email?: string;
@@ -206,6 +212,8 @@ export type LeadInput = {
   reference?: string;
   services?: string[];
   address?: string;
+  /** When the booking is for, YYYY-MM-DD. `pickupDate` is the same field's first name. */
+  date?: string;
   pickupDate?: string;
   timeSlot?: string;
   preferredTime?: string;
@@ -214,6 +222,8 @@ export type LeadInput = {
   promoCode?: string;
   visitorId?: string;
   sessionId?: string;
+  /** The business's own Details to collect, by field key (see GET /api/v1/config). */
+  details?: Record<string, unknown>;
 };
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -225,11 +235,12 @@ function reference(prefix: string) {
 }
 
 /** "Laundry, Dry-cleaning · pickup Sat 4 Oct, 8–10 AM · Sector 70" */
-function describeRequest(input: LeadInput) {
-  if (input.kind === "pickup") {
+function describeRequest(input: LeadInput, booking: boolean, noun: string) {
+  if (booking) {
+    const date = input.date ?? input.pickupDate;
     return [
-      input.services?.length ? input.services.join(", ") : "Pickup",
-      [input.pickupDate && `pickup ${input.pickupDate}`, input.timeSlot].filter(Boolean).join(", "),
+      input.services?.length ? input.services.join(", ") : noun[0].toUpperCase() + noun.slice(1),
+      [date && `${noun} ${date}`, input.timeSlot].filter(Boolean).join(", "),
       input.address,
     ]
       .filter(Boolean)
@@ -257,9 +268,12 @@ export async function intakeLead(
   if (!isPlausiblePhone(input.phone ?? "")) throw new Error("A valid phone number is required.");
   const email = input.email?.trim().toLowerCase();
   if (email && !EMAIL.test(email)) throw new Error("That email address does not look right.");
-  const kind = input.kind === "pickup" || input.kind === "callback" ? input.kind : "enquiry";
+  const kind = input.kind === "booking" || input.kind === "pickup" ? "pickup" : input.kind === "callback" ? "callback" : "enquiry";
   const ref = clip(input.reference, 40) ?? reference(brand.initials.replace(/[^A-Z]/gi, "").slice(0, 2).toUpperCase() || "CV");
   const industry = industryFor(brand.industry);
+  // The business's own word for what it books: a pickup, an appointment, a visit.
+  const noun = industry.booking?.noun ?? "booking";
+  const date = clip(input.date ?? input.pickupDate, 20);
 
   // Idempotent on the site's reference: a retry after a timeout must not make
   // a second lead, a second follow-up and a second email.
@@ -329,7 +343,7 @@ export async function intakeLead(
   const fromChat = Boolean(from || input.sessionId);
 
   // The opportunity: reuse an open one rather than stacking duplicates.
-  const interest = describeRequest(input).slice(0, 300);
+  const interest = describeRequest(input, kind === "pickup", noun).slice(0, 300);
   const notes = [input.notes, input.promoCode && `Promo code ${input.promoCode}`, `Ref ${ref}`].filter(Boolean).join(" · ");
   const [open] = await db
     .select()
@@ -377,6 +391,21 @@ export async function intakeLead(
     }
   }
 
+  // The business's own details, when the site collected them itself.
+  if (input.details && typeof input.details === "object") {
+    const { clean } = cleanDetails(await intakeFieldsFor(brand.id, brand.industry), input.details);
+    if (Object.keys(clean).length) {
+      const json = JSON.stringify(clean);
+      await db.update(s.leads).set({ details: sql`${s.leads.details} || ${json}::jsonb` }).where(eq(s.leads.id, lead.id));
+      if (conversation) {
+        await db
+          .update(s.conversations)
+          .set({ captured: sql`${s.conversations.captured} || ${json}::jsonb` })
+          .where(eq(s.conversations.id, conversation.id));
+      }
+    }
+  }
+
   // The promise, with a person and a time. A callback within half an hour;
   // a pickup confirmed within the hour.
   const { followUp, assigneeName, dueAt } = await scheduleFollowUp({
@@ -385,7 +414,7 @@ export async function intakeLead(
     customerId: customer.id,
     title:
       kind === "pickup"
-        ? `Confirm pickup with ${name}${input.pickupDate ? ` for ${input.pickupDate}` : ""}${input.timeSlot ? `, ${input.timeSlot}` : ""}`
+        ? `Confirm ${noun} with ${name}${date ? ` for ${date}` : ""}${input.timeSlot ? `, ${input.timeSlot}` : ""}`
         : `Call back ${name}${input.topic ? ` about ${input.topic}` : ""}`,
     detail: [interest, input.preferredTime && `Asked for: ${input.preferredTime}`, `Ref ${ref}`].filter(Boolean).join("\n"),
     due: new Date(Date.now() + (kind === "pickup" ? 60 : 30) * 60_000).toISOString(),
@@ -402,12 +431,12 @@ export async function intakeLead(
       ? sendEmail({
           to: email,
           fromName: brand.name,
-          ...confirmationEmail({ brandName: brand.name, name, kind, ref, interest, preferredTime: input.preferredTime }),
+          ...confirmationEmail({ brandName: brand.name, name, kind, noun, ref, interest, preferredTime: input.preferredTime }),
         })
       : Promise.resolve({ sent: false, reason: "No email address given." }),
     notifyOwner(brand, lead.ownerMembershipId, {
-      subject: `New ${kind === "pickup" ? "pickup" : kind === "callback" ? "callback request" : "enquiry"}: ${name}`,
-      heading: `${name} ${kind === "pickup" ? "booked a pickup" : kind === "callback" ? "wants a call back" : "got in touch"}`,
+      subject: `New ${kind === "pickup" ? noun : kind === "callback" ? "callback request" : "enquiry"}: ${name}`,
+      heading: `${name} ${kind === "pickup" ? `booked ${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}` : kind === "callback" ? "wants a call back" : "got in touch"}`,
       lines: [
         interest,
         `Phone: ${formatPhone(input.phone)}${email ? ` · Email: ${email}` : ""}`,
@@ -418,10 +447,16 @@ export async function intakeLead(
     }),
   ]);
 
+  // From the site's own form or assistant, the lead is complete now. From
+  // Corva's chat, the confirm step sends the event once the details are on it.
+  const request = { kind: kind === "pickup" ? "booking" : kind, reference: ref };
+  if (!from) emit(brand.id, open ? "lead.updated" : "lead.created", async () => ({ ...(await leadPayload(lead.id)), request }));
+
   return {
     reference: ref,
     customerId: customer.id,
     leadId: lead.id,
+    isNew: !open,
     followUp: { id: followUp.id, assignee: assigneeName, dueAt: dueAt.toISOString() },
     emailed: { customer: customerMail.sent, team: teamMail.sent },
     duplicate: false,
@@ -431,7 +466,8 @@ export async function intakeLead(
 function confirmationEmail(opts: {
   brandName: string;
   name: string;
-  kind: LeadInput["kind"];
+  kind: "pickup" | "callback" | "enquiry";
+  noun: string;
   ref: string;
   interest: string;
   preferredTime?: string;
@@ -439,9 +475,9 @@ function confirmationEmail(opts: {
   const first = opts.name.split(/\s+/)[0];
   if (opts.kind === "pickup") {
     return {
-      subject: `Your pickup request with ${opts.brandName} (${opts.ref})`,
+      subject: `Your ${opts.noun} request with ${opts.brandName} (${opts.ref})`,
       ...layout({
-        heading: `Thanks, ${first} — your pickup is requested`,
+        heading: `Thanks, ${first} — your ${opts.noun} is requested`,
         lines: [
           opts.interest,
           "Our team will call you shortly to confirm the slot. Keep this reference handy:",
@@ -556,7 +592,7 @@ export async function agentChat(brand: Brand, input: AgentChatInput) {
       speaker: "customer",
       body: message,
     });
-    const held = { conversationId: conversation.id, reply: null, heldBy: conversation.handledBy, actions: [], escalation: null, closed: false, proposal: null };
+    const held = { conversationId: conversation.id, reply: null, heldBy: conversation.handledBy, actions: [], escalation: null, closed: false, proposal: null, details: conversation.captured ?? {} };
     if (!input.stream) return held;
     return new Response(`event: done\ndata: ${JSON.stringify(held)}\n\n`, {
       headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store" },
@@ -575,6 +611,7 @@ export async function agentChat(brand: Brand, input: AgentChatInput) {
 
   if (!input.stream) return publicReply(conversation.id, await respond(turn));
 
+
   // Server-sent events: `delta` as the words arrive, `proposal` when a card
   // should show, and `done` with the same body the JSON answer has.
   const encoder = new TextEncoder();
@@ -586,7 +623,7 @@ export async function agentChat(brand: Brand, input: AgentChatInput) {
         for await (const event of respondStream(turn)) {
           if (event.type === "delta") send("delta", { text: event.text });
           else if (event.type === "proposal") send("proposal", event.proposal);
-          else if (event.type === "done") send("done", publicReply(conversation.id, event.reply));
+          else if (event.type === "done") send("done", await publicReply(conversation.id, event.reply));
         }
       } catch (e) {
         console.error("[api] chat stream", e);
@@ -600,8 +637,13 @@ export async function agentChat(brand: Brand, input: AgentChatInput) {
   });
 }
 
-/** One agent turn as the API reports it. */
-function publicReply(conversationId: string, reply: import("@/lib/agent/respond").AgentReply) {
+/** One agent turn as the API reports it, with the details collected so far. */
+async function publicReply(conversationId: string, reply: import("@/lib/agent/respond").AgentReply) {
+  const [row] = await db
+    .select({ captured: s.conversations.captured })
+    .from(s.conversations)
+    .where(eq(s.conversations.id, conversationId))
+    .limit(1);
   return {
     conversationId,
     reply: reply.text,
@@ -610,6 +652,7 @@ function publicReply(conversationId: string, reply: import("@/lib/agent/respond"
     escalation: reply.escalation ? { reason: reply.escalation.reason, routedTo: reply.escalation.routedTo } : null,
     closed: Boolean(reply.closure),
     proposal: reply.proposal,
+    details: row?.captured ?? {},
   };
 }
 
@@ -702,9 +745,7 @@ export async function agentChatConfirm(brand: Brand, input: AgentChatConfirmInpu
     lead = await intakeLead(
       brand,
       {
-        // The laundry pickup is the booking the emails are written for; any
-        // other kind of booking goes out as a plain enquiry until it has its own.
-        kind: proposal.kind === "callback" ? "callback" : noun === "pickup" ? "pickup" : "enquiry",
+        kind: proposal.kind === "callback" ? "callback" : "booking",
         name: d.name,
         phone: d.phone,
         email: d.email,
@@ -731,6 +772,11 @@ export async function agentChatConfirm(brand: Brand, input: AgentChatConfirmInpu
       UPDATE ${s.leads} SET details = details || (SELECT captured FROM ${s.conversations} WHERE id = ${conversation.id})
       WHERE id = ${lead.leadId}
     `);
+  }
+  if (lead.leadId) {
+    const leadId = lead.leadId;
+    const request = { kind: proposal.kind, reference: lead.reference };
+    emit(brand.id, "isNew" in lead && lead.isNew ? "lead.created" : "lead.updated", async () => ({ ...(await leadPayload(leadId)), request }));
   }
   const receipt: Receipt = { reference: lead.reference, owner: lead.followUp.assignee, emailed: lead.emailed.customer };
   await db.update(s.chatProposals).set({ result: receipt }).where(eq(s.chatProposals.id, proposal.id));

@@ -1,6 +1,8 @@
 import { PrimaryButton, ScreenHeader, ScreenRefusal, SectionTitle } from "@/components/ui";
 import { DEMO_MODE } from "@/lib/auth/mode";
 import { ApiKeys } from "@/components/ApiKeys";
+import { Webhooks } from "@/components/Webhooks";
+import { WEBHOOK_EVENTS } from "@/lib/integrations/webhooks";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
@@ -16,7 +18,10 @@ import { can } from "@/lib/auth/permissions";
 import {
   createBrand,
   createKey,
+  createWebhook,
+  deleteWebhook,
   revokeKey,
+  testWebhook,
   setBrandLive,
   setBusinessHours,
   setChannel,
@@ -80,6 +85,7 @@ export default async function SetupPage() {
     .from(s.apiKeys)
     .where(and(eq(s.apiKeys.brandId, currentBrand.id), isNull(s.apiKeys.revokedAt)))
     .orderBy(desc(s.apiKeys.createdAt));
+  const hooks = await db.select().from(s.webhooks).where(eq(s.webhooks.brandId, currentBrand.id)).orderBy(desc(s.webhooks.createdAt));
   const { brands, brand, channels, hours, afterHours, privacy, audit, org } = setup;
 
   const manages = can(session.actor, "billing.manage").allowed;
@@ -261,6 +267,33 @@ export default async function SetupPage() {
               }))}
               onCreate={createKey}
               onRevoke={revokeKey}
+            />
+          </div>
+
+          <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
+            <div style={{ marginBottom: 6 }}>
+              <SectionTitle size={16}>Webhooks</SectionTitle>
+            </div>
+            <p style={{ margin: "0 0 12px", fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.5 }}>
+              Corva can tell your own systems the moment something happens — a new lead, a follow-up, the AI asking
+              for a person, a conversation ending. Each delivery is signed so your server can trust it.{" "}
+              <a href="/developers#webhooks" target="_blank" rel="noreferrer" style={{ fontWeight: 700, color: "var(--color-accent-700)" }}>
+                How to receive them →
+              </a>
+            </p>
+            <Webhooks
+              hooks={hooks.map((h) => ({
+                id: h.id,
+                url: h.url,
+                events: h.events,
+                last: h.lastDeliveryAt ? h.lastDeliveryAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : null,
+                lastStatus: h.lastStatus,
+                lastError: h.lastError,
+              }))}
+              events={WEBHOOK_EVENTS.map((e) => ({ type: e.type, description: e.description }))}
+              onCreate={createWebhook}
+              onDelete={deleteWebhook}
+              onTest={testWebhook}
             />
           </div>
 

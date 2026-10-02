@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { OPEN_STAGES } from "@/lib/business/industries";
 import { formatPhone, isPlausiblePhone, phoneDigits } from "@/lib/business/phone";
+import { emit, followUpPayload } from "@/lib/integrations/webhooks";
 
 /**
  * What the AI writes into the CRM while it talks.
@@ -346,6 +347,7 @@ export async function scheduleFollowUp(opts: {
       createdByAi: opts.createdByAi,
     })
     .returning();
+  emit(opts.brandId, "follow_up.created", () => followUpPayload(row.id));
 
   // Promising a callback is contacting them; a lead still at "new" has moved.
   if (lead) {

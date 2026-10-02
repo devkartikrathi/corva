@@ -165,6 +165,20 @@ function normalise(field: IntakeField, raw: string): string | null {
   return value;
 }
 
+/** The values that belong to the business's fields, each as its field wants it. */
+export function cleanDetails(fields: IntakeField[], input: Record<string, unknown>) {
+  const clean: Record<string, string> = {};
+  const rejected: string[] = [];
+  for (const field of fields) {
+    const raw = input[field.key];
+    if (typeof raw !== "string" && typeof raw !== "number") continue;
+    const value = normalise(field, String(raw));
+    if (value === null) rejected.push(field.label);
+    else clean[field.key] = value;
+  }
+  return { clean, rejected };
+}
+
 /**
  * Record what the agent just found out.
  *
@@ -178,15 +192,7 @@ export async function captureDetails(
   input: Record<string, unknown>,
   leadId?: string | null,
 ) {
-  const clean: Record<string, string> = {};
-  const rejected: string[] = [];
-  for (const field of fields) {
-    const raw = input[field.key];
-    if (typeof raw !== "string" && typeof raw !== "number") continue;
-    const value = normalise(field, String(raw));
-    if (value === null) rejected.push(field.label);
-    else clean[field.key] = value;
-  }
+  const { clean, rejected } = cleanDetails(fields, input);
   if (Object.keys(clean).length === 0) return { saved: [] as string[], rejected, captured: null };
 
   const json = JSON.stringify(clean);

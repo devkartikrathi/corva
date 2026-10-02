@@ -22,6 +22,7 @@ import { writeBrief } from "./brief";
 import { updateLiveSummary } from "./summary";
 import { crmInstructions, isUnnamed, saveCallerDetails, scheduleFollowUp } from "@/lib/crm/capture";
 import { proposalInstructions, proposalTools, todayIST, type Proposal } from "./proposals";
+import { conversationPayload, emit, leadPayload } from "@/lib/integrations/webhooks";
 import { captureDetails, detailsInstructions, detailsSchema, knownDetails, leadQuestionsFrom } from "@/lib/business/intake";
 
 /**
@@ -440,6 +441,7 @@ export async function* respondStream(opts: {
             });
             actionsTaken.push({ label: `${created ? "New lead" : "Lead updated"}: ${lead.name}`, allowed: true });
             await captureDetails(conversationId, config.fields, input, lead.id);
+            emit(conversation.brandId, created ? "lead.created" : "lead.updated", () => leadPayload(lead.id));
             return { saved: true, owner: ownerName ?? "the team" };
           },
         }) }) as ToolSet),
@@ -639,6 +641,7 @@ export async function* respondStream(opts: {
           .update(s.conversations)
           .set({ status: "resolved", outcome: "ai_resolved", endedAt: new Date() })
           .where(eq(s.conversations.id, conversationId));
+        emit(conversation.brandId, "conversation.ended", () => conversationPayload(conversationId));
 
         closure = { outcome: closedByAgreement, handoffId: handoff.id };
         yield { type: "closure", outcome: closedByAgreement, handoffId: handoff.id };

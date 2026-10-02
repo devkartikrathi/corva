@@ -1,6 +1,7 @@
 "use server";
 
 import { and, eq } from "drizzle-orm";
+import { emit, leadPayload } from "@/lib/integrations/webhooks";
 import { revalidatePath } from "next/cache";
 import { getConsoleContext } from "@/lib/auth/context";
 import { assertCan, can } from "@/lib/auth/permissions";
@@ -81,6 +82,7 @@ export async function setLeadStage(leadId: string, stage: string, lostReason?: s
     target: lead.name,
     meta: { from: lead.stage, to: stage },
   });
+  emit(ctx.brand.id, "lead.updated", () => leadPayload(leadId));
   refresh();
 }
 
@@ -106,6 +108,7 @@ export async function assignLead(leadId: string, membershipId: string) {
     target: lead.name,
     meta: { to: member.name },
   });
+  emit(ctx.brand.id, "lead.updated", () => leadPayload(leadId));
   refresh();
 }
 
@@ -129,6 +132,7 @@ export async function updateLead(
       updatedAt: new Date(),
     })
     .where(eq(s.leads.id, leadId));
+  emit(lead.brandId, "lead.updated", () => leadPayload(leadId));
   refresh();
 }
 
@@ -197,6 +201,7 @@ export async function createLead(input: {
     action: "lead.created",
     target: lead.name,
   });
+  emit(ctx.brand.id, "lead.created", () => leadPayload(lead.id));
   refresh();
   return lead.id;
 }

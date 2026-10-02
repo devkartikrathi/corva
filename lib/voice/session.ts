@@ -10,6 +10,7 @@ import { runningSentiment, scoreUtterance } from "@/lib/pipelines/sentiment";
 import { brandForNumber, formatPhone } from "@/lib/business/phone";
 import { industryFor } from "@/lib/business/industries";
 import { captureDetails, detailsInstructions, detailsLiveProperties, leadQuestionsFrom } from "@/lib/business/intake";
+import { conversationPayload, emit, emitForConversation, leadPayload } from "@/lib/integrations/webhooks";
 import {
   crmInstructions,
   customerForCaller,
@@ -333,6 +334,7 @@ export async function handleToolCall(
     });
     // The business's own fields, from the same call.
     await captureDetails(ctx.conversationId, ctx.config.fields, args, lead.id);
+    emit(ctx.brandId, created ? "lead.created" : "lead.updated", () => leadPayload(lead.id));
     return {
       response: { saved: true, owner: ownerName ?? "the team" },
       outcome: {
@@ -871,6 +873,7 @@ export async function closeVoiceConversation(conversationId: string, seconds: nu
       outcome: humanSpoke ? "human_resolved" : null,
     })
     .where(eq(s.conversations.id, conversationId));
+  emitForConversation(conversationId, "conversation.ended", () => conversationPayload(conversationId));
 }
 
 /**

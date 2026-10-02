@@ -1,6 +1,7 @@
 "use server";
 
 import { and, eq } from "drizzle-orm";
+import { WEBHOOK_EVENTS, newWebhookSecret, ping, webhookUrl } from "@/lib/integrations/webhooks";
 import { revalidatePath } from "next/cache";
 import { getConsoleContext } from "@/lib/auth/context";
 import { assertCan } from "@/lib/auth/permissions";
@@ -341,4 +342,63 @@ export async function revokeKey(keyId: string) {
     target: `${row.name} (${row.prefix}…)`,
   });
   revalidatePath("/app/setup");
+}
+
+/* ─── Webhooks ─────────────────────────────────────────────────────────── */
+
+/** Register a URL for Corva to tell about leads, follow-ups, handoffs and ended conversations. */
+export async function createWebhook(url: string, events: string[]) {
+  const { session, brand } = await getConsoleContext();
+  assertCan(session.actor, "people.manage", { brandId: brand.id });
+
+  const target = webhookUrl(url);
+  const known = new Set<string>(WEBHOOK_EVENTS.map((e) => e.type));
+  const chosen = [...new Set(events.filter((e) => known.has(e)))];
+  const existing = await db.select({ id: s.webhooks.id }).from(s.webhooks).where(eq(s.webhooks.brandId, brand.id));
+  if (existing.length >= 5) throw new Error("Five webhooks at most. Remove one first.");
+
+  const secret = newWebhookSecret();
+  const [row] = await db
+    .insert(s.webhooks)
+    // All events is stored as none chosen, so a new event type reaches it too.
+    .values({ brandId: brand.id, url: target, secret, events: chosen.length === known.size ? [] : chosen, createdByName: session.name })
+    .returning();
+  await audit({
+    orgId: session.orgId,
+    brandId: brand.id,
+    actorId: session.membershipId,
+    actorName: session.name,
+    action: "webhook.created",
+    target,
+  });
+  revalidatePath("/app/setup");
+  return { id: row.id, secret };
+}
+
+export async function deleteWebhook(webhookId: string) {
+  const { session, brand } = await getConsoleContext();
+  assertCan(session.actor, "people.manage", { brandId: brand.id });
+  const [row] = await db
+    .delete(s.webhooks)
+    .where(and(eq(s.webhooks.id, webhookId), eq(s.webhooks.brandId, brand.id)))
+    .returning();
+  if (!row) throw new Error("No such webhook for this business.");
+  await audit({
+    orgId: session.orgId,
+    brandId: brand.id,
+    actorId: session.membershipId,
+    actorName: session.name,
+    action: "webhook.removed",
+    target: row.url,
+  });
+  revalidatePath("/app/setup");
+}
+
+/** Send a `ping` now and say what came back. */
+export async function testWebhook(webhookId: string) {
+  const { session, brand } = await getConsoleContext();
+  assertCan(session.actor, "people.manage", { brandId: brand.id });
+  const result = await ping(webhookId, brand.id);
+  revalidatePath("/app/setup");
+  return result;
 }

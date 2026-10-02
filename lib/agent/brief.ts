@@ -8,6 +8,7 @@ import { assignHandoff } from "./routing";
 import { languageModel, thinkingOptions } from "./model";
 import { resolveModel } from "./models";
 import { recordModelCall } from "./quota";
+import { conversationPayload, emit } from "@/lib/integrations/webhooks";
 
 /**
  * The handoff brief.
@@ -135,6 +136,10 @@ ${transcript.join("\n")}`,
   // Ring it at somebody. A queue nobody is named on is a queue everyone
   // assumes someone else is working — see lib/agent/routing.ts.
   const routing = await assignHandoff(row.id);
+  emit(brandId, "handoff.requested", async () => ({
+    handoff: { id: row.id, kind, reason, headline: brief.headline, routedTo: routing?.name ?? null },
+    ...(await conversationPayload(conversationId)),
+  }));
 
   return { ...row, routedTo: routing };
 }
