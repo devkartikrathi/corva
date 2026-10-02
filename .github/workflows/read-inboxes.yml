@@ -1,0 +1,31 @@
+# Reads every connected inbox that is due, every 15 minutes.
+#
+# Vercel's own cron (vercel.json) only runs daily on the Hobby plan, so the
+# frequent schedule lives here. On a paid Vercel plan, change the schedule in
+# vercel.json to "*/15 * * * *" and delete this file.
+#
+# Needs the repository secret CRON_SECRET, the same value as on Vercel.
+name: Read inboxes
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: read-inboxes
+  cancel-in-progress: false
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Ask Corva to read the inboxes that are due
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CORVA_URL: ${{ vars.CORVA_URL || 'https://corva.tiruvi.site' }}
+        run: |
+          curl --fail-with-body --silent --show-error --max-time 300 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$CORVA_URL/api/cron/inbox"
