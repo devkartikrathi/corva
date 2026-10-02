@@ -20,6 +20,7 @@ import { runningSentiment, scoreUtterance } from "@/lib/pipelines/sentiment";
 import { addUsage, priceUsage, type Usage } from "@/lib/pricing";
 import { writeBrief } from "./brief";
 import { updateLiveSummary } from "./summary";
+import { DATA_TOOL, DATA_TOOL_DESCRIPTION, lookupArguments, lookupInstructions, runLookupForAssistant } from "@/lib/data/sources";
 import { crmInstructions, isUnnamed, saveCallerDetails, scheduleFollowUp } from "@/lib/crm/capture";
 import { proposalInstructions, proposalTools, todayIST, type Proposal } from "./proposals";
 import { conversationPayload, emit, leadPayload } from "@/lib/integrations/webhooks";
@@ -137,7 +138,7 @@ ${describeNeverRules(config)}
 
 ## What you know about this customer
 ${context}
-
+${config.lookups.length ? `\n## The business's own records\n${lookupInstructions(config.lookups)}\n` : ""}
 ## The only sources you may answer from
 ${sources || "(nothing matched — say you do not have that to hand and offer a callback from the team)"}
 
@@ -478,6 +479,22 @@ export async function* respondStream(opts: {
             };
           },
         }),
+        ...((config.lookups.length
+          ? {
+              [DATA_TOOL]: tool({
+                description: DATA_TOOL_DESCRIPTION,
+                inputSchema: z.object({
+                  lookup: z.enum(config.lookups.map((l) => l.key) as [string, ...string[]]),
+                  ...Object.fromEntries(lookupArguments(config.lookups).map((a) => [a.name, z.string().optional().describe(a.description)])),
+                }),
+                execute: async ({ lookup, ...values }: { lookup: string } & Record<string, unknown>) => {
+                  const result = await runLookupForAssistant(conversation.brandId, conversationId, lookup, values);
+                  actionsTaken.push({ label: `Checked the records (${lookup}): ${result.found ? `${result.rows.length} found` : "nothing found"}`, allowed: true });
+                  return result;
+                },
+              }),
+            }
+          : {}) as ToolSet),
         take_action: tool({
           description:
             "Take an action on the customer's account. Returns whether it was permitted. " +

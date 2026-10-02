@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { runningSentiment, scoreUtterance } from "@/lib/pipelines/sentiment";
 import { brandForNumber, formatPhone } from "@/lib/business/phone";
+import { DATA_TOOL, DATA_TOOL_DESCRIPTION, lookupArguments, lookupInstructions, runLookupForAssistant } from "@/lib/data/sources";
 import { industryFor } from "@/lib/business/industries";
 import { captureDetails, detailsInstructions, detailsLiveProperties, leadQuestionsFrom } from "@/lib/business/intake";
 import { conversationPayload, emit, emitForConversation, leadPayload } from "@/lib/integrations/webhooks";
@@ -237,6 +238,9 @@ export function liveInstruction(
     "",
     detailsInstructions(config.fields, known, "save_caller_details").replace(/^Details to collect/, "DETAILS TO COLLECT"),
     "",
+    ...(config.lookups.length
+      ? ["THE BUSINESS'S OWN RECORDS", lookupInstructions(config.lookups), "A caller may spell a reference out letter by letter; pass it on as one string.", ""]
+      : []),
     "NEVER SAY A TOOL'S NAME OUT LOUD",
     "The caller is on a phone. They cannot see tools and must never hear one named.",
     "Do not say 'search_knowledge', 'take_action', 'calls take_action', or narrate",
@@ -255,12 +259,32 @@ export function liveInstruction(
  */
 function toolsFor(config: AgentConfig) {
   const extra = detailsLiveProperties(config.fields);
+  // The business's approved lookups, as one tool: which lookup, and its values.
+  const lookUp = config.lookups.length
+    ? [
+        {
+          name: DATA_TOOL,
+          description: DATA_TOOL_DESCRIPTION,
+          parameters: {
+            type: "OBJECT",
+            properties: {
+              lookup: { type: "STRING", enum: config.lookups.map((l) => l.key), description: "Which lookup to run" },
+              ...Object.fromEntries(lookupArguments(config.lookups).map((a) => [a.name, { type: "STRING", description: a.description }])),
+            },
+            required: ["lookup"],
+          },
+        },
+      ]
+    : [];
   return TOOLS.map((group) => ({
-    functionDeclarations: group.functionDeclarations.map((d) =>
-      d.name === "save_caller_details" && Object.keys(extra).length
-        ? { ...d, parameters: { ...d.parameters, properties: { ...d.parameters.properties, ...extra } } }
-        : d,
-    ),
+    functionDeclarations: [
+      ...group.functionDeclarations.map((d) =>
+        d.name === "save_caller_details" && Object.keys(extra).length
+          ? { ...d, parameters: { ...d.parameters, properties: { ...d.parameters.properties, ...extra } } }
+          : d,
+      ),
+      ...lookUp,
+    ],
   }));
 }
 
@@ -319,6 +343,20 @@ export async function handleToolCall(
     customerId: string | null;
   },
 ): Promise<{ response: Record<string, unknown>; outcome: ToolOutcome }> {
+  if (name === DATA_TOOL) {
+    const { lookup, ...values } = args;
+    const result = await runLookupForAssistant(ctx.brandId, ctx.conversationId, String(lookup ?? ""), values);
+    return {
+      response: result,
+      outcome: {
+        name,
+        summary: `Checked the records (${String(lookup ?? "").slice(0, 40)})`,
+        allowed: true,
+        detail: result.found ? `${result.rows.length} found` : "nothing found",
+      },
+    };
+  }
+
   if (name === "save_caller_details") {
     const { lead, created, ownerName } = await saveCallerDetails({
       conversationId: ctx.conversationId,
@@ -890,6 +928,7 @@ export async function closeVoiceConversation(conversationId: string, seconds: nu
  * in front of whoever reviews quality instead of letting it pass silently.
  */
 const TOOL_NAMES = [
+  DATA_TOOL,
   "search_knowledge",
   "take_action",
   "escalate_to_human",

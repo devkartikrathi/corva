@@ -63,6 +63,7 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
       { href: "/app/knowledge", label: "Knowledge", capability: "documents.publish" },
       { href: "/app/tuning", label: "Behaviour & limits", capability: "agent.edit" },
       { href: "/app/details", label: "Details to collect", capability: "agent.edit" },
+      { href: "/app/data", label: "Your database", capability: "people.manage" },
       { href: "/app/analytics", label: "Analytics", capability: "customers.read" },
     ],
   },

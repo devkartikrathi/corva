@@ -1595,3 +1595,72 @@ export const visitorEvents = pgTable(
   },
   (t) => [index("visitor_events_visitor_idx").on(t.visitorId, t.at)],
 );
+
+/**
+ * A database the business runs itself, connected so the assistant can answer
+ * from it.
+ *
+ * Corva never copies the data: it keeps the connection (encrypted) and a
+ * snapshot of the table and column names, and reads on demand. One per
+ * business for now.
+ */
+export const dataSources = pgTable(
+  "data_sources",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    /** postgres, for now. */
+    kind: text("kind").notNull().default("postgres"),
+    name: text("name").notNull(),
+    /** The connection string, sealed with DATA_SOURCE_KEY. Never sent to a browser. */
+    connection: text("connection").notNull(),
+    /** Shown in Settings so the business can tell which database this is. */
+    host: text("host").notNull(),
+    databaseName: text("database_name").notNull(),
+    /** Tables and columns as last read: what the AI is shown when it writes a query. */
+    snapshot: jsonb("snapshot").$type<{ tables: { schema: string; name: string; columns: { name: string; type: string }[] }[] }>().notNull().default({ tables: [] }),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdByName: text("created_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("data_sources_brand_idx").on(t.brandId)],
+);
+
+/**
+ * A question the assistant may put to a connected database.
+ *
+ * The query is fixed and written (or approved) by the business; the assistant
+ * only supplies the values for its parameters. That is what makes it safe to
+ * offer to a stranger on the website: they can ask about one order, never for
+ * the table.
+ */
+export const dataLookups = pgTable(
+  "data_lookups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => dataSources.id, { onDelete: "cascade" }),
+    /** What the assistant calls it: "order_status". */
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    /** When to use it — read by the AI. */
+    description: text("description").notNull().default(""),
+    /** A single SELECT, with `:name` where a parameter goes. */
+    sql: text("sql").notNull(),
+    params: jsonb("params").$type<{ name: string; description: string; kind: "text" | "phone" | "number" }[]>().notNull().default([]),
+    /** Off until the business turns it on; a suggestion is only a draft. */
+    enabled: boolean("enabled").notNull().default(false),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("data_lookups_brand_key_idx").on(t.brandId, t.key)],
+);
