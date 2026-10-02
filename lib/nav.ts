@@ -76,6 +76,10 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
        * Gated on its own capability rather than on `people.manage`: an Agent
        * should not be reading a league table they are on.
        */
+      // The business drawn: customers by channel, who answered, who was at work.
+      // Open to everyone; what it shows narrows to your own work down the pyramid.
+      { href: "/app/overview", label: "Overview" },
+      { href: "/app/attendance", label: "Attendance", labelByRole: { agent: "My attendance" } },
       { href: "/app/performance", label: "Performance", capability: "team.performance" },
       { href: "/app/team", label: "People & roles", capability: "people.manage" },
       { href: "/app/setup", label: "Settings", capability: "people.manage" },

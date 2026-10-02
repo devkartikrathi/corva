@@ -11,6 +11,7 @@
  */
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -1663,4 +1664,37 @@ export const dataLookups = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("data_lookups_brand_key_idx").on(t.brandId, t.key)],
+);
+
+/**
+ * A person's working day.
+ *
+ * One row per person per day, made when they clock in or when a manager marks
+ * the day. Kept apart from `availability`, which is "can I be handed a call
+ * this minute": someone can be at work and busy, and the record of having
+ * been at work must not change when they step away from the queue.
+ */
+export const attendance = pgTable(
+  "attendance",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    membershipId: uuid("membership_id")
+      .notNull()
+      .references(() => memberships.id, { onDelete: "cascade" }),
+    /** The calendar day in India, as YYYY-MM-DD. */
+    day: date("day").notNull(),
+    /** present | half_day | leave | absent */
+    status: text("status").notNull().default("present"),
+    clockInAt: timestamp("clock_in_at", { withTimezone: true }),
+    clockOutAt: timestamp("clock_out_at", { withTimezone: true }),
+    note: text("note"),
+    /** Set when someone other than the person themselves recorded the day. */
+    markedByName: text("marked_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("attendance_member_day_idx").on(t.membershipId, t.day), index("attendance_org_day_idx").on(t.orgId, t.day)],
 );
