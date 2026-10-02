@@ -33,5 +33,3 @@ export function customerScope(
   return grant === "assigned" ? { kind: "own", membershipId } : { kind: "all" };
 }
 
-/** True when this person sees the whole brand rather than their own slice. */
-export const seesWholeBrand = (scope: CustomerScope) => scope.kind === "all";

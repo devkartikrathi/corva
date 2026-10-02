@@ -108,13 +108,6 @@ export async function accountState(orgId: string): Promise<AccountState> {
   };
 }
 
-/** The same, for code that knows the brand. */
-export async function accountStateForBrand(brandId: string) {
-  const [brand] = await db.select({ orgId: s.brands.orgId }).from(s.brands).where(eq(s.brands.id, brandId)).limit(1);
-  if (!brand) throw new Error("No such business.");
-  return accountState(brand.orgId);
-}
-
 /**
  * Why the assistant cannot take a new conversation right now, or null when it can.
  *

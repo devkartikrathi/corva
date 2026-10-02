@@ -239,18 +239,6 @@ export async function enforceRetention(): Promise<{ orgs: number; conversations:
   return { orgs, conversations };
 }
 
-/** Everything, in the order the later jobs depend on the earlier ones. */
-export async function runAllRollups() {
-  // Costs are priced before usage, because usage sums them.
-  const stale = await reapStaleCalls();
-  const costs = await backfillCosts();
-  const usage = await rollUpUsage();
-  const health = await recomputeHealth();
-  const docs = await recomputeDocumentStats();
-  const retention = await enforceRetention();
-  return { stale, costs, usage, health, docs, retention };
-}
-
 /**
  * Price conversations that were never metered.
  *

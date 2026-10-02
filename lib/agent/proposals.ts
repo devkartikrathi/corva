@@ -1,5 +1,5 @@
 import { tool, type ToolSet } from "ai";
-import { and, desc, eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
@@ -223,13 +223,3 @@ export function proposalTools(opts: {
   return { propose_booking, propose_callback };
 }
 
-/** The latest proposal still waiting on this conversation, if any. */
-export async function pendingProposal(conversationId: string) {
-  const [row] = await db
-    .select()
-    .from(s.chatProposals)
-    .where(and(eq(s.chatProposals.conversationId, conversationId), eq(s.chatProposals.status, "pending")))
-    .orderBy(desc(s.chatProposals.createdAt))
-    .limit(1);
-  return row ?? null;
-}

@@ -51,7 +51,9 @@ In `../tumbledays`:
 4. A card that fails to confirm shows Corva's `error` (a `409` or `422` is a real answer).
 5. A person taking over is visible in the chat within a few seconds.
 6. The voice button only appears when a call can actually connect.
-7. The site has its own rate limit: the key's 120 requests a minute are shared by all its visitors.
+7. The site has its own rate limit: the business's 300 requests a minute are shared by all its
+   visitors. One chat (`sessionId`) may send 12 messages a minute and 150 a day; past that the
+   API answers 429.
 8. Webhook deliveries are verified and safe to receive twice.
 
 ## Changing the API

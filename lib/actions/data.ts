@@ -6,6 +6,7 @@ import { AuthorizationError, assertCan } from "@/lib/auth/permissions";
 import { DataSourceError } from "@/lib/data/postgres";
 import { askData, connectSource, deleteLookup, disconnectSource, refreshSource, saveLookup, suggestLookups, tryLookup, type LookupInput } from "@/lib/data/sources";
 import { audit } from "./audit";
+import { allow } from "@/lib/rate-limit";
 
 /**
  * Connecting the business's own database, and deciding what the assistant may
@@ -98,14 +99,16 @@ export async function testDataLookup(input: LookupInput, values: Record<string, 
 
 export async function suggestDataLookups() {
   return attempt(async () => {
-    const { brand } = await owner();
+    const { session, brand } = await owner();
+    if (!(await allow(`suggest:${session.membershipId}`, 10, 3600))) throw new DataSourceError("That is a lot of suggestions for one hour. Try again later, or write the lookup yourself.");
     return suggestLookups(brand);
   });
 }
 
 export async function askDatabase(question: string) {
   return attempt(async () => {
-    const { brand, log } = await owner();
+    const { session, brand, log } = await owner();
+    if (!(await allow(`ask:${session.membershipId}`, 40, 3600))) throw new DataSourceError("That is a lot of questions for one hour. Try again a little later.");
     const answer = await askData(brand, question);
     // The question is the record; the rows that came back are the business's own.
     await log("data_source.asked", question.slice(0, 200), { rows: answer.result?.rows.length ?? 0 });

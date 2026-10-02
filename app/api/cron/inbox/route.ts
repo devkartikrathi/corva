@@ -1,7 +1,9 @@
+import { timingSafeEqual } from "node:crypto";
 import { eq, isNull, lt, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { syncMailbox } from "@/lib/email/mailbox";
+import { sweepRateLimits } from "@/lib/rate-limit";
 
 /**
  * GET /api/cron/inbox — read every connected inbox that is due.
@@ -22,7 +24,15 @@ const BUDGET_MS = 240_000;
 export async function GET(req: Request) {
   const secret = process.env.CRON_SECRET;
   if (!secret) return Response.json({ error: "CRON_SECRET is not configured." }, { status: 503 });
-  if (req.headers.get("authorization") !== `Bearer ${secret}`) return Response.json({ error: "Not authorised." }, { status: 401 });
+  const given = Buffer.from(req.headers.get("authorization") ?? "");
+  const expected = Buffer.from(`Bearer ${secret}`);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return Response.json({ error: "Not authorised." }, { status: 401 });
+
+  // Housekeeping that has no better home: counters and receipts nobody will read again.
+  await Promise.all([
+    sweepRateLimits(),
+    db.delete(s.whatsappSeen).where(lt(s.whatsappSeen.at, new Date(Date.now() - 7 * 86_400_000))),
+  ]).catch((e) => console.error("[cron] sweep", (e as Error).message));
 
   const started = Date.now();
   const due = await db

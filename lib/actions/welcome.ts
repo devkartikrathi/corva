@@ -7,6 +7,8 @@ import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { createBusiness } from "@/lib/business/onboard";
 import { industryFor } from "@/lib/business/industries";
+import { headers } from "next/headers";
+import { allow, clientIp } from "@/lib/rate-limit";
 
 /**
  * A business setting itself up.
@@ -37,6 +39,12 @@ export async function startBusiness(input: {
     return { error: "Verify your email address first, then come back to this page." };
   }
   const email = primary.emailAddress.toLowerCase();
+
+  // Creating a business reads a website and calls the model: three tries an
+  // hour from one network is a person getting it right, more is not.
+  if (!(await allow(`welcome:${clientIp(await headers())}`, 3, 3600))) {
+    return { error: "That is a lot of attempts. Please try again in an hour." };
+  }
 
   // Already in a business — or invited to one, which signing in will claim.
   const [existing] = await db

@@ -1,10 +1,13 @@
 # Corva
 
-An AI front office for small and mid-sized businesses in India.
+An AI front office with customer and team management, for small and mid-sized businesses in
+India. It is for any kind of business: it manages customers and the people serving them, not
+orders or jobs, which stay in the business's own system.
 
-Each business gets an AI assistant that answers its **website chat** and **voice calls from
-its website** — from the business's own knowledge, inside limits the business sets. (A real
-telephone number is next; see the roadmap.) Every conversation becomes work the team can act
+Each business gets an AI assistant that answers its **website chat**, **voice calls from its
+website** and its own **WhatsApp number** — from the business's own knowledge, inside limits
+the business sets. (A real telephone number is next; see the roadmap.) Customers who write
+to its **email** are read from its inbox onto the same records. Every conversation becomes work the team can act
 on: a **customer** record, a **lead** with an owner, a **follow-up** with a name and a time. The team works those from one
 console, can **take any chat or call over live**, and the owner can see who is winning leads
 and keeping promises.
@@ -14,8 +17,8 @@ Three things in one product, on purpose:
 | | What it is | Who uses it |
 | --- | --- | --- |
 | **AI assistant** | Chat and voice, grounded in the business's documents, with bookings the customer confirms | The business's customers |
-| **Customer management** | Customers, leads in the business's own pipeline words, follow-ups, the details the business chose to collect | The business's team |
-| **Team management** | People and roles, who owns what, performance per person, an audit log | The business's owner |
+| **Customer management** | Customers on every channel, leads in the business's own pipeline words, follow-ups, the details the business chose to collect | The business's team |
+| **Team management** | People and roles, attendance, who answered what, performance per person, an audit log | The business's owner and managers |
 
 A business signs itself up (`/sign-up` → `/welcome`), gets a working assistant from its website
 in a couple of minutes on a free 14-day pilot, and then connects its site:
@@ -23,6 +26,9 @@ in a couple of minutes on a free 14-day pilot, and then connects its site:
 1. **Chat on its website** — its chat window talks to Corva's assistant (`/developers`).
 2. **Voice on its website** — a call button; the team can take the call over and talk.
 3. **Its own assistant or forms** — it keeps what it has and sends Corva the results.
+
+With no developer at all it can also connect its **WhatsApp number**, its **email inbox** and
+its own **database** from the console.
 
 Tumble Days (a laundry in Gurugram, `../tumbledays`) is the first business live on it and the
 reference integration. Nothing in Corva is specific to it: every business has its own
@@ -55,7 +61,7 @@ npm run voice                  # the voice bridge, for calls (ws://localhost:878
 | [docs/ONBOARDING.md](docs/ONBOARDING.md) | Bringing a new business on, step by step — ours and theirs |
 | [docs/INTEGRATION.md](docs/INTEGRATION.md) | What a business's developer builds; the checklist we hold an integration to |
 | `/developers` (live) | The API reference, generated from `lib/integrations/openapi.ts`; also `/api/v1/openapi.json` |
-| [docs/TEAM-AND-CHANNELS.md](docs/TEAM-AND-CHANNELS.md) | The overview, attendance, and connecting the business's email inbox |
+| [docs/TEAM-AND-CHANNELS.md](docs/TEAM-AND-CHANNELS.md) | The overview, attendance, the email inbox and WhatsApp |
 | [docs/DATA-SOURCES.md](docs/DATA-SOURCES.md) | Connecting a business's own database: approved lookups for customers, questions for the team |
 | [docs/PRICING.md](docs/PRICING.md) | The plans, what they cost us to serve, how they are enforced and paid for |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What businesses will need next, in the order we think they will ask |
@@ -71,6 +77,8 @@ npm run voice                  # the voice bridge, for calls (ws://localhost:878
 | | `/app/live` | Live — transcript, details collected, **take the line** (chat or voice), hand back |
 | | `/app/handoffs` | Handoffs the AI raised, each with the brief it wrote |
 | | `/app/conversations` | Every conversation, with what each answer was based on |
+| | `/app/email` | **Email** — connect the inbox; customer threads, and which still await a reply |
+| | `/app/whatsapp` | **WhatsApp** — connect the business's own number; its conversations |
 | Sales | `/app/leads` | The pipeline, in the business's own stage names, with collected details on each card |
 | | `/app/follow-ups` | Callbacks and promises — overdue, today, upcoming, done |
 | | `/app/customers` | Customers and each one's record: leads, follow-ups, conversations, website visits |
@@ -78,8 +86,11 @@ npm run voice                  # the voice bridge, for calls (ws://localhost:878
 | | `/app/knowledge` | What the AI may answer from; gaps it found |
 | | `/app/tuning` | Persona, tone, what it may do alone, when it hands over — drafted, then published |
 | | `/app/details` | **Details to collect** — the fields the AI asks every customer for |
+| | `/app/data` | **Your database** — connect it; the lookups the AI may run for customers; ask it anything |
 | | `/app/analytics` | Containment and what the AI still cannot finish |
-| Team | `/app/performance` | Per person: leads owned and won, follow-ups on time, handoffs |
+| Team | `/app/overview` | **Overview** — customers by channel, who answered (AI or people) day by day, each person's work |
+| | `/app/attendance` | **Attendance** — start and end your day; the week as a grid; a manager records leave |
+| | `/app/performance` | Per person: leads owned and won, follow-ups on time, handoffs |
 | | `/app/team` | People, roles and invitations |
 | | `/app/setup` | Settings — channels, hours, **API keys**, **webhooks**, privacy, audit log |
 | | `/app/billing` | **Billing** — the plan, usage against what it includes, overage, pay or renew, receipts |
@@ -187,9 +198,23 @@ npm run db:generate && npm run db:migrate   # after changing lib/db/schema.ts
 npm run db:doctor                      # checks the database, the key and a live agent version
 ```
 
-`npm run db:seed` and its siblings (`db:conversations`, `db:crm`, `db:rescore`, `db:embed`)
-build a fictional demo workspace on an **empty** database. Do not run them against the
-database real businesses live in.
+`npm run typecheck` checks the types. There is no seed and no reset script: a database fills
+up by a business signing up at `/welcome`.
+
+## Security
+
+- **Sign-in** is Clerk; every screen and every server action re-checks the role on the server.
+- **API keys** are stored hashed. **Connections** a business gives Corva (database, inbox,
+  WhatsApp) are sealed with AES-256-GCM under `DATA_SOURCE_KEY`.
+- **Rate limits** are counted in the database (`lib/rate-limit.ts`), so they hold across
+  server instances: the API per business, chat turns per conversation, WhatsApp per sender,
+  the demo form per address, payments per business, and the AI data questions per person.
+- **Outbound calls** to addresses a business typed in (webhooks, a website to read, a database
+  or mail host) are refused if they resolve to a private address, and redirects are re-checked
+  (`lib/net.ts`).
+- **Inbound webhooks** (Razorpay, WhatsApp) are verified by signature before anything is read.
+- **Headers:** no framing, no content sniffing, HSTS, microphone only (`next.config.ts`).
+- **Demo mode** (no sign-in) cannot be switched on in any Vercel deployment.
 
 ## Layout
 
@@ -201,6 +226,8 @@ app/
   (console)/app/<route>/        a business's console
   admin/                        Corva's back office
   api/razorpay/*                order, verify, webhook
+  api/whatsapp/webhook          Meta's WhatsApp webhook
+  api/cron/inbox                the scheduled read of connected inboxes
   api/v1/*                      the public API
   api/voice                     the voice bridge on Vercel (WebSocket)
   api/status                    deployment self-check
@@ -211,6 +238,12 @@ lib/
   crm/            what the assistant writes into the CRM while it talks
   integrations/   API keys, request handling, intake, webhooks, the OpenAPI description
   billing/        plans, usage and limits, Razorpay, the payments ledger
+  email/          reading a connected inbox for its customers
+  whatsapp/       the WhatsApp Cloud API: connecting, receiving, replying
+  data/           a business's own database: sealed connections, read-only queries, lookups
+  people/         attendance
+  net.ts          checks on addresses other people typed in
+  rate-limit.ts   limits that hold across instances
   admin/          who may open /admin, and what it reads
   auth/           sessions, the role matrix, per-screen gates, scope
   actions/        server actions — each re-checks its capability

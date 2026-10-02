@@ -134,6 +134,13 @@
       "when": 1790928208811,
       "tag": "0018_whatsapp",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790929005906,
+      "tag": "0019_rate_limits",
+      "breakpoints": true
     }
   ]
 }

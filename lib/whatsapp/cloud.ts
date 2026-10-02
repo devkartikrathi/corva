@@ -8,6 +8,7 @@ import { seal, unseal } from "@/lib/data/crypto";
 import { DataSourceError } from "@/lib/data/postgres";
 import { ApiError } from "@/lib/integrations/api";
 import { agentChat, agentChatConfirm } from "@/lib/integrations/intake";
+import { allowAll } from "@/lib/rate-limit";
 
 /**
  * WhatsApp, through Meta's WhatsApp Cloud API.
@@ -270,6 +271,8 @@ export async function receive(body: WebhookBody, numbers: NumberRow[]) {
       // Meta sends the same message again if it is not sure we got it.
       const [fresh] = await db.insert(s.whatsappSeen).values({ messageId: m.id }).onConflictDoNothing().returning();
       if (!fresh) continue;
+      // A sender past the limit is not answered and not told: telling them is another message.
+      if (!(await allowAll([[`wa:${number.id}:${m.from}`, 12, 60], [`wa:${number.id}:${m.from}`, 200, 86_400]]))) continue;
       const name = value.contacts?.find((c) => c.wa_id === m.from)?.profile?.name;
       try {
         // Blue ticks: the customer sees their message was read.

@@ -38,8 +38,8 @@ Settings → Environment Variables. `.env.example` has the same list with notes.
 | `RAZORPAY_KEY_SECRET` | to take payment | Shown once, when the key is generated |
 | `RAZORPAY_WEBHOOK_SECRET` | to take payment | A string you choose when creating the webhook (step 6) — **not** the key secret |
 
-Do **not** set `CORVA_DEMO` on Vercel. It is ignored on the production deployment anyway:
-sign-in is always required there.
+Do **not** set `CORVA_DEMO` on Vercel. It is ignored on every Vercel deployment, production
+and preview alike: sign-in is always required there. It is for a laptop only.
 
 Without the Razorpay keys everything else works: Billing shows the plans and says online
 payment is not switched on, and plans are set from `/admin`.
@@ -89,8 +89,7 @@ One Neon database (with the `vector` extension).
 - A fresh database: `npm run db:migrate`.
 - A schema change: `npm run db:generate` writes a migration; run `npm run db:migrate` **before**
   deploying the code that needs it. Keep migrations additive so the running version keeps working.
-- The `db:seed*` scripts build a fictional demo workspace. Never run them on the database real
-  businesses live in.
+- There is no seed and no reset script. A database fills up by a business signing up.
 
 Local development uses the same database unless you point `.env.local` elsewhere.
 

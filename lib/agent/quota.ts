@@ -1,7 +1,7 @@
-import { and, eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
-import { MODELS, resolveModel, type ModelChoice, type QuotaSource } from "./models";
+import { type ModelChoice, type QuotaSource } from "./models";
 
 /**
  * How much of today's ration is gone.
@@ -88,57 +88,3 @@ export type ModelQuota = {
   source: QuotaSource;
 };
 
-/**
- * Every model, with today's spend against its declared ceiling.
- *
- * Returned for all of them rather than the one in use, because the reason to
- * look is almost always to find the one with room left.
- */
-export async function quotasToday(): Promise<ModelQuota[]> {
-  const day = quotaDay();
-  const rows = await db
-    .select()
-    .from(s.modelUsageDaily)
-    .where(eq(s.modelUsageDaily.day, day));
-  const by = new Map(rows.map((r) => [r.modelId, r]));
-
-  return MODELS.map((model) => {
-    const row = by.get(model.id);
-    const used = row?.requests ?? 0;
-    const limit = model.freeTier.requestsPerDay;
-    return {
-      model,
-      used,
-      inputTokens: row?.inputTokens ?? 0,
-      outputTokens: row?.outputTokens ?? 0,
-      limit,
-      remaining: limit === null ? null : Math.max(0, limit - used),
-      fraction: limit === null || limit === 0 ? null : Math.min(1, used / limit),
-      source: model.freeTier.source,
-    };
-  });
-}
-
-/** Today's spend on one model, for a screen that only cares about the one. */
-export async function quotaFor(modelId: string): Promise<ModelQuota> {
-  const day = quotaDay();
-  const [row] = await db
-    .select()
-    .from(s.modelUsageDaily)
-    .where(and(eq(s.modelUsageDaily.day, day), eq(s.modelUsageDaily.modelId, modelId)))
-    .limit(1);
-
-  const model = resolveModel(modelId);
-  const used = row?.requests ?? 0;
-  const limit = model.freeTier.requestsPerDay;
-  return {
-    model,
-    used,
-    inputTokens: row?.inputTokens ?? 0,
-    outputTokens: row?.outputTokens ?? 0,
-    limit,
-    remaining: limit === null ? null : Math.max(0, limit - used),
-    fraction: limit === null || limit === 0 ? null : Math.min(1, used / limit),
-    source: model.freeTier.source,
-  };
-}

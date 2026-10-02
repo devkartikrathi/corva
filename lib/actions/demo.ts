@@ -2,6 +2,7 @@
 
 import { headers } from "next/headers";
 import { saveDemoRequest } from "@/lib/demo-requests";
+import { allow, clientIp } from "@/lib/rate-limit";
 
 /**
  * Someone on the public site asking for a demo.
@@ -12,9 +13,7 @@ import { saveDemoRequest } from "@/lib/demo-requests";
  * with the person's address as reply-to — answering it answers them.
  */
 
-const WINDOW_MS = 60 * 60_000;
 const MAX_PER_HOUR = 5;
-const hits = new Map<string, number[]>();
 
 export async function requestDemo(input: {
   name: string;
@@ -30,12 +29,7 @@ export async function requestDemo(input: {
   // Pretend it worked: a bot told "no" tries again differently.
   if (input.company_url) return { ok: true };
 
-  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
-  const now = Date.now();
-  const recent = (hits.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
-  recent.push(now);
-  hits.set(ip, recent);
-  if (recent.length > MAX_PER_HOUR) return { ok: false, error: "That is a lot of requests — please try again in an hour." };
+  if (!(await allow(`demo:${clientIp(await headers())}`, MAX_PER_HOUR, 3600))) return { ok: false, error: "That is a lot of requests — please try again in an hour." };
 
   return saveDemoRequest(input);
 }

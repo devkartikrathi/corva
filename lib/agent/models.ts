@@ -218,6 +218,3 @@ export function resolveModel(id: string | null | undefined): ModelChoice {
 
 export const isKnownModel = (id: string): boolean => MODELS.some((m) => m.id === id);
 
-/** Whether this model is one we would let near an authority ceiling. */
-export const canTakeActions = (model: ModelChoice): boolean =>
-  model.suitedTo === "conversation_and_actions";

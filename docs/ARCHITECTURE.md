@@ -168,5 +168,31 @@ everyone else. It reads plans, usage and payments — never a business's convers
 | CRM | `customers`, `leads`, `follow_ups`, `customer_notes`, `customer_scores` |
 | Integrations | `api_keys`, `webhooks`, `visitors`, `visitor_events`, `channels` |
 
+## Channels beyond the website
+
+Every channel ends in the same place: a row in `conversations` with a `channel`, on a customer.
+
+| Channel | How it arrives | Who answers | Code |
+|---|---|---|---|
+| Website chat | The business's server calls `POST /chat` | The assistant; a person on takeover | `lib/integrations/intake.ts` |
+| Website voice | The browser opens a WebSocket with a signed token | The assistant; a person on takeover | `lib/voice/*` |
+| WhatsApp | Meta's webhook, verified by the business's app secret | The assistant, through the same `agentChat`; a person's reply is pushed to WhatsApp | `lib/whatsapp/cloud.ts` |
+| Email | Read from the business's inbox over IMAP, on a schedule | Nobody in Corva: the business replies from its mail app and the reply is read back | `lib/email/mailbox.ts` |
+
+A business's own database is not a channel but a source: lookups it approves become one tool
+for the assistant (`lib/data/sources.ts`), run read-only.
+
+What a business connects (database, inbox, WhatsApp token) is sealed with `DATA_SOURCE_KEY`
+(`lib/data/crypto.ts`) and never sent to a browser.
+
+## Limits and outbound safety
+
+- `lib/rate-limit.ts` counts in Postgres, one row per key per window, so a limit holds across
+  server instances. It fails open: if the database cannot be reached the call is allowed.
+- `lib/net.ts` resolves a host and refuses private addresses before Corva connects to anything
+  a business typed in; `fetchPublic` re-checks on each redirect.
+- `/api/cron/inbox` is the one scheduled job: it reads inboxes that are due and sweeps old
+  rate-limit windows and WhatsApp receipts.
+
 Schema changes go through `npm run db:generate` (a migration in `drizzle/`) and
 `npm run db:migrate`. Additive migrations are applied before the code that needs them ships.

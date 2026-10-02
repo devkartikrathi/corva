@@ -30,7 +30,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * someone opening the app cold should land on. The switcher in the sidebar
  * moves it, and any seeded email works here.
  */
-const DEMO_MEMBER_EMAIL = process.env.CORVA_DEMO_EMAIL ?? "dania@aureliusgroup.com";
+const DEMO_MEMBER_EMAIL = process.env.CORVA_DEMO_EMAIL?.trim().toLowerCase();
 
 export const getDemoTenantSession = cache(async (): Promise<TenantSession | null> => {
   if (!demoEnabled()) return null;
@@ -59,7 +59,8 @@ export const getDemoTenantSession = cache(async (): Promise<TenantSession | null
         eq(s.memberships.status, "active"),
         or(
           chosen ? eq(s.memberships.id, chosen) : undefined,
-          eq(s.memberships.email, DEMO_MEMBER_EMAIL),
+          // Whoever was named; otherwise an owner, who can see every screen.
+          DEMO_MEMBER_EMAIL ? eq(s.memberships.email, DEMO_MEMBER_EMAIL) : eq(s.memberships.role, "owner"),
         ),
       ),
     )

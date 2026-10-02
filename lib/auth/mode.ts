@@ -12,6 +12,9 @@ export const DEMO_MODE =
   // Never on the live site, whatever the environment says: a stray
   // CORVA_DEMO=1 in the project settings once turned sign-in off for everyone.
   !PRODUCTION_DEPLOYMENT &&
+  // Nor on any deployment at all: a preview build shares the real database,
+  // and a preview with sign-in switched off is that database with no lock.
+  !process.env.VERCEL &&
   (process.env.CORVA_DEMO === "1" ||
     // Unset means demo only when there is no sign-in to use — a fresh clone
     // without Clerk keys. With keys it is real sign-in unless someone asks

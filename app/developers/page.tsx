@@ -294,7 +294,7 @@ await corva("chat/confirm", { sessionId, proposalId: turn.proposal.id, approved:
               ["409", "The chat has ended (start a new sessionId), or a card was answered or replaced already."],
               ["413", "The body is over 64 KB."],
               ["422", "A card can no longer be confirmed as it is — e.g. its date has passed. Show `error` and let them edit."],
-              ["429", "Over 120 requests a minute for this key. Back off and retry."],
+              ["429", "Over 300 requests a minute for this business, or one chat sending more than 12 messages a minute. Back off and retry."],
               ["5xx", "Our side. Retry; /leads is safe to retry with the same reference, /chat/confirm with the same proposalId."],
             ].map(([code, text]) => (
               <tr key={code} style={{ borderBottom: "1px solid var(--color-neutral-300)" }}>
@@ -452,7 +452,7 @@ export async function POST(req: Request) {
           <li>Cards lock the input until Confirm or Edit, and a <C>409</C> or <C>422</C> from confirm is shown, not swallowed.</li>
           <li>The chat polls <C>GET /chat</C> so a person taking over is seen, and shows their name.</li>
           <li>The voice button is hidden unless <C>features.voice</C> (and <C>voiceSecure</C> on https) is true.</li>
-          <li>Your own rate limit sits in front of your chat route — the key&rsquo;s 120 requests a minute are shared by all your visitors.</li>
+          <li>Your own rate limit sits in front of your chat route — the business&rsquo;s 300 requests a minute are shared by all your visitors, and one chat may send 12 messages a minute.</li>
           <li>Webhook deliveries are verified, and a repeat of the same <C>id</C> does nothing twice.</li>
           <li>The business has checked its knowledge, its Details to collect and who on the team gets leads.</li>
         </ul>

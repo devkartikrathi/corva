@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { industryFor } from "@/lib/business/industries";
 import { normaliseUrl } from "@/lib/business/website";
+import { resolvePublic } from "@/lib/net";
 
 /**
  * Webhooks: Corva telling a business's own systems what just happened.
@@ -35,12 +36,14 @@ export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number]["type"] | "ping";
 
 const TIMEOUT_MS = 6000;
 
+const LOCAL_RECEIVER = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/;
+
 export const newWebhookSecret = () => `whsec_${randomBytes(24).toString("base64url")}`;
 
 /** A URL a server may safely call: public, and https outside development. */
 export function webhookUrl(input: string): string {
   // Developing against a receiver on this machine is the one private address allowed.
-  if (process.env.NODE_ENV !== "production" && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(input.trim())) {
+  if (process.env.NODE_ENV !== "production" && LOCAL_RECEIVER.test(input.trim())) {
     return new URL(input.trim()).toString();
   }
   const url = normaliseUrl(input);
@@ -60,6 +63,8 @@ async function post(hook: typeof s.webhooks.$inferSelect, type: WebhookEvent, da
     if (attempt) await new Promise((r) => setTimeout(r, 1500));
     const t = Math.floor(Date.now() / 1000);
     try {
+      // The URL was checked when it was saved; what it resolves to is checked each time it is called.
+      if (!LOCAL_RECEIVER.test(hook.url)) await resolvePublic(new URL(hook.url).hostname);
       const res = await fetch(hook.url, {
         method: "POST",
         headers: {

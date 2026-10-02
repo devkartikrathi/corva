@@ -5,8 +5,13 @@ expect to be asked. "Built" means in the product today.
 
 ## Built
 
-- An assistant per business on website chat and website voice, answering only from the
-  business's knowledge and inside its limits
+- An assistant per business on website chat, website voice and the business's own WhatsApp
+  number, answering only from the business's knowledge and inside its limits
+- The business's email inbox read for its customers: threads on the customer's record, with
+  which still await a reply
+- The business's own database connected read-only: lookups the assistant may run for a
+  customer, and questions in plain words for the team
+- Attendance, and an overview of customers by channel, who answered, and each person's work
 - Bookings and callbacks the customer confirms on a card; leads with owners; follow-ups with due times
 - Details to collect, defined by the business, shown on live conversations and leads
 - Taking over a chat or a voice call live, and handing it back
@@ -30,24 +35,29 @@ expect to be asked. "Built" means in the product today.
    Subscriptions so a plan renews without the owner coming back each month.
 4. **Production sign-in.** A Clerk production instance on the Corva domain; Organizations for
    people who belong to more than one business.
-5. **Guarding self-serve.** Sign-up is open: a rate limit per IP on `/welcome`, a check on
-   disposable emails, and a cap on website pages read, before it is advertised widely.
+5. **Guarding self-serve.** Sign-up is open and limited per address; still to do are a check on
+   disposable emails and a review queue before it is advertised widely.
 
 ## Soon — what a business asks for in its first month
 
 6. **A drop-in chat widget.** One `<script>` tag for businesses with no developer: Corva's chat
    window and voice button, styled with their colours. Needs a publishable key and an allowed-
    origins list, because it runs in the browser.
-7. **WhatsApp.** The same assistant on the WhatsApp Business API — for most Indian small
-   businesses this matters more than website chat.
+7. **WhatsApp, the rest of it.** Answering on the business's number is built. Next: reading
+   photos and voice notes, messages Corva starts (reminders, status updates, which need Meta
+   templates), and a one-click sign-up in place of the six setup steps, which needs Corva to be
+   approved by Meta as a Tech Provider.
+7a. **Email, the rest of it.** Replying from Corva with an AI-drafted answer, sign-in with
+   Google or Microsoft in place of an app password (Microsoft 365 cannot be connected today),
+   and attachments.
 8. **Availability and slots.** Opening hours, capacity per slot and blackout dates, so a booking
    card only offers times the business can keep. Today the assistant takes the customer's
    preferred time and the team confirms.
 9. **Notifications to the team.** A handoff or a hot lead on WhatsApp or SMS, not only in the
    console and by email. (The webhook can already drive this from the business's side.)
-10. **More of the API.** Follow-ups over the API (list, complete), idempotency keys on every
-    write, and a question-in-plain-words endpoint over a business's own records ("which leads
-    asked for curtains this month?") on top of the existing filters.
+10. **More of the API.** Follow-ups over the API (list, complete) and idempotency keys on every
+    write.
+10a. **More databases.** MySQL, MongoDB and Google Sheets beside Postgres.
 11. **Editing the industry template.** Stage names, what can be booked and for how far ahead,
     per business, in the console — today they come from the template.
 12. **Payments.** A payment link in chat (Razorpay) for a deposit or a prepaid order, recorded
@@ -66,8 +76,13 @@ expect to be asked. "Built" means in the product today.
 
 - A voice call is bounded by the platform's function duration — five minutes on Vercel's Hobby
   plan (`VOICE_CALL_LIMIT_SECONDS`), longer on Pro.
-- The API's rate limit (120 requests a minute per key) is per server instance: a guard against
-  a runaway loop, not an abuse control.
+- WhatsApp and the email inbox have been tested against stand-ins for Meta and for a mail
+  server, not yet against a real number or a real inbox.
+- Inboxes are read daily by Vercel's cron on the Hobby plan; the 15-minute read depends on the
+  GitHub Actions schedule (or a paid Vercel plan).
+- Webhook signing secrets are stored as given, not sealed like the other credentials.
+- A connected database's certificate is not checked against a CA list (the connection is
+  encrypted).
 - Webhook delivery is best-effort with one retry; there is no delivery log beyond the last result.
 - The model provider's speed varies minute to minute; streams hedge across models, but a first
   reply after a quiet period can still take several seconds.

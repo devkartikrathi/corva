@@ -168,59 +168,6 @@ export function CheckFilter({
   );
 }
 
-/**
- * A threshold control for a 0–100 axis.
- *
- * Rendered as five stops rather than a slider: a real slider needs client
- * state and a commit gesture, and the question these actually answer — "show
- * me everyone above roughly here" — has about five useful answers.
- */
-export function ThresholdFilter({
-  ctx,
-  paramKey,
-  label,
-  stops = [0, 25, 50, 70, 85],
-}: {
-  ctx: Ctx;
-  paramKey: string;
-  label: string;
-  stops?: number[];
-}) {
-  const current = Number(ctx.params[paramKey] ?? 0);
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
-        <span style={{ color: "var(--color-neutral-800)" }}>{label}</span>
-        <b>{current > 0 ? `≥ ${current}` : "Any"}</b>
-      </div>
-      <div style={{ display: "flex", gap: 3 }}>
-        {stops.map((stop) => {
-          const on = current === stop;
-          return (
-            <Link
-              key={stop}
-              href={href(ctx.pathname, ctx.params, { [paramKey]: stop === 0 ? null : String(stop) })}
-              className={on ? undefined : "hov-border"}
-              style={{
-                flex: 1,
-                textAlign: "center",
-                fontSize: 10.5,
-                fontWeight: 700,
-                padding: "3px 0",
-                border: `1px solid ${on ? "var(--color-text)" : "var(--color-neutral-300)"}`,
-                background: on ? "var(--color-text)" : "transparent",
-                color: on ? "var(--color-bg)" : "var(--color-neutral-700)",
-              }}
-            >
-              {stop === 0 ? "Any" : stop}
-            </Link>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 /* ─── Search ───────────────────────────────────────────────────────────── */
 
 /**
@@ -328,7 +275,6 @@ export function SortTh({
     </th>
   );
 }
-
 
 export function Pager({
   ctx,

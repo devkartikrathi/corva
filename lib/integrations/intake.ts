@@ -9,6 +9,7 @@ import { APP_URL, layout, sendEmail } from "@/lib/email";
 import { ApiError } from "./api";
 import { emit, leadPayload } from "./webhooks";
 import { UNAVAILABLE, accountState, blocked } from "@/lib/billing/usage";
+import { allowAll } from "@/lib/rate-limit";
 
 /**
  * What a business's website sends Corva, turned into records.
@@ -563,12 +564,23 @@ export type AgentChatInput = {
  * and handoffs as it goes. One conversation per `sessionId`, kept separate
  * from mirrored transcripts (`chat:`), because this one Corva is having.
  */
+const CHAT_PER_MINUTE = 12;
+const CHAT_PER_DAY = 150;
+
 export async function agentChat(brand: Brand, input: AgentChatInput) {
   const session = clip(input.sessionId, 80);
   if (!session || !/^[\w-]{6,80}$/.test(session)) throw new Error("A sessionId (6–80 letters, digits, - or _) is required.");
   const message = typeof input.message === "string" ? input.message.trim() : "";
   if (!message) throw new Error("A message is required.");
   if (message.length > 2000) throw new Error("That message is too long (2,000 characters at most).");
+
+  // One chat is billed as one chat however long it runs, so its length is
+  // bounded here: a person types a few messages a minute, a script does not.
+  const turns = await allowAll([
+    [`chat:${brand.id}:${session}`, CHAT_PER_MINUTE, 60],
+    [`chat:${brand.id}:${session}`, CHAT_PER_DAY, 86_400],
+  ]);
+  if (!turns) throw new ApiError(429, "You're sending messages too quickly. Please wait a moment.");
 
   // Who it is, if the site knows.
   let customerId: string | null = null;

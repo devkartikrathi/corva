@@ -407,6 +407,3 @@ export async function emailThreads(brandId: string, limit = 40) {
     .orderBy(desc(s.conversations.startedAt))
     .limit(limit);
 }
-
-/** For the test script only: the steps of a sync, without a real mail server behind them. */
-export const internals = { fetchNew, takeIncoming, takeSent };

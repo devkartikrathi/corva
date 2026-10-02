@@ -2,6 +2,7 @@ import { generateText } from "ai";
 import { DEFAULT_MODEL_ID, resolveModel } from "@/lib/agent/models";
 import { languageModel, thinkingOptions } from "@/lib/agent/model";
 import { recordModelCall } from "@/lib/agent/quota";
+import { fetchPublic } from "@/lib/net";
 
 /**
  * Reading a business's website into something the agent can answer from.
@@ -55,9 +56,9 @@ export function normaliseUrl(input: string): URL {
 
 async function fetchPage(url: URL): Promise<string | null> {
   try {
-    const res = await fetch(url, {
+    // Checked by resolved address, and again on every redirect: see lib/net.ts.
+    const res = await fetchPublic(url, {
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      redirect: "follow",
       headers: {
         "user-agent": "Mozilla/5.0 (compatible; CorvaOnboarding/1.0; +https://corva.systems)",
         accept: "text/html,application/xhtml+xml",

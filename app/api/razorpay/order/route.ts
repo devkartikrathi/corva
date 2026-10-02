@@ -4,6 +4,7 @@ import { can } from "@/lib/auth/permissions";
 import { BUYABLE, PLANS, isTier } from "@/lib/billing/plans";
 import { razorpayConfig, razorpayError } from "@/lib/billing/razorpay";
 import { accountState, quote } from "@/lib/billing/usage";
+import { allow } from "@/lib/rate-limit";
 
 /**
  * POST /api/razorpay/order { tier } — open a Razorpay order for a plan.
@@ -16,9 +17,8 @@ import { accountState, quote } from "@/lib/billing/usage";
 
 export const dynamic = "force-dynamic";
 
-const WINDOW_MS = 10 * 60_000;
+const WINDOW_SECONDS = 10 * 60;
 const MAX_ORDERS = 8;
-const hits = new Map<string, number[]>();
 
 const fail = (status: number, error: string) => Response.json({ ok: false, error }, { status });
 
@@ -27,11 +27,7 @@ export async function POST(request: Request) {
   if (!session) return fail(401, "Sign in before starting a payment.");
   if (!can(session.actor, "billing.manage").allowed) return fail(403, "Only an Owner or Admin can change the plan.");
 
-  const now = Date.now();
-  const recent = (hits.get(session.orgId) ?? []).filter((t) => now - t < WINDOW_MS);
-  recent.push(now);
-  hits.set(session.orgId, recent);
-  if (recent.length > MAX_ORDERS) return fail(429, "Too many attempts. Try again in a few minutes.");
+  if (!(await allow(`order:${session.orgId}`, MAX_ORDERS, WINDOW_SECONDS))) return fail(429, "Too many attempts. Try again in a few minutes.");
 
   const config = razorpayConfig();
   // 503, not 500: payments are unconfigured rather than broken.
@@ -57,7 +53,7 @@ export async function POST(request: Request) {
       amount: price.totalPaise,
       currency: "INR",
       // Razorpay truncates receipts past 40 characters.
-      receipt: `corva_${plan.id}_${now.toString(36)}`.slice(0, 40),
+      receipt: `corva_${plan.id}_${Date.now().toString(36)}`.slice(0, 40),
       notes: {
         orgId: session.orgId,
         tier: plan.id,

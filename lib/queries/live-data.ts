@@ -20,9 +20,6 @@ import * as s from "@/lib/db/schema";
  */
 export const realTraffic = () => eq(s.conversations.isTest, false);
 
-/** The same rule expressed for a raw SQL fragment. */
-export const REAL_TRAFFIC_SQL = "is_test = false";
-
 /**
  * How long a conversation may go quiet and still count as live.
  *

@@ -3,8 +3,10 @@
  *
  * The layout came from `design/Corva Landing.dc.html`; the words describe
  * what Corva is now — an AI front office on a business's website chat, voice
- * that turns every conversation into a customer record, a lead and
- * a follow-up, with an API for the business's own site and systems. Nothing
+ * and WhatsApp that turns every conversation into a customer record, a lead
+ * and a follow-up; the business's email read for its customers; attendance
+ * and a picture of who answered whom; and an API for the business's own site
+ * and systems. Nothing
  * here claims a feature the product does not have; what is planned is in
  * docs/ROADMAP.md, not on this page.
  */
@@ -12,7 +14,7 @@
 import { PLANS, amount, rupees } from "@/lib/billing/plans";
 
 export const heroStats = [
-  { label: "Website chat and voice, day or night", value: "24", suffix: "/7", suffixAccent: true },
+  { label: "Chat, WhatsApp and voice, day or night", value: "24", suffix: "/7", suffixAccent: true },
   { label: "Conversations that become a record", value: "100", suffix: "%", suffixAccent: true },
   { label: "From your website to a working assistant", value: "5", suffix: "min", suffixAccent: false },
   { label: "Settings your site needs to connect", value: "2", suffix: "keys", suffixAccent: false },
@@ -72,8 +74,8 @@ export const industryNotes = [
 
 export const platformCards = [
   {
-    title: "An AI on chat and voice",
-    body: "One assistant on your website's chat and on voice calls from your site. Same knowledge, same limits, same record afterwards.",
+    title: "An AI on chat, WhatsApp and voice",
+    body: "One assistant on your website's chat, your WhatsApp number and voice calls from your site. Same knowledge, same limits, same record afterwards.",
   },
   {
     title: "Answers only from your business",
@@ -97,23 +99,35 @@ export const platformCards = [
   },
   {
     title: "One record per customer",
-    body: "Every chat and call, their leads and follow-ups, how they found you, notes and consent — on one page, whoever picks it up.",
+    body: "Every chat, call, WhatsApp message and email, their leads and follow-ups, how they found you, notes and consent — on one page, whoever picks it up.",
   },
   {
-    title: "Team performance",
-    body: "Leads owned and won, follow-ups done on time, handoffs picked up — per person, without a made-up combined score.",
+    title: "Your team, at a glance",
+    body: "Who is at work, who took how many calls and chats, what the AI answered and what people did — drawn for the owner, the manager and each person's own work.",
+  },
+  {
+    title: "Attendance",
+    body: "People start and end their own day with one button; a manager can record leave or an absence. The week is a grid with the hours for each day.",
+  },
+  {
+    title: "Your inbox, read for customers",
+    body: "Connect the email address customers write to. Corva keeps what customers wrote and your replies, on the customer's record, and ignores the rest. It only reads.",
+  },
+  {
+    title: "Answers from your own records",
+    body: "Connect your database and the AI can tell a customer where their order is or when their booking is — through lookups you approve, read-only.",
   },
   {
     title: "Limits you set",
     body: "What the AI may refund, waive or book on its own, what it must never say, and when it hands over — changed in minutes, logged every time.",
   },
   {
-    title: "Two settings to connect",
-    body: "Your website's server gets an address and a key. The chat window stays yours; the assistant, the bookings and the emails are ours.",
-  },
-  {
     title: "Your systems, kept in step",
     body: "Signed webhooks tell your CRM or order system the moment there is a new lead, a follow-up or a handoff. A documented API covers the rest.",
+  },
+  {
+    title: "Kept safe",
+    body: "Sign-in for every person, roles checked on every action, every change in an audit log. Anything you connect is encrypted, and Corva only ever reads your inbox and your database.",
   },
   {
     title: "Set up from your website",
@@ -125,15 +139,15 @@ export const platformCards = [
 export const connectWays = [
   {
     n: "A",
-    title: "Chat on your website",
-    body: "Your chat window, Corva's assistant behind it — with booking cards your customer confirms. Your developer needs an afternoon and two settings.",
+    title: "Chat and voice on your website",
+    body: "Your chat window and a call button, Corva's assistant behind both — with booking cards your customer confirms. Your developer needs an afternoon and two settings.",
     link: { label: "Developer docs", href: "/developers" },
   },
   {
     n: "B",
-    title: "Voice on your website",
-    body: "A call button on your site: customers talk to the assistant from their browser, and your team can take the call over and speak to them.",
-    link: { label: "How voice works", href: "/developers#voice" },
+    title: "WhatsApp and email",
+    body: "Connect your own WhatsApp number and the assistant answers on it. Connect your inbox and customers who write in appear beside the ones who call. No developer needed.",
+    link: { label: "Start free", href: "/sign-up" },
   },
   {
     n: "C",

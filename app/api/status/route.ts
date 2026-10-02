@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { DEMO_MODE } from "@/lib/auth/mode";
 import { adminEmails } from "@/lib/admin/auth";
 import { razorpayConfig, razorpayWebhookSecret } from "@/lib/billing/razorpay";
+import { sealingReady } from "@/lib/data/crypto";
 import { APP_URL } from "@/lib/email";
 import { voiceBridge } from "@/lib/integrations/keys";
 
@@ -42,6 +43,10 @@ export async function GET() {
     // Plans can be paid for online; and Razorpay can tell us when a payment lands.
     payments: razorpayConfig().ok,
     paymentsWebhook: Boolean(razorpayWebhookSecret()),
+    // Businesses can connect a database, an inbox and WhatsApp (their credentials are sealed with this).
+    connectionsKey: sealingReady(),
+    // Connected inboxes are read on a schedule.
+    cronSecret: Boolean(process.env.CRON_SECRET),
   };
   const required = ["database", "pgvector", "gemini", "clerk"] as const;
   return Response.json({

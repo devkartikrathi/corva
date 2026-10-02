@@ -1779,3 +1779,18 @@ export const whatsappSeen = pgTable("whatsapp_seen", {
   messageId: text("message_id").primaryKey(),
   at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Counters for rate limits that have to hold across every server instance.
+ *
+ * One row per key per window. Old windows are swept by the scheduled job.
+ */
+export const rateLimits = pgTable(
+  "rate_limits",
+  {
+    key: text("key").notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    count: integer("count").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.key, t.windowStart] })],
+);

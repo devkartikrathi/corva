@@ -10,7 +10,7 @@ export const metadata = { title: "No workspace" };
  * authenticated is not the same as being authorized, and this page is where
  * that distinction becomes visible rather than a confusing empty console.
  *
- * In demo mode it means the database has not been seeded, which is a
+ * In demo mode it means the database has no business in it yet, which is a
  * different problem with a different fix.
  */
 export default function NoWorkspacePage() {
@@ -19,24 +19,9 @@ export default function NoWorkspacePage() {
       <AuthFrame
         kicker="Nothing to show yet"
         title="This workspace is empty"
-        lede="Demo mode is on, so no sign-in is needed — but there is no seeded workspace to open. Run the seed and the consoles will fill up."
+        lede="Demo mode is on, so no sign-in is needed — but this database has no business in it yet. Set CORVA_DEMO_EMAIL to a member's email, or turn demo mode off, sign in, and create a business at /welcome."
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 14, alignItems: "flex-start" }}>
-          <pre
-            style={{
-              margin: 0,
-              padding: "14px 16px",
-              background: "var(--color-bg)",
-              border: "1px solid var(--color-neutral-400)",
-              fontSize: 12.5,
-              lineHeight: 1.7,
-            }}
-          >
-            npm run db:migrate{"\n"}
-            npm run db:seed{"\n"}
-            npm run db:conversations{"\n"}
-            npm run db:rescore
-          </pre>
           <Link
             href="/"
             className="hov-invert"
