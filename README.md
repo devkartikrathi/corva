@@ -55,6 +55,7 @@ npm run voice                  # the voice bridge, for calls (ws://localhost:878
 | [docs/ONBOARDING.md](docs/ONBOARDING.md) | Bringing a new business on, step by step — ours and theirs |
 | [docs/INTEGRATION.md](docs/INTEGRATION.md) | What a business's developer builds; the checklist we hold an integration to |
 | `/developers` (live) | The API reference, generated from `lib/integrations/openapi.ts`; also `/api/v1/openapi.json` |
+| [docs/TEAM-AND-CHANNELS.md](docs/TEAM-AND-CHANNELS.md) | The overview, attendance, and connecting the business's email inbox |
 | [docs/DATA-SOURCES.md](docs/DATA-SOURCES.md) | Connecting a business's own database: approved lookups for customers, questions for the team |
 | [docs/PRICING.md](docs/PRICING.md) | The plans, what they cost us to serve, how they are enforced and paid for |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What businesses will need next, in the order we think they will ask |

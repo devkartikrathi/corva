@@ -34,6 +34,8 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
       { href: "/app/live", label: "Live calls", capability: "calls.handle", badge: { count: "live", accent: true } },
       { href: "/app/handoffs", label: "Handoffs", capability: "calls.handle", badge: { count: "waiting", accent: false } },
       { href: "/app/conversations", label: "Conversations", capability: "customers.read" },
+      // Customers who write in, read from the business's own inbox.
+      { href: "/app/email", label: "Email", capability: "customers.read" },
     ],
   },
   {

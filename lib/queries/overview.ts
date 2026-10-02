@@ -61,7 +61,9 @@ export async function businessOverview(orgId: string, brandId: string, days: num
     db
       .select({
         channel: s.conversations.channel,
-        ai: sql<number>`count(*) filter (where ${s.conversations.handledBy} is null)::int`,
+        // An email nobody has answered was not answered by the AI: it is waiting.
+        ai: sql<number>`count(*) filter (where ${s.conversations.handledBy} is null and ${s.conversations.channel} <> 'email')::int`,
+        waiting: sql<number>`count(*) filter (where ${s.conversations.handledBy} is null and ${s.conversations.channel} = 'email')::int`,
         people: sql<number>`count(*) filter (where ${s.conversations.handledBy} is not null)::int`,
         customers: sql<number>`count(distinct ${s.conversations.customerId})::int`,
       })
@@ -72,7 +74,9 @@ export async function businessOverview(orgId: string, brandId: string, days: num
     db
       .select({
         day: istDay(s.conversations.startedAt),
-        ai: sql<number>`count(*) filter (where ${s.conversations.handledBy} is null)::int`,
+        // An email nobody has answered was not answered by the AI: it is waiting.
+        ai: sql<number>`count(*) filter (where ${s.conversations.handledBy} is null and ${s.conversations.channel} <> 'email')::int`,
+        waiting: sql<number>`count(*) filter (where ${s.conversations.handledBy} is null and ${s.conversations.channel} = 'email')::int`,
         people: sql<number>`count(*) filter (where ${s.conversations.handledBy} is not null)::int`,
       })
       .from(s.conversations)
@@ -142,20 +146,21 @@ export async function businessOverview(orgId: string, brandId: string, days: num
   const dayMap = new Map(daily.map((d) => [d.day, d]));
   const series = Array.from({ length: days }, (_, i) => {
     const day = shiftDay(firstDay, i);
-    return { day, ai: dayMap.get(day)?.ai ?? 0, people: dayMap.get(day)?.people ?? 0 };
+    return { day, ai: dayMap.get(day)?.ai ?? 0, people: dayMap.get(day)?.people ?? 0, waiting: dayMap.get(day)?.waiting ?? 0 };
   });
 
   const channels = byChannel
-    .map((c) => ({ channel: c.channel as string, label: channelLabel(c.channel), ai: c.ai, people: c.people, total: c.ai + c.people, customers: c.customers }))
+    .map((c) => ({ channel: c.channel as string, label: channelLabel(c.channel), ai: c.ai, people: c.people, waiting: c.waiting, total: c.ai + c.people + c.waiting, customers: c.customers }))
     .sort((a, b) => b.total - a.total);
   const ai = channels.reduce((n, c) => n + c.ai, 0);
   const byPeople = channels.reduce((n, c) => n + c.people, 0);
+  const waiting = channels.reduce((n, c) => n + c.waiting, 0);
 
   return {
     from: firstDay,
     to: today,
     customers: { total: customerTotals[0]?.total ?? 0, fresh: customerTotals[0]?.fresh ?? 0 },
-    conversations: { total: ai + byPeople, ai, people: byPeople },
+    conversations: { total: ai + byPeople + waiting, ai, people: byPeople, waiting },
     channels,
     series,
     people,

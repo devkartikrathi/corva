@@ -1698,3 +1698,39 @@ export const attendance = pgTable(
   },
   (t) => [uniqueIndex("attendance_member_day_idx").on(t.membershipId, t.day), index("attendance_org_day_idx").on(t.orgId, t.day)],
 );
+
+/**
+ * A business's own email inbox, connected so customers who write in are seen
+ * alongside the ones who call or chat.
+ *
+ * Corva reads new mail over IMAP, keeps only what a customer wrote (and the
+ * business's replies to them), and discards the rest unread: newsletters,
+ * receipts and colleagues are nobody's customer record. One per business for
+ * now.
+ */
+export const mailboxes = pgTable(
+  "mailboxes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    address: text("address").notNull(),
+    host: text("host").notNull(),
+    username: text("username").notNull(),
+    /** The mailbox password or app password, sealed with DATA_SOURCE_KEY. */
+    secret: text("secret").notNull(),
+    /** How far each folder has been read: IMAP's uid and the validity it belongs to. */
+    cursor: jsonb("cursor").$type<{ inbox?: { validity: string; uid: number }; sent?: { validity: string; uid: number } }>().notNull().default({}),
+    /** Messages looked at, and how many were from customers. */
+    seen: integer("seen").notNull().default(0),
+    kept: integer("kept").notNull().default(0),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    /** Set while a sync is running, so two do not read the same mail twice. */
+    syncingSince: timestamp("syncing_since", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdByName: text("created_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("mailboxes_brand_idx").on(t.brandId)],
+);

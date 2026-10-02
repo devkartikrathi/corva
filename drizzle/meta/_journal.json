@@ -120,6 +120,13 @@
       "when": 1790926678275,
       "tag": "0016_attendance",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790927057660,
+      "tag": "0017_mailboxes",
+      "breakpoints": true
     }
   ]
 }

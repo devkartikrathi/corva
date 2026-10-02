@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { after } from "next/server";
+import { syncIfStale } from "@/lib/email/mailbox";
 import { Kicker, ScreenHeader, SectionTitle } from "@/components/ui";
 import { getConsoleContext } from "@/lib/auth/context";
 import { can } from "@/lib/auth/permissions";
@@ -18,6 +20,7 @@ import { businessOverview, type PersonRow } from "@/lib/queries/overview";
 const PERIODS = [7, 14, 30];
 const AI = "var(--color-accent)";
 const PEOPLE = "var(--color-neutral-800)";
+const WAITING = "var(--color-neutral-400)";
 
 const pct = (n: number, of: number) => (of ? Math.round((n / of) * 100) : 0);
 
@@ -84,10 +87,12 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
   const seesTeam = can(session.actor, "team.performance").grant !== "none";
   const account = await accountState(session.orgId);
   const team = seesTeam && account.plan.management;
+  // Customers who wrote in since the last look are counted on the next one.
+  after(() => syncIfStale(brand));
   const data = await businessOverview(session.orgId, brand.id, days, team ? undefined : session.membershipId);
 
   const { conversations: c } = data;
-  const tallest = Math.max(1, ...data.series.map((d) => d.ai + d.people));
+  const tallest = Math.max(1, ...data.series.map((d) => d.ai + d.people + d.waiting));
   const widest = Math.max(1, ...data.channels.map((ch) => ch.total));
   const max = {
     calls: Math.max(1, ...data.people.map((p) => p.calls)),
@@ -102,7 +107,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
     { label: "Customers", value: String(data.customers.total), note: `${data.customers.fresh} new in ${days} days` },
     { label: `Conversations · ${days} days`, value: String(c.total), note: `across ${data.channels.length || "no"} ${data.channels.length === 1 ? "channel" : "channels"}` },
     { label: `Answered by ${agent}`, value: `${pct(c.ai, c.total)}%`, note: `${c.ai} without a person` },
-    { label: "Answered by people", value: `${pct(c.people, c.total)}%`, note: `${c.people} taken by the team` },
+    { label: "Answered by people", value: `${pct(c.people, c.total)}%`, note: c.waiting ? `${c.people} taken by the team · ${c.waiting} emails awaiting a reply` : `${c.people} taken by the team` },
     ...(team ? [{ label: "At work now", value: String(data.atWorkNow), note: `of ${data.people.length} on the team` }] : []),
   ];
 
@@ -146,6 +151,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
             <span style={{ marginLeft: "auto", display: "flex", gap: 14 }}>
               <Swatch color={AI}>{agent}</Swatch>
               <Swatch color={PEOPLE}>People</Swatch>
+              {c.waiting > 0 && <Swatch color={WAITING}>Awaiting a reply</Swatch>}
             </span>
           </div>
           {c.total === 0 ? (
@@ -153,10 +159,11 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
           ) : (
             <div style={{ display: "flex", alignItems: "flex-end", gap: days > 14 ? 3 : 6, height: 190, marginTop: 18 }}>
               {data.series.map((d) => {
-                const total = d.ai + d.people;
+                const total = d.ai + d.people + d.waiting;
                 return (
                   <div key={d.day} title={`${dayLabel(d.day, { day: "numeric", month: "short" })}: ${d.ai} by ${agent}, ${d.people} by people`} style={{ flex: 1, height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", minWidth: 0 }}>
                     <span style={{ fontSize: 10.5, textAlign: "center", color: "var(--color-neutral-700)", marginBottom: 3 }}>{total || ""}</span>
+                    <span style={{ display: "block", height: `${(d.waiting / tallest) * 150}px`, background: WAITING, marginBottom: d.waiting && (d.people || d.ai) ? 2 : 0 }} />
                     <span style={{ display: "block", height: `${(d.people / tallest) * 150}px`, background: PEOPLE }} />
                     <span style={{ display: "block", height: `${(d.ai / tallest) * 150}px`, background: AI, marginTop: d.people && d.ai ? 2 : 0 }} />
                     <span style={{ display: "block", borderTop: "1px solid var(--color-neutral-400)", fontSize: 10, textAlign: "center", paddingTop: 4, color: "var(--color-neutral-700)", whiteSpace: "nowrap", overflow: "hidden" }}>
@@ -182,12 +189,15 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
                     {ch.total} · {ch.customers} known {ch.customers === 1 ? "customer" : "customers"}
                   </span>
                 </div>
-                <div style={{ display: "flex", height: 12, width: `${Math.max(6, (ch.total / widest) * 100)}%`, gap: ch.ai && ch.people ? 2 : 0 }}>
+                <div style={{ display: "flex", height: 12, width: `${Math.max(6, (ch.total / widest) * 100)}%`, gap: 2 }}>
                   <span style={{ flex: ch.ai, background: AI }} />
                   <span style={{ flex: ch.people, background: PEOPLE }} />
+                  <span style={{ flex: ch.waiting, background: WAITING }} />
                 </div>
                 <div style={{ fontSize: 11, color: "var(--color-neutral-700)", marginTop: 4 }}>
-                  {pct(ch.ai, ch.total)}% by {agent} · {pct(ch.people, ch.total)}% by people
+                  {ch.channel === "email"
+                    ? `${ch.people} answered by people · ${ch.waiting} awaiting a reply`
+                    : `${pct(ch.ai, ch.total)}% by ${agent} · ${pct(ch.people, ch.total)}% by people`}
                 </div>
               </div>
             ))}

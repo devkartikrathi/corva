@@ -45,6 +45,24 @@ function isPrivate(address: string) {
   return v6 === "::" || v6 === "::1" || v6.startsWith("fc") || v6.startsWith("fd") || v6.startsWith("fe8") || v6.startsWith("fe9") || v6.startsWith("fea") || v6.startsWith("feb");
 }
 
+/**
+ * The address a host name means, having checked it is on the public internet.
+ * A host a stranger typed into a form must not be a way into Corva's own network.
+ */
+export async function publicAddress(hostname: string, what: string) {
+  let addresses: string[];
+  try {
+    addresses = isIP(hostname) ? [hostname] : (await lookup(hostname, { all: true })).map((a) => a.address);
+  } catch {
+    throw new DataSourceError(`Could not find ${hostname}. Check the host name.`);
+  }
+  const allowPrivate = process.env.DATA_SOURCE_ALLOW_PRIVATE === "1";
+  if (addresses.length === 0 || (!allowPrivate && addresses.some(isPrivate))) {
+    throw new DataSourceError(`${what} has to be reachable from the internet. A local or private address cannot be connected.`);
+  }
+  return addresses.find((a) => isIP(a) === 4) ?? addresses[0];
+}
+
 type Target = { hostname: string; address: string; port: number; user: string; password: string; database: string; ssl: boolean };
 
 /** Read a connection string, and settle which address it means before anything connects to it. */
@@ -66,20 +84,10 @@ export async function parseConnection(input: string): Promise<Target> {
   const port = url.port ? Number(url.port) : 5432;
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new DataSourceError("That port cannot be used.");
 
-  let addresses: string[];
-  try {
-    addresses = isIP(hostname) ? [hostname] : (await lookup(hostname, { all: true })).map((a) => a.address);
-  } catch {
-    throw new DataSourceError(`Could not find ${hostname}. Check the host name.`);
-  }
-  const allowPrivate = process.env.DATA_SOURCE_ALLOW_PRIVATE === "1";
-  if (addresses.length === 0 || (!allowPrivate && addresses.some(isPrivate))) {
-    throw new DataSourceError("The database has to be reachable from the internet. A local or private address cannot be connected.");
-  }
   return {
     hostname,
     // Connect to the address that was checked, not to whatever the name says a moment later.
-    address: addresses.find((a) => isIP(a) === 4) ?? addresses[0],
+    address: await publicAddress(hostname, "The database"),
     port,
     user: decodeURIComponent(url.username),
     password: decodeURIComponent(url.password),

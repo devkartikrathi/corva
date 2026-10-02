@@ -54,6 +54,9 @@ export async function getBrandMetrics(brandId: string, window?: { from: Date; to
       ),
     );
 
+  // Email is read from the business's own inbox; the AI never had the chance to
+  // answer it, so it is not part of how much the AI contained.
+  rows.splice(0, rows.length, ...rows.filter((r) => r.channel !== "email"));
   const total = rows.length;
   const contained = rows.filter((r) => r.contained === true).length;
   const escalated = rows.filter((r) => r.contained === false).length;
