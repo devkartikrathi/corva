@@ -437,6 +437,8 @@ export type ArchiveFilters = {
   status?: string;
   /** "7", "30", "90" — days back. */
   since?: string;
+  /** How far back the business's plan keeps history readable, in days. */
+  historyDays?: number;
   /** Only conversations a person reviewed, or only those nobody has. */
   reviewed?: "yes" | "no";
   /** "only" for rehearsals alone, "exclude" to hide them. Default shows both. */
@@ -481,6 +483,9 @@ export async function listConversations(brandId: string, filters: ArchiveFilters
     if (Number.isFinite(days) && days > 0) {
       where.push(gte(s.conversations.startedAt, new Date(Date.now() - days * 864e5)));
     }
+  }
+  if (filters.historyDays && Number.isFinite(filters.historyDays)) {
+    where.push(gte(s.conversations.startedAt, new Date(Date.now() - filters.historyDays * 864e5)));
   }
   if (filters.ownedBy) where.push(conversationIsTheirs(filters.ownedBy));
   if (filters.test === "only") where.push(eq(s.conversations.isTest, true));

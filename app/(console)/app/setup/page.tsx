@@ -1,6 +1,7 @@
 import { PrimaryButton, ScreenHeader, ScreenRefusal, SectionTitle } from "@/components/ui";
 import { DEMO_MODE } from "@/lib/auth/mode";
 import { ApiKeys } from "@/components/ApiKeys";
+import { accountState } from "@/lib/billing/usage";
 import { Webhooks } from "@/components/Webhooks";
 import { WEBHOOK_EVENTS } from "@/lib/integrations/webhooks";
 import { and, desc, eq, isNull } from "drizzle-orm";
@@ -86,7 +87,10 @@ export default async function SetupPage() {
     .where(and(eq(s.apiKeys.brandId, currentBrand.id), isNull(s.apiKeys.revokedAt)))
     .orderBy(desc(s.apiKeys.createdAt));
   const hooks = await db.select().from(s.webhooks).where(eq(s.webhooks.brandId, currentBrand.id)).orderBy(desc(s.webhooks.createdAt));
-  const { brands, brand, channels, hours, afterHours, privacy, audit, org } = setup;
+  const { brands, brand, channels, hours, afterHours, privacy, audit: fullAudit, org } = setup;
+  // The audit log comes with the Growth plan (and the pilot, which shows everything).
+  const account = await accountState(session.orgId);
+  const audit = account.plan.management ? fullAudit : [];
 
   const manages = can(session.actor, "billing.manage").allowed;
   const channelBy = new Map(channels.map((c) => [c.kind, c]));
@@ -97,9 +101,7 @@ export default async function SetupPage() {
     <section style={{ position: "relative" }}>
       <ScreenHeader kicker={`Workspace · ${session.orgName}`} title="Settings">
         {DEMO_MODE && phone && (
-          <PrimaryButton href={`/operator/testing?dial=${encodeURIComponent(phone.detail)}`}>
-            Call {phone.detail} →
-          </PrimaryButton>
+          <PrimaryButton href="/app/try?mode=call">Call {phone.detail} →</PrimaryButton>
         )}
         {manages && <AddBrand onCreate={createBrand} />}
       </ScreenHeader>
@@ -359,7 +361,16 @@ export default async function SetupPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12 }}>
               {audit.length === 0 && (
                 <span style={{ color: "var(--color-neutral-700)" }}>
-                  Nothing recorded yet.
+                  {account.plan.management ? (
+                    "Nothing recorded yet."
+                  ) : (
+                    <>
+                      Who changed what, and when, comes with the Growth plan.{" "}
+                      <a href="/app/billing" style={{ fontWeight: 700, color: "var(--color-accent-700)" }}>
+                        See plans →
+                      </a>
+                    </>
+                  )}
                 </span>
               )}
               {audit.map((a) => (

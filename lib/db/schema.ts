@@ -101,6 +101,66 @@ export const organizations = pgTable("organizations", {
   mrrPaise: integer("mrr_paise").notNull().default(0),
   seatCount: integer("seat_count").notNull().default(0),
   renewsAt: timestamp("renews_at", { withTimezone: true }),
+  /**
+   * What the business is on: "pilot" (the free start), "starter", "growth" or
+   * "business". The catalogue — prices, included usage, limits — is
+   * lib/billing/plans.ts. (`plan` above is the old enum, no longer read.)
+   */
+  tier: text("tier").notNull().default("pilot"),
+  /** The paid-for (or pilot) period usage is counted in. */
+  periodStart: timestamp("period_start", { withTimezone: true }).notNull().defaultNow(),
+  /** When it runs out. Null on rows from before plans: read as period start + the pilot's length. */
+  periodEnd: timestamp("period_end", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Money received, one row per Razorpay payment.
+ *
+ * Written twice on purpose — by the browser's verified callback and by
+ * Razorpay's webhook — and keyed on the payment id so the second is an update,
+ * not a duplicate. The webhook is the one that grants the plan: it arrives
+ * even when the payer closes the tab.
+ */
+export const payments = pgTable(
+  "payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id").references(() => organizations.id, { onDelete: "set null" }),
+    razorpayPaymentId: text("razorpay_payment_id").notNull().unique(),
+    razorpayOrderId: text("razorpay_order_id").notNull(),
+    /** verified | captured | failed | refunded | disputed */
+    status: text("status").notNull(),
+    tier: text("tier"),
+    /** Everything charged, in paise: plan + overage + GST. */
+    amountPaise: integer("amount_paise").notNull(),
+    planPaise: integer("plan_paise").notNull().default(0),
+    overagePaise: integer("overage_paise").notNull().default(0),
+    gstPaise: integer("gst_paise").notNull().default(0),
+    method: text("method"),
+    email: text("email"),
+    paidByName: text("paid_by_name"),
+    /** Whether this payment has already moved the organization's plan. */
+    granted: boolean("granted").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("payments_org_idx").on(t.orgId)],
+);
+
+/** Someone asked for a demo on the public site. Emailed to Corva's admins, and kept here. */
+export const demoRequests = pgTable("demo_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  business: text("business"),
+  industry: text("industry"),
+  website: text("website"),
+  message: text("message"),
+  /** new | contacted | closed */
+  status: text("status").notNull().default("new"),
+  emailed: boolean("emailed").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

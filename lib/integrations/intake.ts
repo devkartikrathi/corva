@@ -8,6 +8,7 @@ import { customerForCaller, isUnnamed, pickOwner, scheduleFollowUp } from "@/lib
 import { APP_URL, layout, sendEmail } from "@/lib/email";
 import { ApiError } from "./api";
 import { emit, leadPayload } from "./webhooks";
+import { UNAVAILABLE, accountState, blocked } from "@/lib/billing/usage";
 
 /**
  * What a business's website sends Corva, turned into records.
@@ -569,6 +570,17 @@ export async function agentChat(brand: Brand, input: AgentChatInput) {
   const visitorId = clip(input.visitorId, 80);
   let visitor = visitorId ? await findVisitor(brand.id, visitorId) : null;
   if (!customerId && visitor?.customerId) customerId = visitor.customerId;
+
+  // A new chat needs the plan to have room for it. One already under way is
+  // never cut off: the check is on starting, not on each message.
+  const [started] = await db
+    .select({ id: s.conversations.id })
+    .from(s.conversations)
+    .where(and(eq(s.conversations.brandId, brand.id), eq(s.conversations.externalRef, `agent:${session}`)))
+    .limit(1);
+  if (!started) {
+    if (blocked(await accountState(brand.orgId), "chat")) throw new ApiError(402, UNAVAILABLE);
+  }
 
   const conversation = await conversationFor(brand, `agent:${session}`, customerId);
   if (conversation.status === "resolved" || conversation.status === "abandoned") {

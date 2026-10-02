@@ -4,6 +4,7 @@ import * as s from "@/lib/db/schema";
 import { formatPhone } from "@/lib/business/phone";
 import { handle } from "@/lib/integrations/api";
 import { voiceBridge } from "@/lib/integrations/keys";
+import { accountState, blocked } from "@/lib/billing/usage";
 
 /**
  * GET /api/v1/health — is this key good, and what can this business use?
@@ -22,16 +23,19 @@ export const GET = handle<unknown>(async (brand) => {
     .from(s.documents)
     .where(and(eq(s.documents.brandId, brand.id), eq(s.documents.status, "published")));
   const bridge = voiceBridge();
+  const account = await accountState(brand.orgId);
   return {
     ok: true,
     business: brand.name,
     assistant: brand.agentName,
     phoneNumber: phone?.address ? formatPhone(phone.address) : null,
     knowledgeDocuments: docs?.n ?? 0,
+    // Off when the business's plan has no room for a new conversation, so a
+    // site can hide the chat or the call button rather than offer a refusal.
     features: {
-      chat: true,
+      chat: !blocked(account, "chat"),
       leads: true,
-      voice: bridge.available,
+      voice: bridge.available && !blocked(account, "voice"),
       voiceSecure: bridge.url.startsWith("wss://"),
     },
     apiVersion: "v1",

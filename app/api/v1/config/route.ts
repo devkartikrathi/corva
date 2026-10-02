@@ -6,6 +6,7 @@ import { intakeFieldsFor } from "@/lib/business/intake";
 import { formatPhone } from "@/lib/business/phone";
 import { handle } from "@/lib/integrations/api";
 import { voiceBridge } from "@/lib/integrations/keys";
+import { accountState, blocked } from "@/lib/billing/usage";
 
 /**
  * GET /api/v1/config — how this business is set up, for a site to build on.
@@ -27,15 +28,18 @@ export const GET = handle<unknown>(async (brand) => {
   ]);
   const industry = industryFor(brand.industry);
   const bridge = voiceBridge();
+  const account = await accountState(brand.orgId);
   return {
     business: brand.name,
     assistant: brand.agentName,
     industry: { key: industry.key, label: industry.label },
     phoneNumber: phone?.address ? formatPhone(phone.address) : null,
+    // Off when the business's plan has no room for a new conversation, so a
+    // site can hide the chat or the call button rather than offer a refusal.
     features: {
-      chat: true,
+      chat: !blocked(account, "chat"),
       leads: true,
-      voice: bridge.available,
+      voice: bridge.available && !blocked(account, "voice"),
       voiceSecure: bridge.url.startsWith("wss://"),
     },
     /** What can be booked in chat, or null when the business only takes callbacks. */

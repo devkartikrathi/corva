@@ -59,6 +59,7 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
   {
     label: "AI assistant",
     items: [
+      { href: "/app/try", label: "Try it", capability: "calls.handle" },
       { href: "/app/knowledge", label: "Knowledge", capability: "documents.publish" },
       { href: "/app/tuning", label: "Behaviour & limits", capability: "agent.edit" },
       { href: "/app/details", label: "Details to collect", capability: "agent.edit" },
@@ -77,6 +78,7 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
       { href: "/app/performance", label: "Performance", capability: "team.performance" },
       { href: "/app/team", label: "People & roles", capability: "people.manage" },
       { href: "/app/setup", label: "Settings", capability: "people.manage" },
+      { href: "/app/billing", label: "Billing", capability: "billing.manage" },
     ],
   },
 ];

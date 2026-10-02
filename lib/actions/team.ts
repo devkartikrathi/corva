@@ -4,6 +4,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { inviteEmail, sendEmail } from "@/lib/email";
 import { ROLE_LABELS } from "@/lib/auth/permissions";
+import { accountState } from "@/lib/billing/usage";
 import { revalidatePath } from "next/cache";
 import { getConsoleContext } from "@/lib/auth/context";
 import { assertCan, ROLES, type Role } from "@/lib/auth/permissions";
@@ -52,6 +53,13 @@ export async function inviteMember(input: {
 }) {
   const { session, brand } = await getConsoleContext();
   assertCan(session.actor, "people.manage", { brandId: brand.id });
+
+  const account = await accountState(session.orgId);
+  if (account.counts.members >= account.plan.members) {
+    throw new Error(
+      `The ${account.plan.name} plan covers ${account.plan.members} team members and they are all taken. Remove someone, or move up a plan in Billing.`,
+    );
+  }
 
   const email = input.email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("That is not an email address.");

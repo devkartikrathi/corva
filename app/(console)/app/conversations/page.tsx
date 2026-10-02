@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Kicker, LinkAction, OutlineButton, PrimaryButton, ScreenTitle, Tag } from "@/components/ui";
 import { ActiveFilters, Chip, Pager, SearchBox, Tab, TabStrip } from "@/components/filters";
 import { ReviewForm } from "@/components/ReviewForm";
+import { accountState } from "@/lib/billing/usage";
 import { DetailsPanel } from "@/components/DetailsPanel";
 import { intakeFieldsFor, knownDetails } from "@/lib/business/intake";
 import { formatCost } from "@/lib/money";
@@ -82,8 +83,11 @@ export default async function ConversationsPage({
   // not offered as a filter — see lib/auth/scope.ts.
   const scope = customerScope(session.actor, session.membershipId, brand.id);
 
+  // How far back this plan keeps conversations readable.
+  const account = await accountState(session.orgId);
   const [result, stats, facets, views] = await Promise.all([
     listConversations(brand.id, {
+      historyDays: account.plan.historyDays,
       ownedBy: scope.kind === "own" ? scope.membershipId : undefined,
       q: params.q,
       channel: listOf(params, "channel"),

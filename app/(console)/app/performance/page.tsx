@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Bar, Kicker, ScreenHeader, ScreenRefusal, StatRow, Th } from "@/components/ui";
 import { guardScreen, refusalReason } from "@/lib/auth/screen";
+import { accountState } from "@/lib/billing/usage";
 import { teamPerformance } from "@/lib/queries/analytics";
 import { formatRupees } from "@/lib/money";
 
@@ -32,6 +33,24 @@ export default async function TeamPerformancePage() {
         reason={refusalReason(denied)}
         next="Your own work is on the command centre and in the archive."
       />
+    );
+  }
+
+  const account = await accountState(session.orgId);
+  if (!account.plan.management) {
+    return (
+      <section style={{ padding: "24px 24px 0" }}>
+        <ScreenHeader
+          kicker="On the Growth plan"
+          title="Team performance"
+          lede={`Leads owned and won, follow-ups done on time and handoffs picked up, per person. It comes with the Growth plan — you are on ${account.plan.name}.`}
+        />
+        <p style={{ marginTop: 14 }}>
+          <Link href="/app/billing" style={{ fontWeight: 700, color: "var(--color-accent-700)" }}>
+            See plans in Billing →
+          </Link>
+        </p>
+      </section>
     );
   }
 

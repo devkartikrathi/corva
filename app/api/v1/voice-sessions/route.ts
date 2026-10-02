@@ -2,6 +2,7 @@ import { handle } from "@/lib/integrations/api";
 import { isPlausiblePhone, formatPhone } from "@/lib/business/phone";
 import { ApiError } from "@/lib/integrations/api";
 import { signVoiceToken, voiceBridge } from "@/lib/integrations/keys";
+import { UNAVAILABLE, accountState, blocked } from "@/lib/billing/usage";
 
 /**
  * POST /api/v1/voice-sessions — let a visitor talk to the assistant, by voice,
@@ -14,6 +15,7 @@ import { signVoiceToken, voiceBridge } from "@/lib/integrations/keys";
 export const POST = handle<{ visitorId?: string; name?: string; phone?: string }>(async (brand, body) => {
   const bridge = voiceBridge();
   if (!bridge.available) throw new ApiError(503, "Voice calls are not available for this business yet.");
+  if (blocked(await accountState(brand.orgId), "voice")) throw new ApiError(402, UNAVAILABLE);
   const phone = body.phone && isPlausiblePhone(body.phone) ? formatPhone(body.phone) : null;
   const { token, expiresInSeconds } = signVoiceToken({
     brandId: brand.id,

@@ -10,6 +10,7 @@ import * as s from "@/lib/db/schema";
 import { audit } from "./audit";
 import { formatPhone, isPlausiblePhone, numberTaken } from "@/lib/business/phone";
 import { createApiKey } from "@/lib/integrations/keys";
+import { accountState } from "@/lib/billing/usage";
 
 /**
  * Workspace setup.
@@ -30,6 +31,13 @@ export async function createBrand(input: { name: string; segment: string; locati
 
   const name = input.name.trim();
   if (!name) throw new Error("A brand needs a name.");
+
+  const account = await accountState(session.orgId);
+  if (account.counts.brands >= account.plan.brands) {
+    throw new Error(
+      `The ${account.plan.name} plan covers ${account.plan.brands === 1 ? "one brand" : `${account.plan.brands} brands`}. Move up a plan in Billing to add another.`,
+    );
+  }
 
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const [existing] = await db
