@@ -1,11 +1,12 @@
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { APP_URL } from "@/lib/email";
-import { ENDPOINTS, type Endpoint } from "@/lib/integrations/openapi";
+import { ENDPOINTS, WEBHOOK_EXAMPLES, type Endpoint } from "@/lib/integrations/openapi";
+import { WEBHOOK_EVENTS } from "@/lib/integrations/webhooks";
 
 export const metadata = {
   title: "Corva for developers",
-  description: "Connect a business's website to its Corva AI assistant: chat, leads, visitors and voice.",
+  description: "Connect a business's website and systems to its Corva AI assistant: chat, bookings and leads, visitors, voice, and webhooks.",
 };
 
 /**
@@ -13,8 +14,10 @@ export const metadata = {
  *
  * Written for the developer a business hands its Corva key to — somebody who
  * has never heard of us and wants the chat working on their site this
- * afternoon. The reference is generated from the same list the OpenAPI spec
- * is, so the page and the spec say the same thing.
+ * afternoon. Nothing here is about one business: what a business collects,
+ * books and calls its assistant comes from its own setup (GET /config). The
+ * reference is generated from the same list the OpenAPI spec is, so the page
+ * and the spec say the same thing.
  */
 
 const SHELL: CSSProperties = { maxWidth: 980, margin: "0 auto", padding: "0 28px" };
@@ -107,6 +110,18 @@ function EndpointBlock({ e }: { e: Endpoint }) {
   );
 }
 
+const GROUPS: { name: Endpoint["group"]; blurb: string }[] = [
+  { name: "Setup", blurb: "Check the key, and read how the business is set up." },
+  { name: "Chat", blurb: "The assistant in your chat window — or your own assistant's transcripts." },
+  { name: "Leads", blurb: "Bookings, callbacks and enquiries from your own forms." },
+  { name: "Visitors", blurb: "Who is on the site, with their consent." },
+  { name: "Voice", blurb: "Talk to the assistant from the browser." },
+];
+
+const H3 = ({ children }: { children: ReactNode }) => (
+  <h3 style={{ margin: "26px 0 0", fontWeight: 800, fontSize: 17 }}>{children}</h3>
+);
+
 export default function DevelopersPage() {
   return (
     <main style={{ background: "var(--color-bg)", minHeight: "100vh", paddingBottom: 80 }}>
@@ -125,24 +140,30 @@ export default function DevelopersPage() {
       </header>
 
       <div style={SHELL}>
-        <h1 style={{ margin: "44px 0 0", fontWeight: 800, fontSize: 44, lineHeight: 1.02, letterSpacing: "-0.03em", maxWidth: "18ch" }}>
-          Put a business&rsquo;s AI assistant on its website.
+        <h1 style={{ margin: "44px 0 0", fontWeight: 800, fontSize: 44, lineHeight: 1.02, letterSpacing: "-0.03em", maxWidth: "20ch" }}>
+          Put a business&rsquo;s AI assistant on its website — and its work in your systems.
         </h1>
         <P>
-          Corva runs an AI assistant for each business: it answers from the business&rsquo;s own knowledge, stays within
-          the limits the business sets, and turns every conversation into records the team works from — a customer, a
-          lead with an owner, a follow-up with a time. This API is how a website plugs into it.
+          Corva runs an AI assistant for each business. It answers from the business&rsquo;s own knowledge, stays within
+          the limits the business sets, collects the details the business asks for, and turns every conversation into
+          records the team works from: a customer, a lead with an owner, a follow-up with a time. A person on the team
+          can take any chat or call over, live. This API is how a website and the business&rsquo;s other systems plug
+          into that.
         </P>
 
-        <div style={{ marginTop: 24, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div style={{ marginTop: 24, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
           {[
             {
-              title: "Through the API",
-              body: "Your site talks to Corva from its server: chat with the assistant, send bookings and callback requests, record visitors, start voice calls in the browser. This page is for you.",
+              title: "Corva’s assistant on your site",
+              body: "Your chat window, Corva’s brain. Send each message to /chat, show the reply, show a card when a booking is ready. Voice calls in the browser use the same assistant. Most sites want this.",
             },
             {
-              title: "Through a phone number",
-              body: "No code at all. The business gets a number from Corva; whoever rings it talks to the same assistant, with the same knowledge, and lands in the same console.",
+              title: "Your own assistant, Corva behind it",
+              body: "Keep the bot or the forms you have. Send bookings and callbacks to /leads and transcripts to /chats; Corva gives them owners, follow-ups and emails.",
+            },
+            {
+              title: "A phone number",
+              body: "No code. The business gets a number from Corva; callers reach the same assistant, with the same knowledge, and land in the same console.",
             },
           ].map((c) => (
             <div key={c.title} style={{ border: "2px solid var(--color-text)", padding: "16px 18px" }}>
@@ -155,10 +176,13 @@ export default function DevelopersPage() {
         <nav style={{ marginTop: 28, display: "flex", gap: 16, flexWrap: "wrap", fontSize: 13.5, fontWeight: 600 }}>
           {[
             ["#start", "Quick start"],
-            ["#auth", "Keys & errors"],
-            ["#reference", "Reference"],
+            ["#concepts", "How it fits together"],
+            ["#auth", "Keys, errors & limits"],
+            ["#reference", "API reference"],
             ["#voice", "Voice in the browser"],
+            ["#webhooks", "Webhooks"],
             ["#cookies", "Cookies & consent"],
+            ["#golive", "Going live"],
           ].map(([href, label]) => (
             <a key={href} href={href} style={{ color: "var(--color-accent-700)" }}>
               {label}
@@ -174,30 +198,20 @@ export default function DevelopersPage() {
           </li>
           <li>
             Put it in your server&rsquo;s environment — <C>CORVA_API_KEY</C> — next to <C>CORVA_API_URL={APP_URL}</C>.
-            Never ship it to the browser.
+            These are the only two settings an integration needs. Never ship the key to the browser.
           </li>
           <li>
-            Check it: <C>GET /api/v1/health</C> returns the business, its assistant and which features you can use.
+            Check it: <C>GET /api/v1/health</C>. Then read <C>GET /api/v1/config</C> for the assistant&rsquo;s name, what
+            can be booked and the details the business collects.
           </li>
           <li>
-            Pick your shape:
-            <ul style={{ paddingLeft: 18 }}>
-              <li>
-                <b>Corva&rsquo;s assistant</b> (how Tumble Days&rsquo; Tumbly works) — send each customer message to{" "}
-                <C>POST /api/v1/chat</C> and show the reply, streamed if you like. When the assistant has a booking or
-                callback ready it returns a <C>proposal</C>: show it as a card, and send the customer&rsquo;s Confirm or
-                Edit to <C>POST /api/v1/chat/confirm</C>. Knowledge, bookings, the team&rsquo;s follow-ups and emails
-                all happen in Corva.
-              </li>
-              <li>
-                <b>Your own assistant</b> — keep it, and send Corva what matters: bookings and callbacks to{" "}
-                <C>POST /api/v1/leads</C>, the transcript to <C>POST /api/v1/chats</C>.
-              </li>
-            </ul>
+            Add a route on your server that forwards the visitor&rsquo;s message to <C>POST /api/v1/chat</C> and returns the
+            reply. When the reply carries a <C>proposal</C>, show it as a card; send Confirm or Edit to{" "}
+            <C>POST /api/v1/chat/confirm</C>.
           </li>
           <li>
-            Optional: record visitors with their cookie consent (<C>/visits</C>) and add a &ldquo;talk to us&rdquo; voice
-            button (<C>/voice-sessions</C>).
+            Optional: voice calls (<C>/voice-sessions</C>), visitor tracking with consent (<C>/visits</C>), and a webhook
+            so your own systems hear about new leads.
           </li>
         </ol>
         <Code>{`// A tiny server-side client — Node / Next.js route handler.
@@ -209,18 +223,54 @@ export async function corva(path: string, body?: unknown) {
       "Content-Type": "application/json",
     },
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(20_000),
   });
   if (!res.ok) throw new Error((await res.json()).error);
   return res.json();
 }
 
-const { reply } = await corva("chat", { sessionId: "chat_8c1f2a", message: "Do you pick up from Sector 56?" });`}</Code>
+const { assistant, fields, booking } = await corva("config");
+
+const turn = await corva("chat", { sessionId, message, visitorId });
+// turn.reply     → show it
+// turn.proposal  → show a card; on Confirm:
+await corva("chat/confirm", { sessionId, proposalId: turn.proposal.id, approved: true });`}</Code>
+
+        <H2 id="concepts">How it fits together</H2>
+        <H3>Sessions and visitors</H3>
+        <P>
+          A <C>sessionId</C> is one chat — you make it up, reuse it for every message, and start a new one for a new
+          chat. A <C>visitorId</C> is one browser, kept in a first-party cookie you set. Send it on everything and Corva
+          joins a visitor&rsquo;s page views, chats, bookings and voice calls into one customer record once they say who
+          they are.
+        </P>
+        <H3>Details to collect</H3>
+        <P>
+          Each business keeps a list of what it needs from a customer — an address, a request type, a budget. Its team
+          edits the list in Corva; you read it from <C>/config</C> as <C>fields</C>. The assistant asks for them in chat
+          and on calls; your own forms can show the same fields and send answers as <C>details</C> (
+          <C>{`{ key: value }`}</C>). Every chat reply reports what has been collected so far. Do not hard-code the list:
+          it changes without a deploy.
+        </P>
+        <H3>Bookings are confirmed by the customer</H3>
+        <P>
+          The assistant never books on its own say-so. It returns a <C>proposal</C> — a booking (the business&rsquo;s own
+          word for it is <C>proposal.noun</C>: a pickup, an appointment, a visit) or a callback — with the details to
+          show. Nothing exists until the customer confirms; then Corva creates the customer, the lead, its owner and the
+          follow-up, and sends the emails. If the customer types instead of tapping, the card is replaced.
+        </P>
+        <H3>A person can take over</H3>
+        <P>
+          Anyone on the business&rsquo;s team can take a chat or a call from the assistant in Corva. In a chat, replies
+          then come from <C>GET /api/v1/chat</C> under that person&rsquo;s name. On a voice call the assistant says it is
+          transferring the caller, and the person&rsquo;s voice arrives over the same connection — your page keeps
+          playing the audio it is sent.
+        </P>
 
         <H2 id="auth">Keys, errors and limits</H2>
         <P>
           Every request carries <C>Authorization: Bearer ck_…</C>. A key belongs to one business; revoking it in Settings
-          stops it at once. Requests and responses are JSON.
+          stops it at once. Requests and responses are JSON (a streamed chat reply is <C>text/event-stream</C>).
         </P>
         <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 14, fontSize: 14 }}>
           <tbody>
@@ -228,11 +278,12 @@ const { reply } = await corva("chat", { sessionId: "chat_8c1f2a", message: "Do y
               ["200", "Done. The body is the result."],
               ["400", "Something in the request is wrong. `error` says what, in words you can show a user."],
               ["401", "The key is missing, wrong, or revoked."],
+              ["404", "No conversation or card with that id."],
               ["409", "The chat has ended (start a new sessionId), or a card was answered or replaced already."],
-              ["422", "A card can no longer be confirmed as it is — e.g. its date has passed. Show `error` and let them edit."],
               ["413", "The body is over 64 KB."],
+              ["422", "A card can no longer be confirmed as it is — e.g. its date has passed. Show `error` and let them edit."],
               ["429", "Over 120 requests a minute for this key. Back off and retry."],
-              ["5xx", "Our side. Retry; /leads is safe to retry with the same reference."],
+              ["5xx", "Our side. Retry; /leads is safe to retry with the same reference, /chat/confirm with the same proposalId."],
             ].map(([code, text]) => (
               <tr key={code} style={{ borderBottom: "1px solid var(--color-neutral-300)" }}>
                 <td style={{ padding: "8px 12px 8px 0", width: 70, fontFamily: MONO, fontWeight: 700 }}>{code}</td>
@@ -241,52 +292,134 @@ const { reply } = await corva("chat", { sessionId: "chat_8c1f2a", message: "Do y
             ))}
           </tbody>
         </table>
+        <P>
+          Timeouts: a chat reply usually starts within two to four seconds and can take longer when the model is busy —
+          allow 30 seconds, or stream. Phone numbers are accepted in any common Indian format and returned as{" "}
+          <C>+91 98765 43210</C>. Dates are <C>YYYY-MM-DD</C> in India time; timestamps are ISO 8601 UTC.
+        </P>
 
-        <H2 id="reference">Reference</H2>
+        <H2 id="reference">API reference</H2>
         <P>
           Base URL <C>{APP_URL}</C>. The same endpoints as a spec:{" "}
           <a href="/api/v1/openapi.json" style={{ color: "var(--color-accent-700)" }}>
             /api/v1/openapi.json
           </a>
-          .
+          . Example values are from a made-up home-services business; a real business&rsquo;s fields and words come from{" "}
+          <C>/config</C>.
         </P>
-        {ENDPOINTS.map((e) => (
-          <EndpointBlock key={`${e.method} ${e.path}`} e={e} />
+        {GROUPS.map((g) => (
+          <div key={g.name}>
+            <h3 id={`ref-${g.name.toLowerCase()}`} style={{ margin: "40px 0 0", fontWeight: 800, fontSize: 20, scrollMarginTop: 20 }}>
+              {g.name} <span style={{ fontWeight: 500, fontSize: 14, color: "var(--color-neutral-700)" }}>— {g.blurb}</span>
+            </h3>
+            {ENDPOINTS.filter((e) => e.group === g.name).map((e) => (
+              <EndpointBlock key={`${e.method} ${e.path}`} e={e} />
+            ))}
+          </div>
         ))}
 
         <H2 id="voice">Voice calls in the browser</H2>
         <P>
           Your server gets a token from <C>POST /api/v1/voice-sessions</C> and gives the page <C>token</C> and{" "}
-          <C>bridgeUrl</C>. The page opens a WebSocket to the bridge and speaks. The conversation, and anything the
-          assistant records during it, lands in the business&rsquo;s console like a phone call.
+          <C>bridgeUrl</C>. The page opens a WebSocket to the bridge and speaks. Calls are push-to-talk: the visitor holds
+          a button (or the space bar) while speaking and lets go to hear the answer. The conversation, the details
+          collected and anything booked land in the business&rsquo;s console like a phone call.
         </P>
         <Code>{`→ connect   new WebSocket(bridgeUrl)
 → send      {"type":"start","token":"…"}
-← receive   {"type":"ready", "agent":"Tumbly", ...}
+← receive   {"type":"ready","agent":"Ava","capSeconds":180, …}
 
-  while the user holds "talk":
+  while the visitor holds "talk":
 → send      binary frames — PCM16, mono, 16 kHz
   when they let go:
 → send      {"type":"end_turn"}
 
-← receive   binary frames — PCM16, mono, 24 kHz: the assistant's voice
-← receive   {"type":"heard","text":"…"}    what the user said, so far
+← receive   binary frames — PCM16, mono, 24 kHz: play them in order
+← receive   {"type":"heard","text":"…"}    what the visitor said, so far
 ← receive   {"type":"said","text":"…"}     what the assistant said, so far
 ← receive   {"type":"turn_complete"}
-← receive   {"type":"held","by":"Kavya Rao"}   a person took over; stop playback
-            the assistant says one line handing over, then their voice
+
+  a person on the team takes the call:
+← receive   {"type":"held","by":"Kavya Rao"}   drop any assistant audio still queued
+            the assistant says one line handing over; then the person's voice
             arrives as the same 24 kHz binary frames — keep playing them
-← receive   {"type":"human","name":"…","text":"…"}  what they said or typed
+← receive   {"type":"human","name":"…","text":"…"}  what they said or typed, as a caption
 ← receive   {"type":"released"}              handed back to the assistant
-← receive   {"type":"closed","reason":"…"}  /  {"type":"error","message":"…"}
+
+← receive   {"type":"error","message":"…"}   show it; the call is over
+← receive   {"type":"closed","reason":"…","seconds":142}
 → send      {"type":"stop"}                  hang up`}</Code>
         <P>
           <b>Browsers, and iPhones in particular.</b> The microphone only works on an <b>https</b> page (or{" "}
           <C>localhost</C>) — on plain http, Safari never asks for permission and <C>navigator.mediaDevices</C> is
           missing. Ask for the microphone and create your <C>AudioContext</C> in the tap handler itself, before any{" "}
           <C>await</C>, or iOS will neither prompt nor play sound. Use the device&rsquo;s own sample rate and resample to
-          16 kHz yourself; iOS does not honour a requested rate. And the bridge must be <b>wss://</b> for an https page —
-          <C>/health</C> tells you (<C>features.voiceSecure</C>).
+          16 kHz yourself; iOS does not honour a requested rate. And the bridge must be <b>wss://</b> for an https page —{" "}
+          <C>/health</C> tells you (<C>features.voiceSecure</C>); hide the call button when it is false.
+        </P>
+        <P>
+          <b>Limits.</b> An unattended call with the assistant ends at <C>capSeconds</C>; a call a person has taken over
+          can run longer. A call with no audio from the visitor for 45 seconds is closed.
+        </P>
+
+        <H2 id="webhooks">Webhooks</H2>
+        <P>
+          The API is your site talking to Corva; a webhook is Corva telling your systems what just happened — to put a
+          new lead into your own CRM or order system, post it to a team channel, or start a job. The business adds a URL
+          in Corva → <b>Settings → Webhooks</b>, chooses the events, and is shown a signing secret (<C>whsec_…</C>) once.
+        </P>
+        <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 14, fontSize: 14 }}>
+          <tbody>
+            {WEBHOOK_EVENTS.map((e) => (
+              <tr key={e.type} style={{ borderBottom: "1px solid var(--color-neutral-300)", verticalAlign: "top" }}>
+                <td style={{ padding: "8px 12px 8px 0", width: 190, fontFamily: MONO, fontWeight: 700 }}>{e.type}</td>
+                <td style={{ padding: "8px 0", color: "var(--color-neutral-800)" }}>{e.description}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <P>
+          Each delivery is one <C>POST</C> with a JSON body and two headers: <C>Corva-Event</C> (the type) and{" "}
+          <C>Corva-Signature</C>. Answer <C>2xx</C> within six seconds. A <C>5xx</C> or no answer is retried once; treat
+          webhooks as notifications and the API as the record — and be ready to receive the same event twice (
+          <C>id</C> is unique per event).
+        </P>
+        <Code>{JSON.stringify(
+          { id: "evt_3f9c0a1b2c3d4e5f6a7b8c9d", type: "lead.created", createdAt: "2026-10-03T04:31:13.000Z", data: WEBHOOK_EXAMPLES["lead.created"] },
+          null,
+          2,
+        )}</Code>
+        <P>
+          <b>Verify every delivery.</b> The signature is an HMAC-SHA256 of <C>{`"<t>.<raw body>"`}</C> with your secret,
+          hex-encoded. Use the raw request body, exactly as received, and reject a timestamp more than five minutes old.
+        </P>
+        <Code>{`import { createHmac, timingSafeEqual } from "node:crypto";
+
+// Next.js route handler: app/api/corva-webhook/route.ts
+export async function POST(req: Request) {
+  const body = await req.text();                       // raw, before any JSON.parse
+  const header = req.headers.get("corva-signature") ?? "";
+  const t = header.match(/t=(\\d+)/)?.[1];
+  const v1 = header.match(/v1=([0-9a-f]+)/)?.[1];
+  if (!t || !v1 || Math.abs(Date.now() / 1000 - Number(t)) > 300) return new Response("stale", { status: 400 });
+
+  const expected = createHmac("sha256", process.env.CORVA_WEBHOOK_SECRET!).update(\`\${t}.\${body}\`).digest("hex");
+  if (expected.length !== v1.length || !timingSafeEqual(Buffer.from(expected), Buffer.from(v1))) {
+    return new Response("bad signature", { status: 401 });
+  }
+
+  const event = JSON.parse(body);
+  if (event.type === "lead.created") await addToOurSystem(event.data.lead, event.data.customer);
+  return new Response("ok");
+}`}</Code>
+        <P>
+          <C>Send test</C> in Settings posts a <C>ping</C> event to your URL and shows what it answered. The other
+          payloads — <C>lead.updated</C>, <C>follow_up.created</C>, <C>handoff.requested</C>, <C>conversation.ended</C> —
+          are in the{" "}
+          <a href="/api/v1/openapi.json" style={{ color: "var(--color-accent-700)" }}>
+            OpenAPI spec
+          </a>{" "}
+          under <C>webhooks</C>.
         </P>
 
         <H2 id="cookies">Cookies &amp; consent</H2>
@@ -299,8 +432,22 @@ const { reply } = await corva("chat", { sessionId: "chat_8c1f2a", message: "Do y
           to <C>&quot;necessary&quot;</C> later forgets what was kept.
         </P>
 
+        <H2 id="golive">Going live</H2>
+        <ul style={{ margin: "12px 0 0", paddingLeft: 20, fontSize: 15, lineHeight: 1.7, color: "var(--color-neutral-800)" }}>
+          <li>The key is only in your server&rsquo;s environment, and <C>/health</C> answers <C>ok</C> from production.</li>
+          <li>The site reads <C>/config</C> rather than hard-coding the assistant&rsquo;s name, fields or booking word.</li>
+          <li>A chat keeps one <C>sessionId</C>; a new chat gets a new one; <C>visitorId</C> goes on every call.</li>
+          <li>Cards lock the input until Confirm or Edit, and a <C>409</C> or <C>422</C> from confirm is shown, not swallowed.</li>
+          <li>The chat polls <C>GET /chat</C> so a person taking over is seen, and shows their name.</li>
+          <li>The voice button is hidden unless <C>features.voice</C> (and <C>voiceSecure</C> on https) is true.</li>
+          <li>Your own rate limit sits in front of your chat route — the key&rsquo;s 120 requests a minute are shared by all your visitors.</li>
+          <li>Webhook deliveries are verified, and a repeat of the same <C>id</C> does nothing twice.</li>
+          <li>The business has checked its knowledge, its Details to collect and who on the team gets leads.</li>
+        </ul>
+
         <p style={{ marginTop: 56, fontSize: 13, color: "var(--color-neutral-700)" }}>
-          Corva API {"v1"} · questions: ask whoever at the business gave you the key, or Corva support.
+          Corva API {"v1"} · additions are backwards-compatible within v1: expect new fields and new event types, and
+          ignore what you do not know. Questions: ask whoever at the business gave you the key, or Corva support.
         </p>
       </div>
     </main>

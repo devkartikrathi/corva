@@ -10,6 +10,8 @@ import {
   logos,
   loopSteps,
   nextActions,
+  connectWays,
+  planNotes,
   plans,
   platformCards,
 } from "@/lib/marketing";
@@ -167,8 +169,10 @@ export default function LandingPage() {
             {[
               ["#platform", "Platform"],
               ["#loop", "How it works"],
+              ["#connect", "Connect"],
               ["#signals", "Industries"],
               ["#pricing", "Pricing"],
+              ["/developers", "Developers"],
             ].map(([href, label]) => (
               <a key={label} href={href} className="hov-ink" style={{ color: "var(--color-neutral-700)" }}>
                 {label}
@@ -238,7 +242,7 @@ export default function LandingPage() {
                 maxWidth: "15ch",
               }}
             >
-              Every call answered. Every lead followed up.
+              Every customer answered. Every lead followed up.
             </h1>
 
             <p
@@ -251,9 +255,10 @@ export default function LandingPage() {
                 textWrap: "pretty",
               }}
             >
-              Corva answers your phone around the clock with an AI that knows your business. Every
-              caller becomes a customer record, anyone who wants something becomes a lead with an
-              owner, and every promised callback has a name and a time on it.
+              Corva puts an AI that knows your business on your website&rsquo;s chat, on voice calls
+              and on your phone line, around the clock. Every conversation becomes a customer record,
+              anyone who wants something becomes a lead with an owner, and every promised callback has
+              a name and a time on it — with your team one click from taking over.
             </p>
 
             <div style={{ marginTop: 36, display: "flex", gap: 10 }}>
@@ -342,7 +347,7 @@ export default function LandingPage() {
             }}
           >
             <div>
-              <Eyebrow>Live call console</Eyebrow>
+              <Eyebrow>Live console</Eyebrow>
               <SectionHeading maxWidth="22ch">The AI works in the open.</SectionHeading>
             </div>
             <p
@@ -354,8 +359,9 @@ export default function LandingPage() {
                 textWrap: "pretty",
               }}
             >
-              Every call streams as text, every answer cites the document it came from, and any agent
-              can take the line mid-sentence.
+              Every chat and call streams as text, every answer cites the document it came from, the
+              details you asked for fill in as they are said, and anyone on your team can take the
+              line mid-sentence.
             </p>
           </div>
 
@@ -733,7 +739,7 @@ export default function LandingPage() {
               maxWidth: "26ch",
             }}
           >
-            Nothing is lost between the call and the record.
+            Nothing is lost between the conversation and the record.
           </h2>
         </div>
         <div
@@ -772,6 +778,55 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ── Ways to connect ── */}
+      <section id="connect" style={{ borderBottom: "2px solid var(--color-divider)", background: "var(--color-surface)" }}>
+        <div style={{ ...SHELL, padding: "56px 48px 64px" }}>
+          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 48 }}>
+            <div>
+              <Eyebrow>Connect</Eyebrow>
+              <SectionHeading maxWidth="24ch">Three ways in. One assistant, one console.</SectionHeading>
+            </div>
+            <p style={{ margin: 0, fontSize: 15, color: "var(--color-neutral-800)", maxWidth: "44ch", textWrap: "pretty" }}>
+              However a customer reaches you, it is the same assistant with the same knowledge, and
+              the conversation lands in the same place for your team.
+            </p>
+          </div>
+          <div
+            style={{
+              marginTop: 32,
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              borderTop: "2px solid var(--color-divider)",
+            }}
+          >
+            {connectWays.map((w, i) => (
+              <div
+                key={w.n}
+                style={{
+                  padding: i === 0 ? "24px 28px 0 0" : i === connectWays.length - 1 ? "24px 0 0 28px" : "24px 28px 0",
+                  borderRight: i < connectWays.length - 1 ? "1px solid var(--color-neutral-300)" : undefined,
+                }}
+              >
+                <div style={{ fontWeight: 800, fontSize: 13, color: "var(--color-accent-700)", letterSpacing: "0.08em" }}>{w.n}</div>
+                <h3 style={{ margin: "10px 0 0", fontWeight: 800, fontSize: 20, letterSpacing: "-0.015em" }}>{w.title}</h3>
+                <p style={{ margin: "10px 0 0", fontSize: 14, lineHeight: 1.55, color: "var(--color-neutral-800)", textWrap: "pretty" }}>
+                  {w.body}
+                </p>
+                {w.link && (
+                  <Link
+                    href={w.link.href}
+                    className="hov-ink"
+                    style={{ display: "inline-block", marginTop: 14, fontSize: 13, fontWeight: 700, color: "var(--color-accent-700)" }}
+                  >
+                    {w.link.label} →
+                  </Link>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ── Signals (dark) ── */}
       <section
         id="signals"
@@ -802,9 +857,9 @@ export default function LandingPage() {
                 textWrap: "pretty",
               }}
             >
-              A clinic, an estate agent and a furniture shop do not want the same things from a call.
-              Each starts from a template that knows what to ask, what it may do on its own, and what
-              its pipeline is called.
+              A clinic, an estate agent and a laundry do not want the same things from a customer.
+              Each starts from a template that knows what to ask, what can be booked, what it may do on
+              its own, and what its pipeline is called.
             </p>
             <div
               style={{
@@ -938,11 +993,11 @@ export default function LandingPage() {
           <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 48 }}>
             <div>
               <Eyebrow>Pricing</Eyebrow>
-              <SectionHeading>Priced per resolved conversation.</SectionHeading>
+              <SectionHeading>A monthly plan, with usage included.</SectionHeading>
             </div>
-            <p style={{ margin: 0, fontSize: 14, color: "var(--color-neutral-700)", maxWidth: "36ch" }}>
-              Seats are unlimited on every plan. You pay when the AI finishes the job or hands over a
-              complete brief.
+            <p style={{ margin: 0, fontSize: 14, color: "var(--color-neutral-700)", maxWidth: "40ch" }}>
+              A bill you can predict: the assistant, the customer records and your team&rsquo;s
+              follow-ups in one price, with chats and voice minutes included.
             </p>
           </div>
 
@@ -1066,6 +1121,21 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
+
+          <div
+            style={{
+              marginTop: 20,
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+              fontSize: 12.5,
+              color: "var(--color-neutral-700)",
+            }}
+          >
+            {planNotes.map((n) => (
+              <span key={n}>{n}</span>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -1131,7 +1201,7 @@ export default function LandingPage() {
             style={{
               marginLeft: "auto",
               display: "grid",
-              gridTemplateColumns: "repeat(4, minmax(120px, auto))",
+              gridTemplateColumns: "repeat(3, minmax(120px, auto))",
               gap: 32,
               fontSize: 12.5,
             }}

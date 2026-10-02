@@ -342,3 +342,67 @@ uv venv --python 3.12 voice-env
 uv pip install parakeet-mlx mlx-whisper faster-whisper piper-tts websockets
 brew install ffmpeg          # parakeet and faster-whisper both need it
 ```
+
+## 10. Turn-taking: the bridge says when the caller stops
+
+On 1–2 October 2026 website calls connected and then nothing happened: the assistant never
+answered, and Live eventually closed the socket. Nothing in Corva had changed.
+
+`gemini-3.1-flash-live-preview` had stopped ending turns on its own. With automatic activity
+detection it reported `voiceActivity: ACTIVITY_START` and then never an end — not after
+`audioStreamEnd`, not after two seconds of silence — so it never transcribed and never replied.
+A typed turn on the same socket worked. `gemini-2.5-flash-native-audio-latest` was unaffected.
+
+Calls are push-to-talk, so the bridge already knows when the caller starts and stops. It now
+says so, and the model's own detection is off:
+
+```jsonc
+// setup
+"realtimeInputConfig": { "automaticActivityDetection": { "disabled": true } }
+// first audio frame after a pause
+{ "realtimeInput": { "activityStart": {} } }
+// the browser's `end_turn`, or 1.5 s without audio
+{ "realtimeInput": { "activityEnd": {} } }
+```
+
+Measured with the same recorded question, three calls each: **0.8 s** from `activityEnd` to
+first audio on 3.1, **2.6 s** on 2.5 native audio. `activityStart` while the model is speaking
+interrupts it, which is the barge-in a caller expects.
+
+Two things kept from that day:
+
+- **The close reason is recorded.** When Live closes the socket, its code and reason go into the
+  transcript (`Call ended: live socket closed (1011: …)`) and the caller is told the line
+  dropped. Vercel keeps an hour of logs on Hobby; the transcript is the only record that lasts.
+- **A spoken smoke test beats a connect test.** `smoke:voice` only checks that a session opens.
+  To check that the assistant *answers*, play recorded speech into a call:
+  `say -o q.aiff "Do you …?"`, `afconvert -f WAVE -d LEI16@16000 -c 1 q.aiff q.wav`, send the
+  PCM in ~85 ms frames, then `end_turn`, and expect `heard` and `said`.
+
+## 11. A person on the call
+
+Taking the line (`conversations.handled_by`) is seen by the bridge within a second. Then:
+
+1. **The hand-over line.** The model is told, as a text turn, to say one sentence transferring
+   the caller to the named person. If it was mid-answer, that answer finishes unheard first.
+   Live sometimes says the sentence two or three times in one turn, so the bridge passes exactly
+   one sentence of audio: when the transcript shows the sentence's end, it works out how long
+   that sentence takes to say (≈ 0.05 s a character, measured) and lets through that much audio
+   plus 0.3 s; five seconds is the backstop. Only the first sentence is written to the transcript.
+2. **Muted, still listening.** The model's audio is dropped and its tool calls refused, but the
+   caller's audio still goes to it — that is what keeps the caller's side transcribed.
+3. **The relay.** The caller's socket and the person's are on different function instances.
+   Each side holds a Postgres session and `LISTEN`s on `call_<conversation id>`; audio is
+   `NOTIFY`ed in pieces of 5,400 bytes (the payload limit is 8,000 after base64). Everything
+   waiting is sent in one statement while the previous is in flight, so a slow link carries
+   bigger batches instead of falling behind — and each piece carries a sequence number, because
+   Postgres delivers identical notifications from one transaction only once, and two pieces of
+   silence are identical. Within one region a hop is a few milliseconds.
+4. **Formats.** Caller → person: PCM16 at 16 kHz. Person → caller: PCM16 at 24 kHz, the same
+   frames the model's voice arrives in, so a caller's page needs no new code to hear a person.
+5. **The person's words** are transcribed in their browser (Web Speech API; Chrome) and written
+   as `human` turns, which the bridge relays to the caller as captions and gives back to the
+   model as a note when the call is handed back.
+
+The whole call still lives inside one function invocation: `VOICE_CALL_LIMIT_SECONDS` (290 on
+Vercel Hobby) from the moment it started, whoever is speaking.

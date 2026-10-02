@@ -1,277 +1,193 @@
 # Corva
 
-An AI front office for small and mid-sized businesses in India. An AI assistant answers the
-business's phone and chat 24/7; every caller becomes a customer record, anyone who wants
-something becomes a **lead** with an owner on the team, and every "we'll call you back" becomes
-a **follow-up** with a name and a time on it. The team works those from one console, and the
-owner can see who is winning leads and keeping promises.
+An AI front office for small and mid-sized businesses in India.
+
+Each business gets an AI assistant that answers its **website chat**, **voice calls from the
+website**, and its **phone number** — from the business's own knowledge, inside limits the
+business sets. Every conversation becomes work the team can act on: a **customer** record, a
+**lead** with an owner, a **follow-up** with a name and a time. The team works those from one
+console, can **take any chat or call over live**, and the owner can see who is winning leads
+and keeping promises.
+
+Three things in one product, on purpose:
+
+| | What it is | Who uses it |
+| --- | --- | --- |
+| **AI assistant** | Chat and voice, grounded in the business's documents, with bookings the customer confirms | The business's customers |
+| **Customer management** | Customers, leads in the business's own pipeline words, follow-ups, the details the business chose to collect | The business's team |
+| **Team management** | People and roles, who owns what, performance per person, an audit log | The business's owner |
+
+A business connects in whichever way suits it — and they all reach the same assistant and land
+in the same console:
+
+1. **The API** — its website's chat window and voice button talk to Corva (`/developers`).
+2. **A phone number** — callers reach the assistant; no code at all.
+3. **Its own assistant or forms** — it keeps what it has and sends Corva the results.
+
+Tumble Days (a laundry in Gurugram, `../tumbledays`) is the first business live on it and the
+reference integration. Nothing in Corva is specific to it: every business has its own
+knowledge, assistant name, pipeline words, details to collect and booking word.
 
 Built for India: every figure is rupees, stored as paise and printed with Indian grouping
-(₹12,49,500, not ₹1,249,500). `lib/money.ts` is the only place that decides how money reads.
+(₹12,49,500). `lib/money.ts` is the only place that decides how money reads.
+
+## Run it
 
 ```bash
-npm run dev     # http://localhost:3000
-npm run voice   # the voice bridge, for test calls
+cp .env.example .env.local     # database, Gemini key, Clerk keys — see the file
+npm install
+npm run db:migrate             # schema, on a fresh database
+npm run dev                    # http://localhost:3000
+npm run voice                  # the voice bridge, for calls (ws://localhost:8787)
 ```
 
-## The demo, end to end
+- `/` — the public site · `/developers` — API docs · `/app` — a business's console
+- `/operator` — Corva's own console, where businesses are added. **Local only**: it does not
+  exist on a deployment.
+- `/api/status` — which pieces are configured (never a secret's value).
 
-1. **Add a business** — `/operator/onboarding`. Name, industry, website, anything the owner
-   wants the AI to know, and the team (`Name, email, role` per line). Corva reads the website,
-   turns it into knowledge, sets up an AI assistant from the industry template, and gives the
-   business a phone number (a free `+91 40 7xxx xxxx` test line unless you give one).
-2. **Call it** — `/operator/testing`. Dial the number, or switch to **Chat** and type as a
-   customer (same AI, no microphone needed). Your own number decides who you are: a number the
-   business has never seen makes you a new caller, which is where leads come from; pick a known
-   customer to be recognised instead. A new caller who hangs up without leaving details still
-   gets a "call them back" follow-up.
-3. **Watch it land** — "Open their console" (demo mode signs you in as the owner). The call is
-   on Live calls with a *Recorded on this call* panel; the AI's lead is on **Leads** with an
-   owner; its promised callback is on **Follow-ups** and on **Home**. Take the line at any point
-   and the AI goes quiet.
-4. **Work it** — move leads through the business's own stages (a clinic's are *New enquiry →
-   Appointment booked → Visited → Became a patient*), tick follow-ups off, and see it add up on
-   **Team → Performance**: leads owned and won, conversion, follow-ups done on time.
+## Documentation
 
-The same path without a browser or a microphone:
+| Read | For |
+| --- | --- |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the pieces fit: the turn pipeline, voice, handover, tenancy, where things live |
+| [docs/ONBOARDING.md](docs/ONBOARDING.md) | Bringing a new business on, step by step — ours and theirs |
+| [docs/INTEGRATION.md](docs/INTEGRATION.md) | What a business's developer builds; the checklist we hold an integration to |
+| `/developers` (live) | The API reference, generated from `lib/integrations/openapi.ts`; also `/api/v1/openapi.json` |
+| [docs/PRICING.md](docs/PRICING.md) | The plans, what they cost us to serve, and what is not built yet |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | What businesses will need next, in the order we think they will ask |
+| [DEPLOYING.md](DEPLOYING.md) | Putting Corva on Vercel, and connecting a business's site |
+| [docs/VOICE.md](docs/VOICE.md) | Voice measurements, protocol notes and gotchas |
+| [.env.example](.env.example) | Every environment variable, with notes |
 
-```bash
-npm run smoke:business                       # add a clinic, chat as a new caller, check lead + follow-up, remove it
-VOICE_BRIDGE_PORT=8787 npm run smoke:voice -- "+91 40 7xxx xxxx"   # does that number reach its AI?
-```
-
-## Two surfaces
-
-### `/app/*` — a business's console
+## A business's console — `/app/*`
 
 | Group | Route | Screen |
 | --- | --- | --- |
-| Operate | `/app` | Home — follow-ups due, newest leads, live calls, who needs a person |
-| | `/app/live` | Live call — transcript with citations, take the line, what the call recorded |
-| | `/app/handoffs` | Handoffs the AI raised, with the brief it wrote |
-| | `/app/conversations` | Every conversation, with per-turn provenance |
-| Sales | `/app/leads` | The pipeline, in the industry's own stage names |
+| Operate | `/app` | Home — follow-ups due, newest leads, live conversations, who needs a person |
+| | `/app/live` | Live — transcript, details collected, **take the line** (chat or voice), hand back |
+| | `/app/handoffs` | Handoffs the AI raised, each with the brief it wrote |
+| | `/app/conversations` | Every conversation, with what each answer was based on |
+| Sales | `/app/leads` | The pipeline, in the business's own stage names, with collected details on each card |
 | | `/app/follow-ups` | Callbacks and promises — overdue, today, upcoming, done |
-| | `/app/customers` | Customers, and each one's record: leads, follow-ups, conversations, notes |
+| | `/app/customers` | Customers and each one's record: leads, follow-ups, conversations, website visits |
 | AI assistant | `/app/knowledge` | What the AI may answer from; gaps it found |
-| | `/app/tuning` | Persona, tone, what it may do on its own, when it hands over |
+| | `/app/tuning` | Persona, tone, what it may do alone, when it hands over — drafted, then published |
+| | `/app/details` | **Details to collect** — the fields the AI asks every customer for |
 | | `/app/analytics` | Containment and what the AI still cannot finish |
 | Team | `/app/performance` | Per person: leads owned and won, follow-ups on time, handoffs |
-| | `/app/team` | People, roles and invites |
-| | `/app/setup` | Number, channels, hours, privacy, audit log |
+| | `/app/team` | People, roles and invitations |
+| | `/app/setup` | Settings — number, channels, hours, **API keys**, **webhooks**, privacy, audit log |
 
-An **Agent** sees their own leads, follow-ups and customers; a **Manager** or **Owner** sees the
-whole business and can reassign. The scope comes from the `customers.read` grant in the role
-matrix (`lib/auth/permissions.ts`, `lib/auth/scope.ts`), and every action re-checks it.
+Roles are Owner, Admin, Manager, Agent and Analyst (`lib/auth/permissions.ts`). An Agent sees
+their own leads, follow-ups and customers; a Manager or Owner sees the whole business. Every
+screen and every action re-checks the capability on the server.
 
-In demo mode (`CORVA_DEMO`, on unless set to `0`) nobody signs in: the console opens as a seeded
-member, the profile switcher in the sidebar shows the same business as someone else, and
-Corva's own console can open any business as its owner (`lib/auth/enter.ts`).
+Sign-in is Clerk; roles and memberships live in Postgres. Signing in with a *verified* email
+claims whatever is waiting for it — an invitation or the Owner seat created at onboarding
+(`claimByEmail`, `lib/auth/session.ts`).
 
-### `/operator/*` — Corva's own console
+## Corva's own console — `/operator/*` (local only)
 
 | Route | Screen |
 | --- | --- |
-| `/operator` | Businesses — whether each can take a call, its number, calls and leads this week |
-| `/operator/onboarding` | Add a business |
-| `/operator/companies/[slug]` | One business — number, model, what its AI knows, team, recent calls, remove |
-| `/operator/testing` | Test calls — the dialer, and a chat tester |
+| `/operator` | Businesses — whether each can take a call, its number, activity this week |
+| `/operator/onboarding` | Add a business: name, industry, website, what the AI should know, owner, team |
+| `/operator/companies/[slug]` | One business — number, model, knowledge, team, recent calls, remove |
+| `/operator/testing` | Ring a business's assistant from a dialer, or chat to it as a customer |
 
-## Signing in
+`OPERATOR_AVAILABLE` (`lib/auth/mode.ts`) is false on any Vercel deployment and `proxy.ts`
+returns 404 for `/operator*` there. Businesses are onboarded from a Corva team member's
+machine against the shared database.
 
-- **Business console (`/app`)** — Clerk. With `CORVA_DEMO=0` every screen needs a sign-in;
-  roles stay in Postgres (`memberships`). Signing in with a *verified* email claims whatever
-  is waiting for it — an invitation, or a demo/seeded row — so accepting an invite is simply
-  creating an account with the invited address (`claimByEmail`, `lib/auth/session.ts`).
-  Invitations are emailed from onboarding and from Team. `CORVA_DEMO=1` opens everything
-  without signing in, as before.
-- **Corva's own console (`/operator`)** — runs only on the Corva team's machines, open under
-  `npm run dev`; on any Vercel deployment it does not exist (`OPERATOR_AVAILABLE`,
-  `lib/auth/mode.ts`).
+## The public API — `/api/v1/*`
 
-## A business's website → Corva
-
-Per-business API keys (Settings → *Website & API keys*, or `scripts/create-api-key.ts`) let
-a site's **server** call:
+Per-business keys (`ck_…`, Settings → Website & API keys), used from the business's **server**.
 
 | Endpoint | What it does |
 | --- | --- |
-| `POST /api/v1/leads` | A pickup / callback / enquiry → customer (by phone), lead with an owner, follow-up with a time, confirmation email to the customer and a heads-up to the owner |
-| `POST /api/v1/chats` | The site chat's transcript, mirrored into one conversation per session |
-| `POST /api/v1/visits` | Visitor + cookie consent; page, referrer and campaign only with analytics consent |
-| `POST /api/v1/voice-sessions` | A five-minute signed token for a voice call from the visitor's browser |
-| `POST /api/v1/chat` | Corva's own agent — how Tumble Days' Tumbly works: send a message, get the reply (streamed with `stream: true`), and a `proposal` card when a booking or callback is ready (`GET` for a person's replies once they take over) |
-| `POST /api/v1/chat/confirm` | The customer's Confirm or Edit on a card: Confirm makes the booking — lead, owner, follow-up, emails |
-| `GET /api/v1/health` | Checks a key; says which features (voice, secure voice) the business can use |
+| `GET /health` | Checks a key; says which features are on |
+| `GET /config` | How the business is set up: assistant name, what can be booked, the details it collects |
+| `POST /chat` | One customer message → the assistant's reply (streamed with `stream: true`), the details collected so far, and a `proposal` card when a booking or callback is ready |
+| `POST /chat/confirm` | The customer's Confirm or Edit on a card — Confirm makes the lead, owner, follow-up and emails |
+| `GET /chat` | Replies from a person on the team who took the chat over |
+| `POST /chats` | For sites with their own assistant: mirror its transcript |
+| `POST /leads` | A booking, callback or enquiry from the site's own forms, with the business's `details` |
+| `POST /visits` | A visitor, with their cookie consent |
+| `POST /voice-sessions` | A five-minute token for a voice call from the visitor's browser |
+| Webhooks | `lead.created`, `lead.updated`, `follow_up.created`, `handoff.requested`, `conversation.ended` — signed POSTs to the business's URL |
 
-Developer documentation for a business's web developer is at **`/developers`**, and the same
-endpoints as OpenAPI at `/api/v1/openapi.json`. A business can also skip the API entirely and
-use a Corva phone number: callers reach the same agent.
+The reference a developer reads (`/developers`) and the OpenAPI spec are generated from one
+file, `lib/integrations/openapi.ts`.
 
-Tumble Days (`../tumbledays`, branch `corva-integration`) is the first site wired up; set it
-up with `scripts/setup-tumbledays.ts`.
+## How the assistant turns conversations into work
 
-## Environment and deployment
+- **Grounded answers.** `lib/agent/respond.ts` is one turn: retrieve from the business's
+  documents (pgvector, word matching as a fallback), check the escalation triggers, generate
+  with every action gated by the authority table, persist the turn with what it cited. Website
+  chat and the console's tester run it; voice applies the same rules over Gemini Live.
+- **Details to collect** (`lib/business/intake.ts`). The business's own list of fields. The
+  assistant is told the list and what is still missing, asks naturally, and records each answer
+  as it hears it; the answers sit beside the live transcript and on the lead.
+- **Bookings the customer confirms** (`lib/agent/proposals.ts`). In a web chat the assistant
+  proposes; a card with Confirm and Edit is the booking step. What a business books — a
+  pickup, an appointment, a site visit — comes from its industry template.
+- **Leads and follow-ups** (`lib/crm/capture.ts`). One customer and one lead per person,
+  however often the assistant saves; owners are picked in code (the account's owner, else
+  whoever carries the fewest open leads), never by the model.
+- **Handing over.** When the assistant reaches a limit it writes a brief and rings a named
+  person (`lib/agent/routing.ts`). Anyone may also just take the line: in a chat their replies
+  go to the customer's screen; on a voice call the assistant says it is transferring the caller
+  and the person speaks to them from the console (`components/CallRoom.tsx`,
+  `lib/voice/relay.ts`).
+- **Industry templates** (`lib/business/industries.ts`). Persona, what the assistant may do
+  without asking, never-rules, pipeline stage names, default details to collect, what can be
+  booked. A new business is answerable the moment it is created.
+- **Models.** Website chat answers on Gemini 3.5 Flash Lite; a business's other text work on
+  its chosen model; voice on Gemini Live. A stream that is slow to start is hedged with a second
+  model (`lib/agent/model.ts`).
 
-Every variable, with notes, is in **`.env.example`**; **`DEPLOYING.md`** walks through putting
-Corva on Vercel (env vars, Clerk, Resend, domain, connecting Tumble Days). After deploying,
-**`/api/status`** says which pieces are configured without revealing any value.
+## Scripts
 
-Sign-in: with Clerk keys present, sign-in is required unless `CORVA_DEMO=1` — and always on the
-production deployment. `/operator` exists only on the team's machines (`npm run dev`); on Vercel
-it is a 404.
+```bash
+npm run smoke:business                 # add a business, chat as a new customer, check the lead, remove it
+npm run smoke:voice -- "+91 40 7xxx xxxx"   # does that number reach its assistant over the local bridge?
+npx tsx --tsconfig tsconfig.json scripts/create-api-key.ts <brand-slug> "Website"
+npm run db:generate && npm run db:migrate   # after changing lib/db/schema.ts
+npm run db:doctor                      # checks the database, the key and a live agent version
+```
 
-Voice: on Vercel the bridge runs inside the app at `wss://<host>/api/voice`
-(`app/api/voice/route.ts`); locally `npm run voice` runs the same code (`lib/voice/bridge.ts`).
-
-## How the AI turns calls into work
-
-- **Routing by number.** `lib/business/phone.ts` normalises numbers to digits; the voice bridge
-  resolves the dialled number to a business and the caller's number to a customer, creating a
-  contact for anyone new (`lib/voice/session.ts`, `lib/crm/capture.ts`).
-- **Two CRM tools**, on voice and on text: `save_caller_details` writes or updates the lead (one
-  per conversation, and a returning caller's open lead is reused), and `schedule_follow_up`
-  creates the task. Owners are chosen in code — the account owner, else whoever on the team
-  carries the fewest open leads — never by the model.
-- **Industry templates** (`lib/business/industries.ts`) give a new business its persona, what it
-  may do without asking, escalation rules, never-rules, what to ask a new caller, and the words
-  its pipeline uses. Stage *keys* are shared so reports work across industries.
-- **Knowledge from the website** (`lib/business/website.ts`) — the home page and the few pages
-  most likely to hold answers, rewritten into "Topic: fact" paragraphs. Retrieval falls back to
-  word matching when embeddings are unavailable, and model calls fall through to a sibling Gemini
-  model when one is overloaded or slow to start, skipping it for five minutes afterwards
-  (`lib/agent/model.ts`).
-- **Handing over.** When the AI hits a limit it writes a brief and rings a named person
-  (`lib/agent/routing.ts`, `components/TransferAlert.tsx`). Taking the line silences the AI —
-  on voice too: the bridge drops its audio and refuses its tools while a person holds the call.
+`npm run db:seed` and its siblings (`db:conversations`, `db:crm`, `db:rescore`, `db:embed`)
+build a fictional demo workspace on an **empty** database. Do not run them against the
+database real businesses live in.
 
 ## Layout
 
 ```
 app/
-  layout.tsx                    root — html/body and the font, nothing else
-  globals.css                   Modernist tokens, app base, hover utilities, dark overrides
-  page.tsx                      the marketing site (not yet updated for the new direction)
-  (console)/
-    layout.tsx                  tenant shell — sidebar + sticky top bar
-    app/<route>/page.tsx        the tenant screens
-  (operator)/
-    layout.tsx                  staff shell — dark header + tab bar
-    operator/<route>/page.tsx   the operator screens
-components/
-  Sidebar.tsx  OperatorNav.tsx  nav shells (they need usePathname)
-  TopBar.tsx
-  filters.tsx                   URL-driven chips, tabs, sort headers, pagers
-  ActionButton.tsx              a button that runs a server action and shows refusals
-  TransferAlert.tsx             the AI asking for you, by name
-  VoicePlayground.tsx           the dialer: mic capture and playback for /operator/testing
-  CrmControls.tsx               stage/owner selects, follow-up buttons, add-lead and add-follow-up
-  OnboardCompany.tsx            the add-a-business form
-  ui.tsx                        light primitives — Kicker, Bar, Tag, buttons, Th, …
-                                ScreenRefusal — what a screen you may not open says
-  operator-ui.tsx               dark primitives — DarkKicker, KpiCell, DarkTh, …
+  page.tsx                      the public site (content in lib/marketing.ts)
+  developers/                   API documentation
+  (console)/app/<route>/        a business's console
+  (operator)/operator/<route>/  Corva's own console (local only)
+  api/v1/*                      the public API
+  api/voice                     the voice bridge on Vercel (WebSocket)
+  api/status                    deployment self-check
 lib/
-  db/                           schema, seed and the maintenance scripts
-  agent/                        retrieval, guardrails, authority, the turn pipeline
-                                routing.ts — who a transferred call rings at
-                                summary.ts — the one line, for whoever takes over
-  auth/                         session, the role matrix, and the per-screen gate
-                                screen.ts — the check every gated page opens with
-                                scope.ts — whose customers "theirs" means
-  queries/                      read models, one module per surface
-  actions/                      server actions, each re-checking the capability
-  voice/                        the Gemini Live session and its cost guards
-  business/                     industries, onboarding, phone numbers, reading a website
-  crm/capture.ts                what the AI writes into the CRM while it talks
-  knowledge/                    chunking and indexing documents
-  money.ts                      rupees, paise, and Indian digit grouping
-  marketing.ts                  landing page content
-  nav.ts                        console nav groups, filtered by capability
-  config.ts                     display thresholds
-scripts/
-  voice-server.ts               the Gemini Live bridge (npm run voice)
-  smoke-business.ts             add a business and chat to it as a new caller
-  smoke-voice.ts                check a number reaches its AI over the bridge
-design/                         the three source designs, for reference
-docs/VOICE.md                   voice measurements, gotchas and the case for Sarvam
+  agent/          the turn pipeline, retrieval, guardrails, authority, proposals, model choice
+  voice/          Gemini Live session, the bridge, the person-on-a-call relay
+  business/       industries, onboarding, details to collect, phone numbers, reading a website
+  crm/            what the assistant writes into the CRM while it talks
+  integrations/   API keys, request handling, intake, webhooks, the OpenAPI description
+  auth/           sessions, the role matrix, per-screen gates, scope
+  actions/        server actions — each re-checks its capability
+  queries/        read models, one module per screen
+  db/             schema and maintenance scripts
+components/       console and operator UI
+drizzle/          migrations
+scripts/          the local voice bridge, smoke tests, key creation
+docs/             the documents listed above
+design/           the original design files, for reference
 ```
 
-### Styling
-
-The design system is plain CSS custom properties (`design/_ds/…/styles.css`), reproduced
-verbatim at the top of `app/globals.css`. Screens use inline styles the way the designs did —
-these are layouts of one-off measurements (`108px` timeline gutters, `9.5px` tracked-out
-labels), not sets of repeating components, and inlining keeps each screen readable against its
-source. What *does* repeat lives in `components/ui.tsx` and `components/operator-ui.tsx`.
-
-The designs carried hover states as `style-hover` attributes on individual elements. Those
-became utility classes (`.hov-raise`, `.hov-invert`, `.hov-accent-dark`, …) so each hover rule
-exists once.
-
-The operator console inverts the palette — ink is the ground, `--color-bg` is the ink. Rather
-than a second token set, `.operator-root` scopes the overrides, and `body:has(.operator-root)`
-paints the page behind it so overscroll doesn't flash light.
-
-### Derived values
-
-The designs computed presentation values — bar widths, accent thresholds, tag colours — inside
-their render functions. The `lib/queries/*` modules do the same on the way out of the database,
-so a screen stays a layout and a threshold lives in one place. A score is drawn in accent above
-`config.accentPriorityThreshold`; a churn bar turns accent at 60.
-
-Filters, sorts and paging are search parameters, not client state (`lib/params.ts`). A filtered
-table can be linked and the back button undoes a filter — and a saved view is just a stored copy
-of that query, so there is no privileged second path through the same data.
-
-### The designs' props
-
-Both `.dc.html` app files declared canvas knobs in `data-props` and never wired them to
-anything. `lib/config.ts` makes them real:
-
-- `accentPriorityThreshold` (75) — drives the accent cutoff the tenant console had hardcoded
-- `showAiRationale` (true) — the score breakdown and "what the AI has learned" panels
-
-## Data
-
-Every screen reads Postgres. There are no fixtures left — `lib/data.ts` and
-`lib/operator-data.ts` are gone, and the seed builds the world the designs describe: 148
-tenants, four brands, a 60-day conversation history, an eleven-axis scoring model with
-attributed override rules, and a knowledge base embedded into pgvector.
-
-```bash
-npm run db:reset           # drops public *and* drizzle's migration ledger
-npm run db:migrate         # schema
-npm run db:seed            # tenants, customers, documents, agent versions
-npm run db:conversations   # transcripts, citations, handoffs
-npm run db:rescore         # let the override rules see the new history
-npm run db:embed           # embed the chunks (retrieval falls back to word matching until you do)
-npm run db:crm             # a week of demo leads and follow-ups for Aurelius Home
-npm run db:doctor          # checks the database, the key, and the live agent version
-```
-
-`npm run check:sql` touches no database. It asserts how this drizzle instance
-renders an interpolated column, because that differs by position and a query
-that gets it wrong returns wrong numbers rather than an error — see the note on
-`db` in [lib/db/index.ts](lib/db/index.ts).
-
-The order matters and the script names do not say so: `db:conversations` needs customers and
-a live agent version, and `db:rescore` needs the conversation history or every score comes
-out model-only.
-
-The agent is real: `lib/agent/respond.ts` retrieves, checks the escalation triggers,
-generates with every action gated by the authority table, and persists the turn with its
-citations. `respondStream()` is the pipeline and `respond()` waits for it, so the console
-and the voice bridge run the same code.
-
-## Voice
-
-`/operator/testing` is a dialer for ringing a business's AI the way a customer would, over
-Gemini Live. The bridge is a separate process because Next.js route handlers cannot hold a
-WebSocket open:
-
-```bash
-npm run voice              # then open /operator/testing
-```
-
-Every measurement behind that choice — why the batch API cannot do voice, what the local
-alternatives cost, the API corrections — is in [docs/VOICE.md](docs/VOICE.md).
+Screens are server components with inline styles against the tokens in `app/globals.css`;
+filters, sorts and paging are URL parameters (`lib/params.ts`), so any view can be linked.
