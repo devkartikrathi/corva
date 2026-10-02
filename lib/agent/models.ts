@@ -192,6 +192,16 @@ export const MODELS: ModelChoice[] = [
 export const DEFAULT_MODEL_ID = process.env.AGENT_DEFAULT_MODEL ?? "gemini-3.5-flash";
 
 /**
+ * What answers a business's website chat, whatever the business is set to.
+ *
+ * Flash Lite: a chat visitor is watching the dots, and Lite has been the one
+ * that answers in a second or two while the bigger models take twenty. It is
+ * still the stream fallback's first choice rather than its only one — if Lite
+ * is busy or slow to start, another model answers rather than nobody.
+ */
+export const CHAT_MODEL_ID = process.env.AGENT_CHAT_MODEL ?? "gemini-3.5-flash-lite";
+
+/**
  * A model by id, always.
  *
  * Falls back rather than throwing: a brand row holding an id we have since

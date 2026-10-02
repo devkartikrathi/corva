@@ -2,6 +2,8 @@ import Link from "next/link";
 import { Kicker, LinkAction, OutlineButton, PrimaryButton, ScreenTitle, Tag } from "@/components/ui";
 import { ActiveFilters, Chip, Pager, SearchBox, Tab, TabStrip } from "@/components/filters";
 import { ReviewForm } from "@/components/ReviewForm";
+import { DetailsPanel } from "@/components/DetailsPanel";
+import { intakeFieldsFor, knownDetails } from "@/lib/business/intake";
 import { formatCost } from "@/lib/money";
 import { ExportButton } from "@/components/ExportButton";
 import { SaveViewButton } from "@/components/SaveViewButton";
@@ -120,6 +122,9 @@ export default async function ConversationsPage({
   const focus =
     convos.find((c) => c.id === params.id) ?? convos.find((c) => c.bad) ?? convos[0] ?? null;
   const detail = focus ? await getConversation(brand.id, focus.id) : null;
+  // The business's Details to collect, as this conversation filled them in.
+  const fields = detail ? await intakeFieldsFor(brand.id, brand.industry) : [];
+  const details = detail ? await knownDetails(detail.conversation.id, fields) : {};
 
   return (
     <section>
@@ -439,6 +444,12 @@ export default async function ConversationsPage({
               </div>
             </div>
           </div>
+
+          {Object.keys(details).length > 0 && (
+            <div style={{ borderBottom: "2px solid var(--color-divider)", maxWidth: 520 }}>
+              <DetailsPanel fields={fields} values={details} />
+            </div>
+          )}
 
           {/* Transcript */}
           <div

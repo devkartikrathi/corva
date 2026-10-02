@@ -27,6 +27,7 @@ import {
 import { classifyAndStore } from "@/lib/pipelines/classify";
 import { billConversation, customerContext } from "@/lib/agent/respond";
 import { followUpIfLost } from "@/lib/crm/capture";
+import { knownDetails } from "@/lib/business/intake";
 import { verifyVoiceToken } from "@/lib/integrations/keys";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
@@ -170,6 +171,24 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
   /** Set when the first message is a person joining, not a caller starting. */
   let agentMode = false;
 
+  /**
+   * Whether the caller is mid-utterance, as the model has been told.
+   *
+   * The model is not left to detect speech (see `realtimeInputConfig` in
+   * session.ts): the first audio after a pause is `activityStart`, and letting
+   * go of the talk button — or audio simply stopping — is `activityEnd`, which
+   * is what makes the model answer.
+   */
+  let callerSpeaking = false;
+  let speechGap: NodeJS.Timeout | null = null;
+  const endCallerTurn = () => {
+    if (speechGap) clearTimeout(speechGap);
+    speechGap = null;
+    if (!callerSpeaking) return;
+    callerSpeaking = false;
+    if (live?.readyState === WebSocket.OPEN) live.send(JSON.stringify({ realtimeInput: { activityEnd: {} } }));
+  };
+
   let capTimer: NodeJS.Timeout | null = null;
   let idleTimer: NodeJS.Timeout | null = null;
   let holdTimer: NodeJS.Timeout | null = null;
@@ -200,6 +219,7 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
     if (idleTimer) clearTimeout(idleTimer);
     if (holdTimer) clearInterval(holdTimer);
     if (announceTimer) clearTimeout(announceTimer);
+    if (speechGap) clearTimeout(speechGap);
     closeLine({ t: "closed", reason });
 
     const seconds = Math.round((Date.now() - startedAt.getTime()) / 1000);
@@ -428,6 +448,13 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
       if (heldBy) relay?.sendAudio(raw as Buffer);
       audioInBytes += (raw as Buffer).length;
       if (live?.readyState === WebSocket.OPEN) {
+        if (!callerSpeaking) {
+          callerSpeaking = true;
+          live.send(JSON.stringify({ realtimeInput: { activityStart: {} } }));
+        }
+        // If the "I have finished" message is lost, silence ends the turn.
+        if (speechGap) clearTimeout(speechGap);
+        speechGap = setTimeout(endCallerTurn, 1500);
         live.send(
           JSON.stringify({
             realtimeInput: {
@@ -498,6 +525,7 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
         // too late, setup is never sent, and the session hangs until the
         // client gives up.
         const { text: caller } = await customerContext(opened.customer?.id ?? null);
+        const known = await knownDetails(opened.conversation.id, opened.config.fields);
 
         liveModel = resolveLiveModel(msg.liveModel);
 
@@ -512,6 +540,7 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
                 liveModel,
                 caller || "The number is not recognised. You do not know who this is.",
                 opened.isNewCaller,
+                known,
               ),
             ),
           );
@@ -684,7 +713,19 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
           send({ type: "error", message: e.message });
           void shutdown("live socket error");
         });
-        live.on("close", () => void shutdown("live socket closed"));
+        // Why the model hung up, when it did: its close code and reason are
+        // the only account of it there is, and "live socket closed" alone has
+        // sent us looking through logs that no longer existed.
+        live.on("close", (code: number, reason: Buffer) => {
+          if (closed) return;
+          const why = reason?.toString().slice(0, 200);
+          console.error(`  live socket closed by the model: ${code}${why ? ` ${why}` : ""}`);
+          send({
+            type: "error",
+            message: "The voice line dropped on our side. Please call again, or carry on in the chat.",
+          });
+          void shutdown(`live socket closed (${code}${why ? `: ${why}` : ""})`);
+        });
       } catch (e) {
         const message = e instanceof Error ? e.message : "Could not start the session.";
         console.error("start failed:", message);
@@ -697,8 +738,8 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
 
     // The browser's own VAD, or a released push-to-talk key, ends the turn.
     // Trailing silence alone does not endpoint — see docs/VOICE.md.
-    if (msg.type === "end_turn" && live?.readyState === WebSocket.OPEN) {
-      live.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
+    if (msg.type === "end_turn") {
+      endCallerTurn();
       return;
     }
 

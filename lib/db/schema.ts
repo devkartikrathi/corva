@@ -589,6 +589,13 @@ export const conversations = pgTable(
      */
     isTest: boolean("is_test").notNull().default(false),
     /**
+     * The details the business asked the AI to collect, as found out in this
+     * conversation: `{ address: "B-402 Palm Grove…", request_type: "Dry-cleaning" }`.
+     * Keys are the business's intake fields (see `intakeFields`). Kept here as
+     * well as on the lead so the person taking the line sees them mid-call.
+     */
+    captured: jsonb("captured").$type<Record<string, string>>().notNull().default({}),
+    /**
      * The id another system gave this conversation — e.g. a website chat
      * session — so it can be updated as it goes rather than duplicated.
      */
@@ -1288,6 +1295,8 @@ export const leads = pgTable(
     source: text("source").notNull().default("manual"),
     createdByAi: boolean("created_by_ai").notNull().default(false),
     lostReason: text("lost_reason"),
+    /** The business's intake fields as collected for this request. */
+    details: jsonb("details").$type<Record<string, string>>().notNull().default({}),
     stageChangedAt: timestamp("stage_changed_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1365,6 +1374,43 @@ export const apiKeys = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("api_keys_brand_idx").on(t.brandId)],
+);
+
+/**
+ * What a business wants its AI to find out from every customer.
+ *
+ * A laundry needs the pickup address and what needs cleaning; a clinic needs
+ * the patient's age and symptoms; a builder the budget and the site. The
+ * business keeps this list (Details to collect), the agent asks for each one
+ * naturally in chat and on calls and records the answers as it hears them,
+ * and whoever picks the customer up sees them filled in rather than reading
+ * a transcript to find out.
+ *
+ * Name, phone and email are built in: they are also the customer record's own
+ * columns. Everything else is the business's own.
+ */
+export const intakeFields = pgTable(
+  "intake_fields",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    /** Stable id the values are stored under: "address", "request_type". */
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    /** What to ask, or how to fill it in — read by the AI. */
+    hint: text("hint"),
+    /** text | phone | email | address | choice | date | number */
+    kind: text("kind").notNull().default("text"),
+    /** For `choice`: the answers allowed. */
+    options: jsonb("options").$type<string[]>().notNull().default([]),
+    required: boolean("required").notNull().default(false),
+    position: integer("position").notNull().default(0),
+    builtIn: boolean("built_in").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("intake_fields_brand_key_idx").on(t.brandId, t.key)],
 );
 
 /**

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { isPlausiblePhone } from "@/lib/business/phone";
 import { industryFor, type Industry } from "@/lib/business/industries";
+import { captureDetails, labelled, type IntakeField } from "@/lib/business/intake";
 
 /**
  * Bookings and callbacks a customer confirms themselves.
@@ -41,9 +42,12 @@ export type CallbackDetails = {
   topic?: string;
 };
 
+/** The business's other Details to collect, as found out so far — shown on the card too. */
+export type ProposalExtra = { label: string; value: string }[];
+
 export type Proposal =
-  | { id: string; kind: "booking"; noun: string; details: BookingDetails }
-  | { id: string; kind: "callback"; noun: "callback"; details: CallbackDetails };
+  | { id: string; kind: "booking"; noun: string; details: BookingDetails; extra?: ProposalExtra }
+  | { id: string; kind: "callback"; noun: "callback"; details: CallbackDetails; extra?: ProposalExtra };
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -120,9 +124,31 @@ export function proposalTools(opts: {
   brandId: string;
   conversationId: string;
   industry: string | null | undefined;
+  fields: IntakeField[];
   onPropose: (p: Proposal) => void;
 }): ToolSet {
   const booking = industryFor(opts.industry).booking;
+
+  /**
+   * What the card says is what was found out: its name, number, email and
+   * address go into the conversation's details, and the business's other
+   * details found so far ride along on the card.
+   */
+  async function extraFor(details: BookingDetails | CallbackDetails): Promise<ProposalExtra | undefined> {
+    const address = opts.fields.find((f) => f.kind === "address");
+    const { captured } = await captureDetails(opts.conversationId, opts.fields, {
+      name: details.name,
+      phone: details.phone,
+      email: details.email,
+      ...(address && "address" in details && details.address ? { [address.key]: details.address } : {}),
+    });
+    const shown = new Set(Object.values(details).flat().map((v) => String(v).toLowerCase()));
+    const extra = labelled(
+      opts.fields.filter((f) => !f.builtIn && f.kind !== "address"),
+      (captured ?? {}) as Record<string, string>,
+    ).filter((e) => !shown.has(e.value.toLowerCase()));
+    return extra.length ? extra.map(({ label, value }) => ({ label, value })) : undefined;
+  }
 
   async function save(kind: "booking" | "callback", details: BookingDetails | CallbackDetails) {
     await db
@@ -151,7 +177,7 @@ export function proposalTools(opts: {
       const problem = checkCallback(details);
       if (problem) return { proposed: false, problem };
       const id = await save("callback", details);
-      opts.onPropose({ id, kind: "callback", noun: "callback", details });
+      opts.onPropose({ id, kind: "callback", noun: "callback", details, extra: await extraFor(details) });
       return { proposed: true, next: "The customer now sees a card to confirm. Do not repeat the details." };
     },
   });
@@ -178,7 +204,7 @@ export function proposalTools(opts: {
       const problem = checkBooking(details, booking);
       if (problem) return { proposed: false, problem };
       const id = await save("booking", details);
-      opts.onPropose({ id, kind: "booking", noun: booking.noun, details });
+      opts.onPropose({ id, kind: "booking", noun: booking.noun, details, extra: await extraFor(details) });
       return { proposed: true, next: "The customer now sees a card to confirm. Do not repeat the details." };
     },
   });

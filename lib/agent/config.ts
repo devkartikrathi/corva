@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
+import { intakeFieldsFor, type IntakeField } from "@/lib/business/intake";
 
 /**
  * The published configuration a brand's agent runs under.
@@ -46,6 +47,12 @@ export type AgentConfig = {
   authority: AuthorityLimit[];
   triggers: Trigger[];
   neverRules: string[];
+  /**
+   * What the business wants found out from every customer (Details to
+   * collect). The business's current list, not the version's: it is a
+   * business setting, not a behaviour to be drafted and published.
+   */
+  fields: IntakeField[];
 };
 
 /** The live version for a brand, or a specific one for replay. */
@@ -66,7 +73,7 @@ export async function loadAgentConfig(
 
   if (!row) return null;
 
-  const [authority, triggers, never] = await Promise.all([
+  const [authority, triggers, never, fields] = await Promise.all([
     db.select().from(s.authorityLimits).where(eq(s.authorityLimits.agentVersionId, row.version.id)),
     db
       .select()
@@ -78,6 +85,7 @@ export async function loadAgentConfig(
         ),
       ),
     db.select().from(s.neverRules).where(eq(s.neverRules.agentVersionId, row.version.id)),
+    intakeFieldsFor(row.brand.id, row.brand.industry),
   ]);
 
   return {
@@ -103,5 +111,6 @@ export async function loadAgentConfig(
       rule: (t.rule ?? {}) as Record<string, unknown>,
     })),
     neverRules: never.map((n) => n.description),
+    fields,
   };
 }

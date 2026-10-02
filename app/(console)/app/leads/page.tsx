@@ -5,6 +5,7 @@ import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { customerScope } from "@/lib/auth/scope";
 import { assignLead, createLead, setLeadStage } from "@/lib/actions/crm";
 import { industryFor, LEAD_STAGES } from "@/lib/business/industries";
+import { intakeFieldsFor, labelled } from "@/lib/business/intake";
 import { formatRupees, formatRupeesShort } from "@/lib/money";
 import { assignableMembers, listLeads, pipeline, type LeadRow } from "@/lib/queries/crm";
 
@@ -48,7 +49,13 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const managesAll = scope.kind === "all";
   const industry = industryFor(brand.industry);
 
-  const [leads, members] = await Promise.all([listLeads(brand.id, scope, { q }), assignableMembers(session.orgId)]);
+  const [leads, members, fields] = await Promise.all([
+    listLeads(brand.id, scope, { q }),
+    assignableMembers(session.orgId),
+    intakeFieldsFor(brand.id, brand.industry),
+  ]);
+  // The business's own details on each card; name and phone are shown already.
+  const cardFields = fields.filter((f) => !f.builtIn);
   const columns = pipeline(leads, industry.key);
   const open = columns.filter((c) => c.stage !== "won" && c.stage !== "lost");
   const openCount = open.reduce((n, c) => n + c.count, 0);
@@ -138,6 +145,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
                     stageOptions={stageOptions}
                     memberOptions={memberOptions}
                     canAssign={managesAll}
+                    details={labelled(cardFields, lead.details ?? {})}
                   />
                 ))}
               </div>
@@ -154,7 +162,9 @@ function LeadCard({
   stageOptions,
   memberOptions,
   canAssign,
+  details,
 }: {
+  details: { key: string; label: string; value: string }[];
   lead: LeadRow;
   stageOptions: { value: string; label: string }[];
   memberOptions: { value: string; label: string }[];
@@ -182,6 +192,16 @@ function LeadCard({
         <span style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--color-neutral-700)" }}>{ago(lead.createdAt)}</span>
       </div>
       {lead.interest && <div style={{ marginTop: 5, fontSize: 12, lineHeight: 1.45 }}>{lead.interest}</div>}
+      {details.length > 0 && (
+        <dl style={{ margin: "6px 0 0", fontSize: 11, lineHeight: 1.45, display: "grid", gridTemplateColumns: "auto 1fr", gap: "1px 8px" }}>
+          {details.map((d) => (
+            <div key={d.key} style={{ display: "contents" }}>
+              <dt style={{ color: "var(--color-neutral-700)" }}>{d.label}</dt>
+              <dd style={{ margin: 0, fontWeight: 600, wordBreak: "break-word" }}>{d.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
       <div style={{ marginTop: 6, fontSize: 11, color: "var(--color-neutral-700)", display: "flex", flexWrap: "wrap", gap: "2px 8px" }}>
         {lead.phone && <span>{lead.phone}</span>}
         {lead.valuePaise ? <b style={{ color: "var(--color-text)" }}>{formatRupees(lead.valuePaise)}</b> : null}

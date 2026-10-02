@@ -9,6 +9,7 @@ import * as s from "@/lib/db/schema";
 import { runningSentiment, scoreUtterance } from "@/lib/pipelines/sentiment";
 import { brandForNumber, formatPhone } from "@/lib/business/phone";
 import { industryFor } from "@/lib/business/industries";
+import { captureDetails, detailsInstructions, detailsLiveProperties, leadQuestionsFrom } from "@/lib/business/intake";
 import {
   crmInstructions,
   customerForCaller,
@@ -169,6 +170,8 @@ export function liveInstruction(
   brandName: string,
   caller: string,
   isNewCaller = false,
+  /** The business's Details to collect already known when the call opens. */
+  known: Record<string, string> = {},
 ): string {
   return [
     config.persona,
@@ -229,7 +232,9 @@ export function liveInstruction(
     "",
     "If they are still unhappy, or they ask again, that is not agreement. Escalate.",
     "",
-    crmInstructions({ isNewCaller, leadQuestions: industryFor(config.industry).leadQuestions }),
+    crmInstructions({ isNewCaller, leadQuestions: leadQuestionsFrom(config) }),
+    "",
+    detailsInstructions(config.fields, known, "save_caller_details").replace(/^Details to collect/, "DETAILS TO COLLECT"),
     "",
     "NEVER SAY A TOOL'S NAME OUT LOUD",
     "The caller is on a phone. They cannot see tools and must never hear one named.",
@@ -243,6 +248,21 @@ export function liveInstruction(
   ].join("\n");
 }
 
+/**
+ * The tools, with this business's Details to collect added to
+ * save_caller_details — so the model sees the exact fields it is to fill.
+ */
+function toolsFor(config: AgentConfig) {
+  const extra = detailsLiveProperties(config.fields);
+  return TOOLS.map((group) => ({
+    functionDeclarations: group.functionDeclarations.map((d) =>
+      d.name === "save_caller_details" && Object.keys(extra).length
+        ? { ...d, parameters: { ...d.parameters, properties: { ...d.parameters.properties, ...extra } } }
+        : d,
+    ),
+  }));
+}
+
 /** The setup frame that opens a Live session. */
 export function setupMessage(
   config: AgentConfig,
@@ -250,6 +270,7 @@ export function setupMessage(
   model: string,
   caller: string,
   isNewCaller = false,
+  known: Record<string, string> = {},
 ) {
   return {
     setup: {
@@ -261,8 +282,16 @@ export function setupMessage(
         maxOutputTokens: 400,
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } },
       },
-      systemInstruction: { parts: [{ text: liveInstruction(config, brandName, caller, isNewCaller) }] },
-      tools: TOOLS,
+      systemInstruction: { parts: [{ text: liveInstruction(config, brandName, caller, isNewCaller, known) }] },
+      tools: toolsFor(config),
+      /**
+       * The bridge says when the caller starts and stops talking; the model
+       * does not guess. Calls are push-to-talk, so the bridge knows exactly —
+       * and the model's own detection stopped ending turns on the live
+       * preview (it heard a caller start and never noticed them stop, so it
+       * never answered). See `activityStart` / `activityEnd` in bridge.ts.
+       */
+      realtimeInputConfig: { automaticActivityDetection: { disabled: true } },
       // Both sides as text, so turns persist without a second STT pass.
       inputAudioTranscription: {},
       outputAudioTranscription: {},
@@ -302,6 +331,8 @@ export async function handleToolCall(
       valueRupees: typeof args.valueRupees === "number" ? args.valueRupees : undefined,
       source: "phone",
     });
+    // The business's own fields, from the same call.
+    await captureDetails(ctx.conversationId, ctx.config.fields, args, lead.id);
     return {
       response: { saved: true, owner: ownerName ?? "the team" },
       outcome: {

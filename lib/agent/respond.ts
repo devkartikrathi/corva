@@ -13,7 +13,7 @@ import {
   type ConversationState,
 } from "./guardrails";
 import { languageModel, thinkingOptions } from "./model";
-import { resolveModel } from "./models";
+import { CHAT_MODEL_ID, resolveModel } from "./models";
 import { recordModelCall } from "./quota";
 import { grounded, hasGrounding, recordGap, retrieve, type RetrievedChunk } from "./retrieval";
 import { runningSentiment, scoreUtterance } from "@/lib/pipelines/sentiment";
@@ -21,8 +21,8 @@ import { addUsage, priceUsage, type Usage } from "@/lib/pricing";
 import { writeBrief } from "./brief";
 import { updateLiveSummary } from "./summary";
 import { crmInstructions, isUnnamed, saveCallerDetails, scheduleFollowUp } from "@/lib/crm/capture";
-import { industryFor } from "@/lib/business/industries";
 import { proposalInstructions, proposalTools, todayIST, type Proposal } from "./proposals";
+import { captureDetails, detailsInstructions, detailsSchema, knownDetails, leadQuestionsFrom } from "@/lib/business/intake";
 
 /**
  * One turn of the agent.
@@ -91,6 +91,8 @@ export function systemPrompt(
   isNewCaller = false,
   /** A website chat that can show confirmation cards, rather than a call. */
   webChat = false,
+  /** The business's Details to collect already found out, by field key. */
+  known: Record<string, string> = {},
 ): string {
   const sources = grounded(chunks)
     .map(
@@ -138,6 +140,8 @@ ${context}
 ## The only sources you may answer from
 ${sources || "(nothing matched — say you do not have that to hand and offer a callback from the team)"}
 
+## ${detailsInstructions(config.fields, known, webChat ? "record_details" : "save_caller_details")}
+
 ${
     webChat
       ? `## ${proposalInstructions(config.industry, config.agentName)}
@@ -147,7 +151,7 @@ schedule_follow_up with what was promised.
 
 ${WEB_CHAT_STYLE}
 `
-      : `## ${crmInstructions({ isNewCaller, leadQuestions: industryFor(config.industry).leadQuestions })
+      : `## ${crmInstructions({ isNewCaller, leadQuestions: leadQuestionsFrom(config) })
     .replace(/^RECORDING WHAT HAPPENS/, "Recording what happens")}
 `
   }
@@ -270,7 +274,7 @@ export async function* respondStream(opts: {
 
   // Whatever this brand is on. Resolved once, so the turn, its billing and the
   // row that records which model answered cannot disagree with each other.
-  const model = resolveModel(config.modelId);
+  const model = resolveModel(webChat ? CHAT_MODEL_ID : config.modelId);
 
   const history = await db
     .select()
@@ -303,6 +307,7 @@ export async function* respondStream(opts: {
     message,
   ];
   const { text: context, priority } = await customerContext(conversation.customerId);
+  const known = await knownDetails(conversationId, config.fields);
 
   // The running figure, weighted towards what was just said — a call that has
   // been recovered should stop escalating, and one that has just turned should
@@ -356,7 +361,7 @@ export async function* respondStream(opts: {
     const result = streamText({
       model: languageModel(model.id),
       providerOptions: thinkingOptions(model.thinking.turn),
-      system: systemPrompt(config, context, chunks, context.startsWith("New caller"), webChat),
+      system: systemPrompt(config, context, chunks, context.startsWith("New caller"), webChat, known),
       messages: [
         ...history.map((t) => ({
           role: (t.speaker === "customer" ? "user" : "assistant") as "user" | "assistant",
@@ -366,10 +371,30 @@ export async function* respondStream(opts: {
       ],
       tools: {
         ...(webChat
+          ? {
+              record_details: tool({
+                description:
+                  "Record details the customer has given — any of the business's Details to collect. " +
+                  "Call it whenever you learn one, with just the ones you learned.",
+                inputSchema: detailsSchema(config.fields),
+                execute: async (input) => {
+                  const { saved, rejected, captured } = await captureDetails(conversationId, config.fields, input);
+                  const have = { ...known, ...(captured ?? {}) };
+                  return {
+                    saved,
+                    ...(rejected.length ? { notValid: rejected } : {}),
+                    stillNeeded: config.fields.filter((f) => !have[f.key]).map((f) => f.label),
+                  };
+                },
+              }),
+            }
+          : {}),
+        ...(webChat
           ? proposalTools({
               brandId: conversation.brandId,
               conversationId,
               industry: config.industry,
+              fields: config.fields,
               onPropose: (p) => {
                 proposal = p;
               },
@@ -404,7 +429,7 @@ export async function* respondStream(opts: {
             email: z.string().optional(),
             notes: z.string().optional().describe("Budget, timing, preferences"),
             valueRupees: z.number().optional().describe("Budget or order value in rupees, if known"),
-          }),
+          }).extend(detailsSchema(config.fields.filter((f) => !f.builtIn)).shape),
           execute: async (input) => {
             const { lead, created, ownerName } = await saveCallerDetails({
               conversationId,
@@ -414,6 +439,7 @@ export async function* respondStream(opts: {
               source: conversation.channel,
             });
             actionsTaken.push({ label: `${created ? "New lead" : "Lead updated"}: ${lead.name}`, allowed: true });
+            await captureDetails(conversationId, config.fields, input, lead.id);
             return { saved: true, owner: ownerName ?? "the team" };
           },
         }) }) as ToolSet),

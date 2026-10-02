@@ -3,6 +3,8 @@ import { Bar, Kicker, LinkAction, LiveDot, PrimaryButton, ScreenRefusal } from "
 import { ActionButton } from "@/components/ActionButton";
 import { CallComposer } from "@/components/CallComposer";
 import { CallRoom } from "@/components/CallRoom";
+import { DetailsPanel } from "@/components/DetailsPanel";
+import { knownDetails } from "@/lib/business/intake";
 import { LiveRefresh } from "@/components/LiveRefresh";
 import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { loadAgentConfig } from "@/lib/agent/config";
@@ -118,6 +120,7 @@ export default async function LiveCallPage({
   const newer = call.ended ? liveNow.find((c) => c.id !== call.conversation.id) : undefined;
 
   const [config, captured] = await Promise.all([loadAgentConfig(brand.id), capturedOn(call.conversation.id)]);
+  const details = config ? await knownDetails(call.conversation.id, config.fields) : {};
   const industry = industryFor(brand.industry);
   const callerFacts = call.facts;
   const transcript = call.turns;
@@ -382,6 +385,7 @@ export default async function LiveCallPage({
       >
         {/* Who is calling */}
         <div style={{ borderRight: "2px solid var(--color-divider)" }}>
+          {config && <DetailsPanel fields={config.fields} values={details} editHref="/app/details" />}
           <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-neutral-300)" }}>
             <Kicker>Who is calling</Kicker>
             <div

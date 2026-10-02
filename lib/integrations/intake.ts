@@ -725,6 +725,13 @@ export async function agentChatConfirm(brand: Brand, input: AgentChatConfirmInpu
     throw e;
   }
 
+  // Everything the chat found out goes onto the lead the team will work.
+  if (lead.leadId) {
+    await db.execute(sql`
+      UPDATE ${s.leads} SET details = details || (SELECT captured FROM ${s.conversations} WHERE id = ${conversation.id})
+      WHERE id = ${lead.leadId}
+    `);
+  }
   const receipt: Receipt = { reference: lead.reference, owner: lead.followUp.assignee, emailed: lead.emailed.customer };
   await db.update(s.chatProposals).set({ result: receipt }).where(eq(s.chatProposals.id, proposal.id));
 

@@ -48,6 +48,11 @@ export type Industry = {
    * that way. The agent collects the details and the customer confirms them
    * on a card; without this, a chat can still ask for a callback.
    */
+  /**
+   * The details a new business starts out asking for, beyond name, phone and
+   * email. Without this, they come from `leadQuestions`.
+   */
+  fields?: { key: string; label: string; hint?: string; kind?: string; options?: string[]; required?: boolean }[];
   booking?: {
     /** "pickup", "appointment" — the word the customer sees. */
     noun: string;
@@ -284,6 +289,19 @@ export const INDUSTRIES: Industry[] = [
       "Pickup: Pickup and delivery are free and happen at the customer's doorstep. The team confirms the slot by phone.",
     ],
     booking: { noun: "pickup", needsAddress: true, maxDaysAhead: 30 },
+    fields: [
+      { key: "address", label: "Pickup address", kind: "address", required: true, hint: "Flat or house number, building or society, and sector" },
+      {
+        key: "request_type",
+        label: "Request type",
+        kind: "choice",
+        required: true,
+        options: ["Laundry", "Dry-cleaning", "Sofa & carpet cleaning", "Shoes & bags", "Curtains", "Alterations"],
+        hint: "What they need done",
+      },
+      { key: "items", label: "Items", hint: "What and how many, e.g. 3 shirts and a blazer" },
+      { key: "pickup_time", label: "Preferred pickup time", hint: "Day and time window" },
+    ],
   },
   {
     key: "restaurant",
