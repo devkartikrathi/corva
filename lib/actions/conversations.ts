@@ -11,6 +11,7 @@ import { audit } from "./audit";
 import { billConversation } from "@/lib/agent/respond";
 import { signAgentToken, voiceBridge } from "@/lib/integrations/keys";
 import { conversationPayload, emit } from "@/lib/integrations/webhooks";
+import { deliverHumanReply } from "@/lib/whatsapp/cloud";
 
 /**
  * Everything a person can do to a conversation.
@@ -186,6 +187,11 @@ export async function sendHumanReply(conversationId: string, body: string) {
   if (conversation.handledBy !== session.name) {
     throw new Error("Take the line before replying — the AI is still holding it.");
   }
+
+  // On WhatsApp the customer is not looking at Corva: the words have to reach
+  // their phone, and if they cannot, the person typing should know before the
+  // transcript claims they were said.
+  await deliverHumanReply(conversation, text);
 
   await db.insert(s.turns).values({
     conversationId,

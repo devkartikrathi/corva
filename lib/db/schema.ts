@@ -1734,3 +1734,48 @@ export const mailboxes = pgTable(
   },
   (t) => [uniqueIndex("mailboxes_brand_idx").on(t.brandId)],
 );
+
+/**
+ * A business's WhatsApp number, connected through Meta's WhatsApp Cloud API.
+ *
+ * The business owns the number and the Meta app; Corva holds the means to
+ * answer on it (sealed) and is told about incoming messages by Meta's webhook.
+ * One per business for now.
+ */
+export const whatsappNumbers = pgTable(
+  "whatsapp_numbers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    /** Meta's id for the number: what a webhook names, and what a reply is sent from. */
+    phoneNumberId: text("phone_number_id").notNull(),
+    /** The number as customers see it, as Meta reports it. */
+    displayNumber: text("display_number").notNull(),
+    verifiedName: text("verified_name"),
+    /** The access token, sealed with DATA_SOURCE_KEY. */
+    token: text("token").notNull(),
+    /** The Meta app's secret, sealed: proves a webhook really came from Meta. */
+    appSecret: text("app_secret").notNull(),
+    /** What the business pastes into Meta beside the webhook address. */
+    verifyToken: text("verify_token").notNull(),
+    /** Set when Meta has confirmed the webhook address. */
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdByName: text("created_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("whatsapp_numbers_brand_idx").on(t.brandId),
+    uniqueIndex("whatsapp_numbers_phone_idx").on(t.phoneNumberId),
+    uniqueIndex("whatsapp_numbers_verify_idx").on(t.verifyToken),
+  ],
+);
+
+/** Messages already handled. Meta delivers a webhook more than once; a customer is answered once. */
+export const whatsappSeen = pgTable("whatsapp_seen", {
+  messageId: text("message_id").primaryKey(),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+});

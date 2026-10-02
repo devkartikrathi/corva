@@ -166,7 +166,7 @@ async function findVisitor(brandId: string, externalId: string) {
   return v ?? null;
 }
 
-async function conversationFor(brand: Brand, externalRef: string, customerId: string | null) {
+async function conversationFor(brand: Brand, externalRef: string, customerId: string | null, channel: "web_chat" | "whatsapp" = "web_chat") {
   const [existing] = await db
     .select()
     .from(s.conversations)
@@ -188,7 +188,7 @@ async function conversationFor(brand: Brand, externalRef: string, customerId: st
     .values({
       brandId: brand.id,
       customerId,
-      channel: "web_chat",
+      channel,
       status: "live",
       externalRef,
       agentVersionId: version?.id ?? null,
@@ -550,6 +550,8 @@ export type AgentChatInput = {
   customer?: { name?: string; phone?: string; email?: string };
   /** Answer as server-sent events, so the reply can be shown as it is written. */
   stream?: boolean;
+  /** Where the conversation is happening. Set by Corva's own channels, never by an API caller. */
+  channel?: "web_chat" | "whatsapp";
 };
 
 /**
@@ -599,7 +601,7 @@ export async function agentChat(brand: Brand, input: AgentChatInput) {
     if (blocked(await accountState(brand.orgId), "chat")) throw new ApiError(402, UNAVAILABLE);
   }
 
-  const conversation = await conversationFor(brand, `agent:${session}`, customerId);
+  const conversation = await conversationFor(brand, `agent:${session}`, customerId, input.channel);
   if (conversation.status === "resolved" || conversation.status === "abandoned") {
     throw new ApiError(409, "This conversation has ended. Start a new sessionId.");
   }

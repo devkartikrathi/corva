@@ -36,6 +36,7 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
       { href: "/app/conversations", label: "Conversations", capability: "customers.read" },
       // Customers who write in, read from the business's own inbox.
       { href: "/app/email", label: "Email", capability: "customers.read" },
+      { href: "/app/whatsapp", label: "WhatsApp", capability: "customers.read" },
     ],
   },
   {

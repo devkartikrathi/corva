@@ -127,6 +127,13 @@
       "when": 1790927057660,
       "tag": "0017_mailboxes",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790928208811,
+      "tag": "0018_whatsapp",
+      "breakpoints": true
     }
   ]
 }

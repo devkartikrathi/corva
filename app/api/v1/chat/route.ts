@@ -11,7 +11,7 @@ import { agentChat, agentChatUpdates, type AgentChatInput } from "@/lib/integrat
  */
 export const maxDuration = 60;
 
-export const POST = handle<AgentChatInput>((brand, body) => agentChat(brand, body));
+export const POST = handle<AgentChatInput>((brand, body) => agentChat(brand, { ...body, channel: undefined }));
 
 /**
  * GET /api/v1/chat?sessionId=…&after=N — replies since turn N, for a chat a
