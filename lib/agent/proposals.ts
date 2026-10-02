@@ -81,6 +81,14 @@ export function checkCallback(d: CallbackDetails): string | null {
   return null;
 }
 
+/** Whether a collected detail only repeats the booking's own date or time slot. */
+function restatesWhen(value: string, details: BookingDetails | CallbackDetails): boolean {
+  if (!("date" in details)) return false;
+  const digits = (t: string) => t.replace(/\D/g, "");
+  const slot = digits(details.timeSlot ?? "");
+  return value.includes(details.date) || (slot.length >= 2 && digits(value).includes(slot));
+}
+
 /** Drop empty optional fields, trim the rest, so the card shows only what was said. */
 function tidy<T extends Record<string, unknown>>(d: T): T {
   return Object.fromEntries(
@@ -146,7 +154,10 @@ export function proposalTools(opts: {
     const extra = labelled(
       opts.fields.filter((f) => !f.builtIn && f.kind !== "address"),
       (captured ?? {}) as Record<string, string>,
-    ).filter((e) => !shown.has(e.value.toLowerCase()));
+    )
+      .filter((e) => !shown.has(e.value.toLowerCase()))
+      // "Tomorrow 9–11" under a card that already says when is the same fact twice.
+      .filter((e) => !restatesWhen(e.value, details));
     return extra.length ? extra.map(({ label, value }) => ({ label, value })) : undefined;
   }
 
