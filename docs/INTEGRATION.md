@@ -26,6 +26,7 @@ the Tumble Days site (`../tumbledays`) is the worked example.
 | Visitor tracking (optional) | `POST /visits` | A first-party visitor-id cookie; the consent the banner recorded. |
 | Its own forms (optional) | `POST /leads` | Build the form from `fields`; send answers as `details`. |
 | A webhook receiver (optional) | — | Verifies `Corva-Signature`; idempotent on `id`. |
+| Its own back office (optional) | `GET /leads`, `/customers`, `/conversations` · `POST /leads/{id}` | Reads use `lead.details` and `lead.request` as fields; a job done there moves the lead to `won` here. |
 
 ## The reference implementation
 
@@ -40,6 +41,7 @@ In `../tumbledays`:
 | `src/components/chat/ActionCard.tsx` | The confirmation card, including `extra` |
 | `src/app/api/voice-token/route.ts`, `src/components/chat/VoiceCall.tsx` | A voice call, iPhone-safe, with a person taking over |
 | `src/proxy.ts`, `src/lib/visitor.ts`, `src/app/api/visit/route.ts` | The visitor cookie and consent |
+| `src/app/api/corva/webhook/route.ts`, `src/lib/admin/corva-sync.ts` | A webhook receiver: signature check, idempotent on the event id, a confirmed booking becoming an order in the shop's own database |
 
 ## What we check before an integration goes live
 

@@ -31,8 +31,35 @@ const leadObject = {
   createdByAi: true,
   owner: "Kavya Rao",
   details: { address: "B-402, Palm Grove, Sector 70", service_type: "AC service", units: "2 split ACs" },
+  request: {
+    kind: "booking",
+    reference: "AH-7K3QX9",
+    services: ["AC service"],
+    address: "B-402, Palm Grove, Sector 70",
+    date: "2026-10-04",
+    timeSlot: "8–10 AM",
+  },
+  customerId: "a734…",
   conversationId: "0b7c…",
   createdAt: "2026-10-03T04:31:12.000Z",
+  updatedAt: "2026-10-03T04:31:12.000Z",
+};
+
+const conversationObject = {
+  id: "0b7c…",
+  channel: "chat",
+  status: "resolved",
+  outcome: "ai_resolved",
+  intent: "Book an AC service",
+  summary: "Booked an AC service visit for Saturday morning.",
+  handledBy: null,
+  isTest: false,
+  customerId: "a734…",
+  sessionId: "chat_8c1f2a",
+  details: { address: "B-402, Palm Grove, Sector 70", service_type: "AC service" },
+  startedAt: "2026-10-03T04:28:40.000Z",
+  endedAt: "2026-10-03T04:31:55.000Z",
+  durationSeconds: 195,
 };
 
 export type Field = { type: string; required?: boolean; description: string };
@@ -41,7 +68,7 @@ export type Endpoint = {
   method: "GET" | "POST";
   path: string;
   /** Which part of the docs it belongs under. */
-  group: "Setup" | "Chat" | "Leads" | "Visitors" | "Voice";
+  group: "Setup" | "Chat" | "Leads" | "Records" | "Visitors" | "Voice";
   summary: string;
   description: string;
   request?: Record<string, Field>;
@@ -238,6 +265,122 @@ export const ENDPOINTS: Endpoint[] = [
     },
   },
   {
+    method: "GET",
+    path: "/api/v1/leads",
+    group: "Records",
+    summary: "List and filter leads",
+    description:
+      "The business's leads, newest-changed first — whichever way they arrived: chat, a call, your forms, or added by hand. Each carries `details` (the business's own Details to collect, by field key) and `request` (the latest booking, callback or enquiry as fields: date, time slot, services, address, reference).\n\nFilter on any collected detail with `details.<key>=<value>` — keys from `/config`, matched case-insensitively; `details.<key>=` with no value means \"has an answer\". Because details are stored by key, a field the business adds tomorrow is filterable tomorrow with no change here.\n\nPage with `cursor`: pass back `nextCursor` until it is null. For a sync, poll `updatedSince` with the time of your last run.",
+    query: {
+      stage: { type: "string", description: "One or more of new, contacted, qualified, proposal, won, lost — comma-separated. `stageLabel` in the result is the business's own word for it." },
+      since: { type: "string", description: "Created at or after this time (ISO 8601)." },
+      updatedSince: { type: "string", description: "Changed at or after this time — what a sync asks for." },
+      "details.<key>": { type: "string", description: "A collected detail equals this, e.g. details.service_type=AC service. Repeat for several." },
+      phone: { type: "string", description: "The lead's phone number, any format." },
+      reference: { type: "string", description: "The reference a booking or callback was given." },
+      q: { type: "string", description: "Text in the name, the request or the notes." },
+      limit: { type: "number", description: "1–100, default 25." },
+      cursor: { type: "string", description: "`nextCursor` from the previous page." },
+    },
+    response: { leads: [leadObject], nextCursor: null },
+  },
+  {
+    method: "GET",
+    path: "/api/v1/leads/{id}",
+    group: "Records",
+    summary: "One lead",
+    description: "A lead with its customer and its follow-ups — who owes the customer what, by when, and whether it was done.",
+    response: {
+      lead: leadObject,
+      customer: { ...customer, address: "B-402, Palm Grove, Sector 70" },
+      followUps: [
+        { id: "0472…", title: "Confirm visit with Riya Sharma for 2026-10-04, 8–10 AM", detail: "Ref AH-7K3QX9", dueAt: "2026-10-03T05:30:00.000Z", status: "open", assignee: "Kavya Rao", outcome: null, completedAt: null },
+      ],
+    },
+  },
+  {
+    method: "POST",
+    path: "/api/v1/leads/{id}",
+    group: "Records",
+    summary: "Update a lead from your system",
+    description:
+      "Keep Corva in step with your own system: when your job is done, move the lead to `won`; add what your team learnt. Send only what changes. Returns the lead as `GET` does, and tells webhooks (`lead.updated`) like a change made in the console.",
+    request: {
+      stage: { type: "string", description: "new, contacted, qualified, proposal, won or lost." },
+      lostReason: { type: "string", description: "Why, when the stage is lost." },
+      notes: { type: "string", description: "Replaces the lead's notes." },
+      valueRupees: { type: "number", description: "What the lead is worth, in rupees; null to clear." },
+      details: { type: "object", description: "{ key: value } — merged into the lead's details; keys from GET /config." },
+    },
+    example: { stage: "won", valueRupees: 1800, details: { units: "2 split ACs" } },
+    response: { lead: { ...leadObject, stage: "won", stageLabel: "Job done", valueRupees: 1800 }, customer: { ...customer, address: "B-402, Palm Grove, Sector 70" }, followUps: [] },
+  },
+  {
+    method: "GET",
+    path: "/api/v1/customers",
+    group: "Records",
+    summary: "List and find customers",
+    description: "Everyone the business has a record for, newest first. Look one up by `phone` or `email` to recognise a returning customer in your own app.",
+    query: {
+      phone: { type: "string", description: "Their phone number, any format." },
+      email: { type: "string", description: "Their email address." },
+      q: { type: "string", description: "Text in the name, email or phone." },
+      since: { type: "string", description: "Created at or after this time." },
+      limit: { type: "number", description: "1–100, default 25." },
+      cursor: { type: "string", description: "`nextCursor` from the previous page." },
+    },
+    response: {
+      customers: [{ ...customer, address: "B-402, Palm Grove, Sector 70", owner: "Kavya Rao", leads: 2, openLeads: 1, lastConversationAt: "2026-10-03T04:28:40.000Z", createdAt: "2026-09-12T10:02:11.000Z" }],
+      nextCursor: null,
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/v1/customers/{id}",
+    group: "Records",
+    summary: "One customer",
+    description: "A customer with everything collected about them (`details`: the newest answer to each of the business's fields, across all their leads), their leads and their conversations.",
+    response: {
+      customer: { ...customer, address: "B-402, Palm Grove, Sector 70", owner: "Kavya Rao", createdAt: "2026-09-12T10:02:11.000Z" },
+      details: { address: "B-402, Palm Grove, Sector 70", service_type: "AC service", units: "2 split ACs" },
+      leads: [leadObject],
+      conversations: [conversationObject],
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/v1/conversations",
+    group: "Records",
+    summary: "List chats and calls",
+    description: "Conversations, newest first, each with the `details` it collected. The owner's own test conversations are left out unless you ask for them.",
+    query: {
+      channel: { type: "string", description: "\"chat\" or \"voice\"." },
+      since: { type: "string", description: "Started at or after this time." },
+      sessionId: { type: "string", description: "The chat your site started under this sessionId." },
+      customerId: { type: "string", description: "One customer's conversations." },
+      "details.<key>": { type: "string", description: "A detail collected in the conversation equals this." },
+      includeTests: { type: "string", description: "\"true\" to include conversations from Try it." },
+      limit: { type: "number", description: "1–100, default 25." },
+      cursor: { type: "string", description: "`nextCursor` from the previous page." },
+    },
+    response: { conversations: [conversationObject], nextCursor: null },
+  },
+  {
+    method: "GET",
+    path: "/api/v1/conversations/{id}",
+    group: "Records",
+    summary: "One conversation, with its transcript",
+    description: "`from` is \"customer\", \"assistant\", \"system\" (an event: a takeover, the call ending) or the name of the person on the team who spoke.",
+    response: {
+      conversation: conversationObject,
+      customer: { ...customer, address: "B-402, Palm Grove, Sector 70" },
+      transcript: [
+        { ordinal: 0, from: "customer", text: "My AC is leaking. Can someone come tomorrow morning?", atSeconds: 0 },
+        { ordinal: 1, from: "assistant", text: "Please check the details below and tap Confirm.", atSeconds: 4 },
+      ],
+    },
+  },
+  {
     method: "POST",
     path: "/api/v1/visits",
     group: "Visitors",
@@ -274,7 +417,10 @@ export const ENDPOINTS: Endpoint[] = [
 
 /** What each webhook event carries, for the docs and the spec. */
 export const WEBHOOK_EXAMPLES: Record<string, unknown> = {
-  "lead.created": { lead: leadObject, customer, request: { kind: "booking", reference: "AH-7K3QX9" } },
+  // `request` at the top level means this event *is* that request, made just
+  // now. `lead.request` is on every lead event: the latest request, whatever
+  // caused the event.
+  "lead.created": { lead: leadObject, customer, request: leadObject.request },
   "lead.updated": { lead: { ...leadObject, stage: "won", stageLabel: "Job done" }, customer },
   "follow_up.created": {
     followUp: {

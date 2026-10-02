@@ -138,6 +138,9 @@ Per-business keys (`ck_…`, Settings → Website & API keys), used from the bus
 | `GET /chat` | Replies from a person on the team who took the chat over |
 | `POST /chats` | For sites with their own assistant: mirror its transcript |
 | `POST /leads` | A booking, callback or enquiry from the site's own forms, with the business's `details` |
+| `GET /leads`, `/leads/{id}` · `POST /leads/{id}` | Read leads back — filter by stage, date or any collected detail (`?details.<key>=`) — and update a lead's stage from the business's own system |
+| `GET /customers`, `/customers/{id}` | Customers, with everything collected about each |
+| `GET /conversations`, `/conversations/{id}` | Chats and calls with the details each collected; one with its transcript |
 | `POST /visits` | A visitor, with their cookie consent |
 | `POST /voice-sessions` | A five-minute token for a voice call from the visitor's browser |
 | Webhooks | `lead.created`, `lead.updated`, `follow_up.created`, `handoff.requested`, `conversation.ended` — signed POSTs to the business's URL |

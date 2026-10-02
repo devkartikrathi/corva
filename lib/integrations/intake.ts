@@ -345,6 +345,22 @@ export async function intakeLead(
 
   // The opportunity: reuse an open one rather than stacking duplicates.
   const interest = describeRequest(input, kind === "pickup", noun).slice(0, 300);
+  // The same request as fields, for the business's own systems to read
+  // without parsing a sentence: kept on the lead and sent with its webhooks.
+  const request = Object.fromEntries(
+    Object.entries({
+      kind: kind === "pickup" ? "booking" : kind,
+      reference: ref,
+      services: input.services?.map((x) => clip(x, 80)).filter(Boolean),
+      address: clip(input.address, 300),
+      date,
+      timeSlot: clip(input.timeSlot, 60),
+      preferredTime: clip(input.preferredTime, 80),
+      topic: clip(input.topic, 200),
+      promoCode: clip(input.promoCode, 40),
+      notes: clip(input.notes, 1000),
+    }).filter(([, v]) => v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0)),
+  ) as { kind: string; reference: string } & Record<string, unknown>;
   const notes = [input.notes, input.promoCode && `Promo code ${input.promoCode}`, `Ref ${ref}`].filter(Boolean).join(" · ");
   const [open] = await db
     .select()
@@ -359,6 +375,7 @@ export async function intakeLead(
       .update(s.leads)
       .set({
         interest,
+        request,
         notes: [open.notes, notes].filter(Boolean).join("\n"),
         email: email ?? open.email,
         conversationId: open.conversationId ?? conversation?.id ?? null,
@@ -379,6 +396,7 @@ export async function intakeLead(
         phone: formatPhone(input.phone),
         email: email ?? null,
         interest,
+        request,
         notes,
         // A booked pickup is further along than a request to talk.
         stage: kind === "pickup" ? "qualified" : "new",
@@ -450,7 +468,6 @@ export async function intakeLead(
 
   // From the site's own form or assistant, the lead is complete now. From
   // Corva's chat, the confirm step sends the event once the details are on it.
-  const request = { kind: kind === "pickup" ? "booking" : kind, reference: ref };
   if (!from) emit(brand.id, open ? "lead.updated" : "lead.created", async () => ({ ...(await leadPayload(lead.id)), request }));
 
   return {
@@ -787,8 +804,11 @@ export async function agentChatConfirm(brand: Brand, input: AgentChatConfirmInpu
   }
   if (lead.leadId) {
     const leadId = lead.leadId;
-    const request = { kind: proposal.kind, reference: lead.reference };
-    emit(brand.id, "isNew" in lead && lead.isNew ? "lead.created" : "lead.updated", async () => ({ ...(await leadPayload(leadId)), request }));
+    // `request` at the top level marks this event as a request made just now.
+    emit(brand.id, "isNew" in lead && lead.isNew ? "lead.created" : "lead.updated", async () => {
+      const payload = await leadPayload(leadId);
+      return payload && { ...payload, request: payload.lead.request };
+    });
   }
   const receipt: Receipt = { reference: lead.reference, owner: lead.followUp.assignee, emailed: lead.emailed.customer };
   await db.update(s.chatProposals).set({ result: receipt }).where(eq(s.chatProposals.id, proposal.id));

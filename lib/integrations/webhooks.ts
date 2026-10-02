@@ -192,8 +192,11 @@ export async function leadPayload(leadId: string) {
       createdByAi: lead.createdByAi,
       owner: row.owner,
       details: lead.details ?? {},
+      // The latest booking, callback or enquiry on this lead, as fields.
+      request: lead.request ?? null,
       conversationId: lead.conversationId,
       createdAt: lead.createdAt.toISOString(),
+      updatedAt: lead.updatedAt.toISOString(),
     },
     customer: customer ? { id: customer.id, name: customer.name, phone: customer.phone, email: customer.email } : null,
   };

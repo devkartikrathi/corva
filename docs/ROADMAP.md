@@ -12,6 +12,8 @@ expect to be asked. "Built" means in the product today.
 - Taking over a chat or a voice call live, and handing it back
 - Customers, pipeline in the business's own stage words, team performance, roles, audit log
 - A public API (chat, config, leads, visits, voice), signed webhooks, an OpenAPI spec and developer docs
+- Reading records back over the API — leads, customers, conversations with transcripts — filtered by
+  any detail the business collects; updating a lead's stage from the business's own system
 - Industry templates: clinic, real estate, retail, education, home services, laundry, restaurant, general
 - Self-serve signup: an account, one form, a working assistant on a 14-day pilot
 - Plans with usage metered and limits enforced; paying for a month with Razorpay; receipts
@@ -43,9 +45,9 @@ expect to be asked. "Built" means in the product today.
    preferred time and the team confirms.
 9. **Notifications to the team.** A handoff or a hot lead on WhatsApp or SMS, not only in the
    console and by email. (The webhook can already drive this from the business's side.)
-10. **More of the API.** Read endpoints — customers, leads, follow-ups, conversations with
-    transcripts — and writing a lead's stage from outside, so a business's own tools can stay
-    in step both ways. Idempotency keys on every write.
+10. **More of the API.** Follow-ups over the API (list, complete), idempotency keys on every
+    write, and a question-in-plain-words endpoint over a business's own records ("which leads
+    asked for curtains this month?") on top of the existing filters.
 11. **Editing the industry template.** Stage names, what can be booked and for how far ahead,
     per business, in the console — today they come from the template.
 12. **Payments.** A payment link in chat (Razorpay) for a deposit or a prepaid order, recorded

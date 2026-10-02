@@ -1357,6 +1357,13 @@ export const leads = pgTable(
     lostReason: text("lost_reason"),
     /** The business's intake fields as collected for this request. */
     details: jsonb("details").$type<Record<string, string>>().notNull().default({}),
+    /**
+     * The latest request on this lead, as fields rather than a sentence:
+     * `{ kind, reference, services, address, date, timeSlot, preferredTime,
+     * topic, promoCode }`. `interest` says the same thing for a person to read;
+     * this is for the business's own systems, over the API and webhooks.
+     */
+    request: jsonb("request").$type<Record<string, unknown>>(),
     stageChangedAt: timestamp("stage_changed_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

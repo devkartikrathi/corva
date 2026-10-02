@@ -61,7 +61,8 @@ const P = ({ children }: { children: ReactNode }) => (
 
 function curlFor(e: Endpoint) {
   if (e.method === "GET") {
-    const q = e.query ? `?${Object.keys(e.query).map((k) => `${k}=…`).join("&")}` : "";
+    // Two or three of the filters, as an example — not all of them at once.
+    const q = e.query ? `?${Object.keys(e.query).slice(0, 3).map((k) => `${k.replace("<key>", "service_type")}=…`).join("&")}` : "";
     return `curl ${APP_URL}${e.path}${q} \\\n  -H "Authorization: Bearer $CORVA_API_KEY"`;
   }
   return `curl -X POST ${APP_URL}${e.path} \\\n  -H "Authorization: Bearer $CORVA_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(e.example ?? {}, null, 2)}'`;
@@ -114,6 +115,7 @@ const GROUPS: { name: Endpoint["group"]; blurb: string }[] = [
   { name: "Setup", blurb: "Check the key, and read how the business is set up." },
   { name: "Chat", blurb: "The assistant in your chat window — or your own assistant's transcripts." },
   { name: "Leads", blurb: "Bookings, callbacks and enquiries from your own forms." },
+  { name: "Records", blurb: "Read the business's leads, customers and conversations back; keep a lead in step with your system." },
   { name: "Visitors", blurb: "Who is on the site, with their consent." },
   { name: "Voice", blurb: "Talk to the assistant from the browser." },
 ];
@@ -251,6 +253,15 @@ await corva("chat/confirm", { sessionId, proposalId: turn.proposal.id, approved:
           and on calls; your own forms can show the same fields and send answers as <C>details</C> (
           <C>{`{ key: value }`}</C>). Every chat reply reports what has been collected so far. Do not hard-code the list:
           it changes without a deploy.
+        </P>
+        <H3>Getting the data out</H3>
+        <P>
+          Two ways, and most integrations use both. <b>Webhooks</b> push each lead, follow-up and handoff to your system
+          the moment it happens. The <b>Records</b> endpoints let you read it back whenever you like — list leads changed
+          since your last sync, look a customer up by phone, pull a transcript. Both carry the same two things: the
+          business&rsquo;s own <C>details</C> by field key, and <C>request</C> — the booking or callback as fields (date,
+          time slot, services, address, reference) rather than a sentence. Filter on anything collected:{" "}
+          <C>GET /api/v1/leads?details.service_type=AC%20service</C>.
         </P>
         <H3>Bookings are confirmed by the customer</H3>
         <P>

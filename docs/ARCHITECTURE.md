@@ -80,6 +80,12 @@ when those are empty — never overwriting.
 The same list is exposed at `GET /api/v1/config`, accepted as `details` on `POST /api/v1/leads`,
 returned as `details` on every chat reply, and included in webhook payloads.
 
+Because answers are stored by key in a JSON column, a field a business adds today needs no
+schema change and is immediately filterable: `GET /api/v1/leads?details.<key>=<value>`
+(`lib/integrations/read.ts`). A booking's own fields — date, time slot, services, address,
+reference — are kept the same way in `leads.request`, so nothing has to be parsed out of the
+human-readable `interest` line.
+
 ## Voice
 
 `lib/voice/bridge.ts` is one call: browser ⇄ bridge ⇄ Gemini Live. On Vercel it runs in
