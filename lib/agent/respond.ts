@@ -24,6 +24,7 @@ import { DATA_TOOL, DATA_TOOL_DESCRIPTION, lookupArguments, lookupInstructions, 
 import { crmInstructions, isUnnamed, saveCallerDetails, scheduleFollowUp } from "@/lib/crm/capture";
 import { proposalInstructions, proposalTools, todayIST, type Proposal } from "./proposals";
 import { conversationPayload, emit, leadPayload } from "@/lib/integrations/webhooks";
+import { LOOK_UP_DESCRIPTION, LOOK_UP_INSTRUCTIONS, lookUpForAssistant } from "@/lib/integrations/records";
 import { captureDetails, detailsInstructions, detailsSchema, knownDetails, leadQuestionsFrom } from "@/lib/business/intake";
 
 /**
@@ -157,6 +158,9 @@ ${WEB_CHAT_STYLE}
     .replace(/^RECORDING WHAT HAPPENS/, "Recording what happens")}
 `
   }
+## Where an order has got to
+${LOOK_UP_INSTRUCTIONS}
+
 ## Rules
 - Answer only from the sources above. If they do not cover the question, say
   so plainly and offer a callback (${callbackTool}). Do not guess, and
@@ -446,6 +450,17 @@ export async function* respondStream(opts: {
             return { saved: true, owner: ownerName ?? "the team" };
           },
         }) }) as ToolSet),
+        look_up_record: tool({
+          description: LOOK_UP_DESCRIPTION,
+          inputSchema: z.object({
+            reference: z.string().describe("The reference exactly as the customer gave it, e.g. TD-7K3QX9"),
+          }),
+          execute: async ({ reference }) => {
+            const result = await lookUpForAssistant(conversation.brandId, reference);
+            actionsTaken.push({ label: result.found ? `Looked up ${result.reference}: ${result.status}`.slice(0, 200) : `Looked up ${reference.slice(0, 40)}: nothing found`, allowed: true });
+            return result;
+          },
+        }),
         schedule_follow_up: tool({
           description:
             "Create a task for the team whenever you promise a callback, to send something, or to " +

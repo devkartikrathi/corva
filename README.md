@@ -64,6 +64,7 @@ npm run voice                  # the voice bridge, for calls (ws://localhost:878
 | [docs/TEAM-AND-CHANNELS.md](docs/TEAM-AND-CHANNELS.md) | The overview, attendance, the email inbox and WhatsApp |
 | [docs/DATA-SOURCES.md](docs/DATA-SOURCES.md) | Connecting a business's own database: approved lookups for customers, questions for the team |
 | [docs/PRICING.md](docs/PRICING.md) | The plans, what they cost us to serve, how they are enforced and paid for |
+| [docs/PLAN.md](docs/PLAN.md) | Where Corva is going: customer profiles, assistant personality, what is built on top of it |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What businesses will need next, in the order we think they will ask |
 | [DEPLOYING.md](DEPLOYING.md) | Putting Corva on Vercel, and connecting a business's site |
 | [docs/VOICE.md](docs/VOICE.md) | Voice measurements, protocol notes and gotchas |
@@ -156,6 +157,7 @@ Per-business keys (`ck_…`, Settings → Website & API keys), used from the bus
 | `GET /conversations`, `/conversations/{id}` | Chats and calls with the details each collected; one with its transcript |
 | `POST /visits` | A visitor, with their cookie consent |
 | `POST /voice-sessions` | A five-minute token for a voice call from the visitor's browser |
+| `POST /records`, `GET /records` | The state of an order in the business's own system, by the customer's reference — what the assistant answers "where is my order?" from (`look_up_record`) |
 | Webhooks | `lead.created`, `lead.updated`, `follow_up.created`, `handoff.requested`, `conversation.ended` — signed POSTs to the business's URL |
 
 The reference a developer reads (`/developers`) and the OpenAPI spec are generated from one

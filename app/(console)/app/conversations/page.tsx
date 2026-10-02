@@ -96,6 +96,7 @@ export default async function ConversationsPage({
       since: params.since,
       reviewed: params.reviewed === "yes" || params.reviewed === "no" ? params.reviewed : undefined,
       test: params.test === "only" || params.test === "exclude" ? params.test : undefined,
+      who: params.who === "anonymous" || params.who === "all" ? params.who : "known",
       sort: params.sort,
       page: intOf(params, "page", 1, 1),
     }),
@@ -192,6 +193,13 @@ export default async function ConversationsPage({
         ))}
 
         <span style={{ width: 1, height: 18, background: "var(--color-neutral-400)" }} />
+        {facets.anonymous > 0 && (
+          <>
+            <Chip ctx={ctx} paramKey="who" value="anonymous" label={`Anonymous enquiries ${facets.anonymous}`} />
+            <Chip ctx={ctx} paramKey="who" value="all" label="Everything" />
+            <span style={{ width: 1, height: 18, background: "var(--color-neutral-400)" }} />
+          </>
+        )}
         <Chip ctx={ctx} paramKey="reviewed" value="no" label={`Unreviewed ${facets.reviewed.no}`} />
         {facets.tests > 0 && (
           <Chip ctx={ctx} paramKey="test" value="only" label={`Tests ${facets.tests}`} />

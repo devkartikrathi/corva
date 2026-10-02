@@ -351,26 +351,27 @@ export async function backfillCosts(limit = 2000): Promise<{ priced: number }> {
  * Staleness is measured from the last turn rather than from the start, because
  * a long call with someone still talking is not stale.
  */
-export async function reapStaleCalls(idleMinutes = 15): Promise<{ closed: number }> {
+const CALL_IDLE_MINUTES = 15;
+const CHAT_IDLE_MINUTES = 60;
+
+export async function reapStaleCalls(): Promise<{ closed: number }> {
+  // The moment it last moved: its newest turn, or its start if nobody spoke.
+  const lastMoved = sql`coalesce(
+    (select max(created_at) from ${s.turns} where conversation_id = ${s.conversations.id}),
+    ${s.conversations.startedAt}
+  )`;
   const rows = await db
-    .select({ id: s.conversations.id })
-    .from(s.conversations)
+    .update(s.conversations)
+    // Ended when it went quiet, not when this job happened to run.
+    .set({ status: "abandoned", endedAt: lastMoved })
     .where(
       and(
-        inArray(s.conversations.status, ["live"]),
-        sql`coalesce(
-              (select max(created_at) from ${s.turns} where conversation_id = ${s.conversations.id}),
-              ${s.conversations.startedAt}
-            ) < now() - (${idleMinutes} || ' minutes')::interval`,
+        eq(s.conversations.status, "live"),
+        // A call that has gone quiet is over. Someone typing may step away and
+        // come back, so a chat is given longer.
+        sql`${lastMoved} < now() - (case when ${s.conversations.channel} = 'phone' then ${CALL_IDLE_MINUTES} else ${CHAT_IDLE_MINUTES} end || ' minutes')::interval`,
       ),
-    );
-
-  if (rows.length === 0) return { closed: 0 };
-
-  await db
-    .update(s.conversations)
-    .set({ status: "abandoned", endedAt: new Date() })
-    .where(inArray(s.conversations.id, rows.map((r) => r.id)));
-
+    )
+    .returning({ id: s.conversations.id });
   return { closed: rows.length };
 }

@@ -83,6 +83,8 @@ expect to be asked. "Built" means in the product today.
 - Webhook signing secrets are stored as given, not sealed like the other credentials.
 - A connected database's certificate is not checked against a CA list (the connection is
   encrypted).
+- A chat left idle for an hour, or a call for fifteen minutes, is closed by the scheduled job;
+  the visitor's next message starts a new conversation.
 - Webhook delivery is best-effort with one retry; there is no delivery log beyond the last result.
 - The model provider's speed varies minute to minute; streams hedge across models, but a first
   reply after a quiet period can still take several seconds.

@@ -444,6 +444,13 @@ export type ArchiveFilters = {
   /** "only" for rehearsals alone, "exclude" to hide them. Default shows both. */
   test?: "only" | "exclude";
   /**
+   * Whose conversations. "known" (the default) leaves out anonymous enquiries:
+   * someone asked a question, gave no name or number, and the AI answered. They
+   * are kept, and counted, but they are not anyone's customer record and would
+   * otherwise bury the conversations that are.
+   */
+  who?: "known" | "anonymous" | "all";
+  /**
    * Narrow to one person's conversations — theirs, or their customers'.
    *
    * Not a filter in the rail sense: it is applied because of who is asking,
@@ -463,6 +470,15 @@ export type ArchiveFilters = {
  * of thousands of rows and "load them all, then filter" stops working long
  * before anyone notices it was doing that.
  */
+/**
+ * An anonymous enquiry: nobody identified, nobody on the team involved, and it
+ * is over. One still in progress, or one that needed a person, is never hidden.
+ */
+const ANONYMOUS_ENQUIRY = sql`(${s.conversations.customerId} is null
+  and ${s.conversations.handledBy} is null
+  and ${s.conversations.status} not in ('live', 'waiting_human')
+  and ${s.conversations.outcome} is distinct from 'escalated')`;
+
 export async function listConversations(brandId: string, filters: ArchiveFilters = {}) {
   const pageSize = filters.pageSize ?? 25;
   const page = Math.max(1, filters.page ?? 1);
@@ -488,6 +504,8 @@ export async function listConversations(brandId: string, filters: ArchiveFilters
     where.push(gte(s.conversations.startedAt, new Date(Date.now() - filters.historyDays * 864e5)));
   }
   if (filters.ownedBy) where.push(conversationIsTheirs(filters.ownedBy));
+  if (filters.who === "anonymous") where.push(ANONYMOUS_ENQUIRY);
+  else if (filters.who !== "all") where.push(sql`not ${ANONYMOUS_ENQUIRY}`);
   if (filters.test === "only") where.push(eq(s.conversations.isTest, true));
   if (filters.test === "exclude") where.push(eq(s.conversations.isTest, false));
   if (filters.reviewed === "yes") where.push(isNotNull(s.conversations.reviewScore));
@@ -581,6 +599,7 @@ export async function archiveFacets(brandId: string) {
         yes: sql<number>`count(*) filter (where ${s.conversations.reviewScore} is not null)::int`,
         no: sql<number>`count(*) filter (where ${s.conversations.reviewScore} is null)::int`,
         tests: sql<number>`count(*) filter (where ${s.conversations.isTest})::int`,
+        anonymous: sql<number>`count(*) filter (where ${ANONYMOUS_ENQUIRY})::int`,
       })
       .from(s.conversations)
       .where(eq(s.conversations.brandId, brandId)),
@@ -593,6 +612,7 @@ export async function archiveFacets(brandId: string) {
       .map((o) => ({ key: o.key!, label: outcomeLabel(o.key, "resolved"), count: o.n })),
     reviewed: reviewed[0],
     tests: reviewed[0].tests,
+    anonymous: reviewed[0].anonymous,
   };
 }
 

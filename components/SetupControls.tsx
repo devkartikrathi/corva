@@ -164,104 +164,40 @@ export function BrandLiveToggle({
 
 /* ─── Channels ─────────────────────────────────────────────────────────── */
 
-export function ChannelRow({
-  brandId,
-  kind,
-  name,
-  address,
-  detail,
-  state,
-  onSave,
-}: {
-  brandId: string;
-  kind: string;
-  name: string;
-  address: string;
-  detail: string;
-  state: string;
-  onSave: (input: {
-    brandId: string;
-    kind: string;
-    address: string;
-    detail: string;
-    state: "live" | "drafts_only" | "not_connected";
-  }) => Promise<unknown>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [addr, setAddr] = useState(address);
-  const [note, setNote] = useState(detail);
-  const [next, setNext] = useState(state);
+/**
+ * The business's own phone number: one field, saved as it is typed.
+ *
+ * It is the number the assistant gives customers and the one Corva's test
+ * dialer rings; it is not a telephone line into the assistant.
+ */
+export function PhoneNumberField({ number, onSave }: { number: string; onSave: (number: string) => Promise<unknown> }) {
+  const [value, setValue] = useState(number);
+  const [saved, setSaved] = useState(false);
   const { pending, error, run } = useAction();
-
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        className="hov-ink"
-        onClick={() => setEditing(true)}
-        style={{ fontSize: 11, fontWeight: 700, color: "var(--color-accent-700)" }}
-      >
-        {state === "not_connected" ? "Connect" : "Configure"}
-      </button>
-    );
-  }
+  const changed = value.trim() !== number.trim();
 
   return (
-    <span style={{ display: "inline-flex", flexDirection: "column", gap: 5, alignItems: "flex-end" }}>
-      <input
-        value={addr}
-        onChange={(e) => setAddr(e.target.value)}
-        placeholder="+44 20 7946 0102"
-        aria-label={`${name} address`}
-        style={{ ...field, width: 180, padding: "4px 7px", fontSize: 12 }}
-      />
-      <input
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        placeholder="What it does"
-        aria-label={`${name} note`}
-        style={{ ...field, width: 180, padding: "4px 7px", fontSize: 12 }}
-      />
-      <select
-        value={next}
-        onChange={(e) => setNext(e.target.value)}
-        aria-label={`${name} state`}
-        style={{ ...field, width: 180, padding: "4px 7px", fontSize: 12 }}
-      >
-        <option value="live">Live — the AI answers</option>
-        <option value="drafts_only">AI drafts only</option>
-        <option value="not_connected">Not connected</option>
-      </select>
+    <span style={{ display: "inline-flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
       <span style={{ display: "flex", gap: 6 }}>
+        <input
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setSaved(false);
+          }}
+          placeholder="+91 98765 43210"
+          aria-label="Business phone number"
+          inputMode="tel"
+          style={{ ...field, width: 190, padding: "5px 8px", fontSize: 12.5 }}
+        />
         <button
           type="button"
           className="hov-accent"
-          disabled={pending}
-          onClick={() =>
-            run(
-              () =>
-                onSave({
-                  brandId,
-                  kind,
-                  address: addr,
-                  detail: note,
-                  state: next as "live" | "drafts_only" | "not_connected",
-                }),
-              () => setEditing(false),
-            )
-          }
-          style={{
-            fontSize: 10.5,
-            fontWeight: 700,
-            background: "var(--color-accent)",
-            color: "var(--color-bg)",
-            padding: "4px 9px",
-          }}
+          disabled={pending || !changed}
+          onClick={() => run(() => onSave(value.trim()), () => setSaved(true))}
+          style={{ fontSize: 11, fontWeight: 700, background: "var(--color-accent)", color: "var(--color-bg)", padding: "5px 11px", opacity: pending || !changed ? 0.5 : 1 }}
         >
-          {pending ? "Saving…" : "Save"}
-        </button>
-        <button type="button" className="hov-ink" onClick={() => setEditing(false)} style={{ fontSize: 10.5, color: "var(--color-neutral-700)" }}>
-          Cancel
+          {pending ? "Saving…" : saved && !changed ? "Saved" : "Save"}
         </button>
       </span>
       <Err>{error}</Err>

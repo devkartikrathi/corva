@@ -25,6 +25,7 @@ the Tumble Days site (`../tumbledays`) is the worked example.
 | A voice button (optional) | `POST /voice-sessions` + WebSocket | Hidden unless `features.voice` (and `voiceSecure` on https). Push-to-talk. |
 | Visitor tracking (optional) | `POST /visits` | A first-party visitor-id cookie; the consent the banner recorded. |
 | Its own forms (optional) | `POST /leads` | Build the form from `fields`; send answers as `details`. |
+| Order status (optional) | `POST /records` | From the business's own system, on every change: reference, a status sentence, expected times. The assistant looks it up when a customer asks. |
 | A webhook receiver (optional) | — | Verifies `Corva-Signature`; idempotent on `id`. |
 | Its own back office (optional) | `GET /leads`, `/customers`, `/conversations` · `POST /leads/{id}` | Reads use `lead.details` and `lead.request` as fields; a job done there moves the lead to `won` here. |
 

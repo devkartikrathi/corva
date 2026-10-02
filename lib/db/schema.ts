@@ -15,7 +15,6 @@ import {
   index,
   integer,
   jsonb,
-  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -272,46 +271,6 @@ export const membershipBrands = pgTable(
   (t) => [primaryKey({ columns: [t.membershipId, t.brandId] })],
 );
 
-/* ─── Corva staff (the operator console) ───────────────────────────────── */
-
-/**
- * Platform operators. Deliberately not a role in `memberships`: no tenant can
- * ever hold it, and it is not reachable by editing an organization.
- */
-export const staff = pgTable("staff", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  clerkUserId: text("clerk_user_id").notNull().unique(),
-  email: text("email").notNull().unique(),
-  name: text("name").notNull(),
-  isAdmin: boolean("is_admin").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-/**
- * The only way a staff member reads tenant content. The design is emphatic
- * that this is requested, time-boxed, visible to the Owner and audited — so it
- * is a row with an expiry, not a UI convention.
- */
-export const supportGrants = pgTable(
-  "support_grants",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    orgId: uuid("org_id")
-      .notNull()
-      .references(() => organizations.id, { onDelete: "cascade" }),
-    staffId: uuid("staff_id")
-      .notNull()
-      .references(() => staff.id, { onDelete: "cascade" }),
-    reason: text("reason").notNull(),
-    grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    /** The org member who approved it, if approval was required. */
-    approvedByMembershipId: uuid("approved_by_membership_id").references(() => memberships.id),
-  },
-  (t) => [index("support_grants_org_idx").on(t.orgId, t.expiresAt)],
-);
-
 /* ─── Customers ────────────────────────────────────────────────────────── */
 
 export const customers = pgTable(
@@ -448,21 +407,6 @@ export const priorityRules = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("priority_rules_brand_idx").on(t.brandId, t.ordinal)],
-);
-
-export const segments = pgTable(
-  "segments",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    brandId: uuid("brand_id")
-      .notNull()
-      .references(() => brands.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    definition: jsonb("definition").notNull().default({}),
-    ownerName: text("owner_name"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index("segments_brand_idx").on(t.brandId)],
 );
 
 /* ─── Knowledge ────────────────────────────────────────────────────────── */
@@ -850,56 +794,7 @@ export const auditLog = pgTable(
   (t) => [index("audit_log_org_at_idx").on(t.orgId, t.at)],
 );
 
-/* ─── Platform operations (the operator console) ───────────────────────── */
-
-export const regions = pgTable("regions", {
-  key: text("key").primaryKey(),
-  label: text("label").notNull(),
-  voiceP95Ms: integer("voice_p95_ms"),
-  uptime30d: numeric("uptime_30d", { precision: 5, scale: 2 }),
-  state: text("state").notNull().default("healthy"),
-});
-
-export const incidents = pgTable("incidents", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  title: text("title").notNull(),
-  severity: text("severity").notNull(),
-  regionKey: text("region_key").references(() => regions.key, { onDelete: "set null" }),
-  note: text("note").notNull().default(""),
-  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
-  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
-  affectedOrgCount: integer("affected_org_count").notNull().default(0),
-});
-
-/** A platform capability rolled out per tenant. */
-export const featureFlags = pgTable(
-  "feature_flags",
-  {
-    key: text("key").primaryKey(),
-    label: text("label").notNull(),
-    note: text("note"),
-    /** Default for tenants with no explicit override. */
-    defaultOn: boolean("default_on").notNull().default(false),
-    /** "internal", "alpha", "beta", "ga". */
-    stage: text("stage").notNull().default("internal"),
-    /** Share of the fleet the flag is on for, 0-100. */
-    rolloutPercent: integer("rollout_percent").notNull().default(0),
-  },
-);
-
-export const orgFeatureFlags = pgTable(
-  "org_feature_flags",
-  {
-    orgId: uuid("org_id")
-      .notNull()
-      .references(() => organizations.id, { onDelete: "cascade" }),
-    flagKey: text("flag_key")
-      .notNull()
-      .references(() => featureFlags.key, { onDelete: "cascade" }),
-    enabled: boolean("enabled").notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.orgId, t.flagKey] })],
-);
+/* ─── Quality ──────────────────────────────────────────────────────────── */
 
 /** A cross-tenant failure the platform team owns, not the tenant. */
 export const qualityFlags = pgTable(
@@ -917,7 +812,6 @@ export const qualityFlags = pgTable(
     owner: text("owner").notNull().default("tenant"),
     /** "open", "triaged", "fixed", "wont_fix". */
     status: text("status").notNull().default("open"),
-    assignedToStaffId: uuid("assigned_to_staff_id").references(() => staff.id, { onDelete: "set null" }),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1126,33 +1020,6 @@ export const documentRevisions = pgTable(
   (t) => [uniqueIndex("document_revisions_doc_rev_idx").on(t.documentId, t.revision)],
 );
 
-/**
- * Something wrong with the scoring model itself, as opposed to one customer's
- * score. Raised by the rescore job, cleared by a person.
- */
-export const modelAlerts = pgTable(
-  "model_alerts",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    brandId: uuid("brand_id")
-      .notNull()
-      .references(() => brands.id, { onDelete: "cascade" }),
-    /** "drift", "stale_signal", "rule_conflict", "coverage". */
-    kind: text("kind").notNull(),
-    /** "info", "warn", "critical". */
-    severity: text("severity").notNull().default("warn"),
-    title: text("title").notNull(),
-    detail: text("detail").notNull().default(""),
-    axisKey: text("axis_key").references(() => scoringAxes.key, { onDelete: "set null" }),
-    /** "open", "acknowledged", "resolved". */
-    status: text("status").notNull().default("open"),
-    acknowledgedByName: text("acknowledged_by_name"),
-    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index("model_alerts_brand_idx").on(t.brandId, t.status, t.createdAt)],
-);
-
 /* ─── Org settings ─────────────────────────────────────────────────────── */
 
 /**
@@ -1236,69 +1103,6 @@ export const modelUsageDaily = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.day, t.modelId] })],
-);
-
-/** A tenant's recurring revenue at the close of one month. */
-export const mrrSnapshots = pgTable(
-  "mrr_snapshots",
-  {
-    orgId: uuid("org_id")
-      .notNull()
-      .references(() => organizations.id, { onDelete: "cascade" }),
-    /** The first of the month it describes. */
-    month: timestamp("month", { withTimezone: true }).notNull(),
-    mrrPaise: integer("mrr_paise").notNull().default(0),
-    seatCount: integer("seat_count").notNull().default(0),
-    plan: planEnum("plan").notNull(),
-  },
-  (t) => [primaryKey({ columns: [t.orgId, t.month] })],
-);
-
-/** A staff note about a tenant. Never visible to the tenant. */
-export const accountNotes = pgTable(
-  "account_notes",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    orgId: uuid("org_id")
-      .notNull()
-      .references(() => organizations.id, { onDelete: "cascade" }),
-    staffId: uuid("staff_id").references(() => staff.id, { onDelete: "set null" }),
-    authorName: text("author_name").notNull(),
-    /** "note", "risk", "expansion", "incident". */
-    kind: text("kind").notNull().default("note"),
-    body: text("body").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index("account_notes_org_idx").on(t.orgId, t.createdAt)],
-);
-
-/** An upstream service the platform depends on, and how it is behaving. */
-export const platformDependencies = pgTable("platform_dependencies", {
-  key: text("key").primaryKey(),
-  label: text("label").notNull(),
-  provider: text("provider"),
-  /** "healthy", "degraded", "down". */
-  state: text("state").notNull().default("healthy"),
-  note: text("note"),
-  latencyMs: integer("latency_ms"),
-  checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-/** A post on an incident's timeline. */
-export const incidentUpdates = pgTable(
-  "incident_updates",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    incidentId: uuid("incident_id")
-      .notNull()
-      .references(() => incidents.id, { onDelete: "cascade" }),
-    /** "investigating", "identified", "monitoring", "resolved". */
-    stage: text("stage").notNull(),
-    body: text("body").notNull(),
-    authorName: text("author_name"),
-    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [index("incident_updates_incident_idx").on(t.incidentId, t.at)],
 );
 
 /* ─── CRM: leads and follow-ups ────────────────────────────────────────── */

@@ -12,6 +12,7 @@ import { DATA_TOOL, DATA_TOOL_DESCRIPTION, lookupArguments, lookupInstructions, 
 import { industryFor } from "@/lib/business/industries";
 import { captureDetails, detailsInstructions, detailsLiveProperties, leadQuestionsFrom } from "@/lib/business/intake";
 import { conversationPayload, emit, emitForConversation, leadPayload } from "@/lib/integrations/webhooks";
+import { LOOK_UP_DESCRIPTION, LOOK_UP_INSTRUCTIONS, lookUpForAssistant } from "@/lib/integrations/records";
 import {
   crmInstructions,
   customerForCaller,
@@ -138,6 +139,17 @@ export const TOOLS = [
         },
       },
       {
+        name: "look_up_record",
+        description: LOOK_UP_DESCRIPTION,
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            reference: { type: "STRING", description: "The reference as the caller said it, e.g. TD-7K3QX9" },
+          },
+          required: ["reference"],
+        },
+      },
+      {
         name: "close_with_agreement",
         description:
           "End the call by agreement. Use ONLY when you could not do what the caller " +
@@ -204,6 +216,8 @@ export function liveInstruction(
     "- Only what search_knowledge returned. If it returns nothing useful, say you",
     "  do not have it in front of you and offer to get someone who does.",
     "- Never invent a date, a price, or a policy. Never guess at one.",
+    `- ${LOOK_UP_INSTRUCTIONS} A caller may spell the reference out letter by`,
+    "  letter; pass it on as one string.",
     "",
     describeNeverRules(config),
     "",
@@ -380,6 +394,20 @@ export async function handleToolCall(
         summary: `${created ? "New lead" : "Lead updated"}: ${lead.name}${lead.interest ? ` — ${lead.interest}` : ""}`,
         allowed: true,
         detail: ownerName ? `owner ${ownerName}` : "no owner yet",
+      },
+    };
+  }
+
+  if (name === "look_up_record") {
+    const reference = String(args.reference ?? "");
+    const result = await lookUpForAssistant(ctx.brandId, reference);
+    return {
+      response: result,
+      outcome: {
+        name,
+        summary: result.found ? `Looked up ${result.reference}` : `Looked up ${reference.slice(0, 40)}: nothing found`,
+        allowed: true,
+        detail: result.found ? result.status.slice(0, 200) : undefined,
       },
     };
   }
@@ -934,6 +962,7 @@ const TOOL_NAMES = [
   "escalate_to_human",
   "save_caller_details",
   "schedule_follow_up",
+  "look_up_record",
 ];
 
 export function narratedATool(said: string): string | null {

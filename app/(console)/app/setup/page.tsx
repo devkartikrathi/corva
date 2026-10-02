@@ -10,7 +10,7 @@ import * as s from "@/lib/db/schema";
 import {
   AddBrand,
   BrandLiveToggle,
-  ChannelRow,
+  PhoneNumberField,
   HoursRow,
   PrivacyForm,
 } from "@/components/SetupControls";
@@ -29,16 +29,11 @@ import {
   setPrivacy,
 } from "@/lib/actions/setup";
 import { getSetup } from "@/lib/queries/workspace";
+import Link from "next/link";
+import { mailboxFor } from "@/lib/email/mailbox";
+import { whatsappFor } from "@/lib/whatsapp/cloud";
 
 /** Every channel Corva can answer, so a disconnected one is still listed. */
-const ALL_CHANNELS = [
-  { kind: "phone", name: "Phone" },
-  { kind: "whatsapp", name: "WhatsApp" },
-  { kind: "web_chat", name: "Web chat" },
-  { kind: "email", name: "Email" },
-  { kind: "sms", name: "SMS" },
-] as const;
-
 /** A label/value line in one of the settings blocks. */
 function SettingRow({ label, value, labelWidth }: { label: string; value: string; labelWidth: number }) {
   return (
@@ -93,7 +88,40 @@ export default async function SetupPage() {
   const audit = account.plan.management ? fullAudit : [];
 
   const manages = can(session.actor, "billing.manage").allowed;
-  const channelBy = new Map(channels.map((c) => [c.kind, c]));
+  const phoneNumber = channels.find((c) => c.kind === "phone" && c.connected)?.detail ?? "";
+  const agentName = brand?.agentName ?? "the assistant";
+  const [whatsapp, mailbox] = brand ? await Promise.all([whatsappFor(brand.id), mailboxFor(brand.id)]) : [null, null];
+  // One line per way in: what it is, whether it is on, and where to set it up.
+  const reach = [
+    {
+      name: "Website chat",
+      what: `${agentName} answers the chat on your website. Your developer connects it with an API key (below).`,
+      on: true,
+      status: "On",
+      link: { label: "How to connect", href: "/developers" },
+    },
+    {
+      name: "Website voice",
+      what: `A call button on your website: customers talk to ${agentName} from their browser.`,
+      on: true,
+      status: "On",
+      link: { label: "Try it", href: "/app/try" },
+    },
+    {
+      name: "WhatsApp",
+      what: whatsapp ? `${agentName} answers messages to ${whatsapp.displayNumber}.` : `Connect your WhatsApp Business number and ${agentName} answers on it.`,
+      on: Boolean(whatsapp),
+      status: whatsapp ? "Connected" : "Not connected",
+      link: { label: whatsapp ? "Manage" : "Connect", href: "/app/whatsapp" },
+    },
+    {
+      name: "Email",
+      what: mailbox ? `Customer emails to ${mailbox.address} appear on their records. You reply from your own mail app.` : "Connect your inbox and customers who write in appear beside the ones who call and chat.",
+      on: Boolean(mailbox),
+      status: mailbox ? "Connected" : "Not connected",
+      link: { label: mailbox ? "Manage" : "Connect", href: "/app/email" },
+    },
+  ];
 
   const phone = channels.find((c) => c.kind === "phone" && c.live);
 
@@ -159,52 +187,50 @@ export default async function SetupPage() {
           </div>
 
           <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
-            <div style={{ marginBottom: 12 }}>
-              <SectionTitle size={16}>Channels · {brand?.name ?? "—"}</SectionTitle>
+            <div style={{ marginBottom: 6 }}>
+              <SectionTitle size={16}>How customers reach {brand?.name ?? "you"}</SectionTitle>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 11, fontSize: 12.5 }}>
-              {ALL_CHANNELS.map((definition) => {
-                const c = channelBy.get(definition.kind);
-                const connected = c ? c.state !== "not_connected" : false;
-                return (
-                  <div
-                    key={definition.kind}
-                    style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: 12,
-                      paddingBottom: 10,
-                      borderBottom: "1px solid var(--color-neutral-300)",
-                    }}
-                  >
-                    <b style={{ width: 96 }}>{definition.name}</b>
-                    <span style={{ flex: 1, color: "var(--color-neutral-800)" }}>
-                      {c?.detail ?? "Not connected"}
-                    </span>
-                    {connected && <StatusPill live={c!.live}>{c!.status}</StatusPill>}
-                    {manages && brand && (
-                      <ChannelRow
-                        brandId={brand.id}
-                        kind={definition.kind}
-                        name={definition.name}
-                        address={c?.detail ?? ""}
-                        detail={c?.detail ?? ""}
-                        state={c?.state ?? "not_connected"}
-                        onSave={async (input) => {
-                          "use server";
-                          await setChannel({
-                            brandId: input.brandId,
-                            kind: input.kind as (typeof ALL_CHANNELS)[number]["kind"],
-                            address: input.address,
-                            detail: input.detail,
-                            state: input.state,
-                          });
-                        }}
-                      />
+            <p style={{ margin: "0 0 12px", fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.5 }}>
+              Each way a customer can reach you, and whether {agentName} answers on it.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", fontSize: 12.5 }}>
+              {reach.map((r) => (
+                <div
+                  key={r.name}
+                  style={{ display: "grid", gridTemplateColumns: "120px 1fr auto", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--color-neutral-300)", alignItems: "start" }}
+                >
+                  <b>{r.name}</b>
+                  <span style={{ color: "var(--color-neutral-800)", lineHeight: 1.5 }}>{r.what}</span>
+                  <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <StatusPill live={r.on}>{r.status}</StatusPill>
+                    {r.link && (
+                      <Link href={r.link.href} style={{ fontSize: 11.5, fontWeight: 700, color: "var(--color-accent-700)", whiteSpace: "nowrap" }}>
+                        {r.link.label} →
+                      </Link>
                     )}
-                  </div>
-                );
-              })}
+                  </span>
+                </div>
+              ))}
+              <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "12px 0 2px", alignItems: "start" }}>
+                <b>Your phone number</b>
+                <span>
+                  {manages && brand ? (
+                    <PhoneNumberField
+                      number={phoneNumber}
+                      onSave={async (number) => {
+                        "use server";
+                        await setChannel({ brandId: brand.id, kind: "phone", address: number, detail: number, state: number ? "live" : "not_connected" });
+                      }}
+                    />
+                  ) : (
+                    <span>{phoneNumber || "Not set"}</span>
+                  )}
+                  <span style={{ display: "block", marginTop: 5, fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.5, maxWidth: "60ch" }}>
+                    The number {agentName} gives customers who want to call you. It does not connect a telephone line to{" "}
+                    {agentName}: calls to it still ring your phone.
+                  </span>
+                </span>
+              </div>
             </div>
           </div>
 

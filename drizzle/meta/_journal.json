@@ -141,6 +141,13 @@
       "when": 1790929005906,
       "tag": "0019_rate_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790938972542,
+      "tag": "0020_drop_operator_tables",
+      "breakpoints": true
     }
   ]
 }

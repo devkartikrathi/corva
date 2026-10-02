@@ -316,6 +316,47 @@ export const ENDPOINTS: Endpoint[] = [
     response: { lead: { ...leadObject, stage: "won", stageLabel: "Job done", valueRupees: 1800 }, customer: { ...customer, address: "B-402, Palm Grove, Sector 70" }, followUps: [] },
   },
   {
+    method: "POST",
+    path: "/api/v1/records",
+    group: "Records",
+    summary: "Tell the assistant where an order has got to",
+    description:
+      "What happens after a booking happens in your system: collected, in progress, out for delivery. Send each order's current state here whenever it changes, under the reference the customer was given, and the assistant can answer \"where is my order?\" in chat and on calls. The same `kind` and `reference` replace what was there. `status` is read to the customer as it is — write it as a sentence. Name the customer by `customer.id`, `leadId` or `customer.phone`.",
+    request: {
+      reference: { type: "string", required: true, description: "The id the customer was given." },
+      label: { type: "string", required: true, description: "What it is, in a few words." },
+      status: { type: "string", description: "Where it has got to, as a sentence the customer can be told." },
+      kind: { type: "string", description: "order (default), booking, delivery, ticket, invoice or subscription." },
+      amountRupees: { type: "number", description: "The bill, when there is one." },
+      leadId: { type: "string", description: "The lead it grew out of." },
+      customer: { type: "object", description: "{ id } or { phone, name?, email? } — found by phone, or created." },
+      meta: { type: "object", description: "Anything else worth knowing, as fields: stage, expected times, driver. The assistant may use it; never put an address or phone number here." },
+      occurredAt: { type: "string", description: "When the record began; defaults to now." },
+    },
+    example: {
+      reference: "AH-7K3QX9",
+      label: "AC service",
+      status: "The technician is on the way, expected around 5:40 pm.",
+      leadId: "8f3b2c1a-…",
+      meta: { stage: "en_route", expectedArrival: "2026-10-04T12:10:00.000Z" },
+    },
+    response: {
+      record: { id: "5a1e…", kind: "order", reference: "AH-7K3QX9", label: "AC service", status: "The technician is on the way, expected around 5:40 pm.", amountRupees: null, customerId: "c1d2…", occurredAt: "2026-10-03T04:30:00.000Z", meta: { stage: "en_route", expectedArrival: "2026-10-04T12:10:00.000Z" } },
+      created: false,
+    },
+  },
+  {
+    method: "GET",
+    path: "/api/v1/records",
+    group: "Records",
+    summary: "Records under a reference",
+    description: "What Corva currently holds under a reference — what the assistant would tell a customer who asked.",
+    query: { reference: { type: "string", description: "The reference, in any spacing or case." } },
+    response: {
+      records: [{ id: "5a1e…", kind: "order", reference: "AH-7K3QX9", label: "AC service", status: "The technician is on the way, expected around 5:40 pm.", amountRupees: null, customerId: "c1d2…", occurredAt: "2026-10-03T04:30:00.000Z", meta: {} }],
+    },
+  },
+  {
     method: "GET",
     path: "/api/v1/customers",
     group: "Records",

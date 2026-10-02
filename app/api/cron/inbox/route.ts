@@ -3,10 +3,12 @@ import { eq, isNull, lt, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { syncMailbox } from "@/lib/email/mailbox";
+import { reapStaleCalls } from "@/lib/pipelines/rollup";
 import { sweepRateLimits } from "@/lib/rate-limit";
 
 /**
- * GET /api/cron/inbox — read every connected inbox that is due.
+ * GET /api/cron/inbox — the scheduled job: read every connected inbox that
+ * is due, close conversations that went quiet, and sweep old counters.
  *
  * Called on a schedule (vercel.json). Without it an inbox is only read when
  * someone opens a screen, so a customer who writes on a quiet day would wait
@@ -31,6 +33,8 @@ export async function GET(req: Request) {
   // Housekeeping that has no better home: counters and receipts nobody will read again.
   await Promise.all([
     sweepRateLimits(),
+    // Conversations nobody is in any more: without this they stay "live" for ever.
+    reapStaleCalls(),
     db.delete(s.whatsappSeen).where(lt(s.whatsappSeen.at, new Date(Date.now() - 7 * 86_400_000))),
   ]).catch((e) => console.error("[cron] sweep", (e as Error).message));
 
