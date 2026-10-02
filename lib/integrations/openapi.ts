@@ -351,6 +351,7 @@ export function openApiDocument(baseUrl: string) {
         "200": { description: "OK", content: { "application/json": { example: e.response } } },
         "400": { description: "The request is wrong — `error` says how, in words you can show a user." },
         "401": { description: "Missing, invalid or revoked API key." },
+        "402": { description: "The business's plan has no room for a new conversation. /health reports the feature as off." },
         "409": { description: "The chat has ended, or the card was already answered or replaced." },
         "422": { description: "A card can no longer be confirmed as it is — its date has passed, say." },
         "429": { description: "Too many requests — 120 a minute per key." },

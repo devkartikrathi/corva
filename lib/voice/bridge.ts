@@ -743,7 +743,7 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
       return;
     }
 
-    if (msg.type === "stop") await shutdown("stopped by the operator");
+    if (msg.type === "stop") await shutdown("the caller hung up");
   });
 
   client.on("close", () => {

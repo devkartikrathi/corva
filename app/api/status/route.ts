@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { DEMO_MODE, OPERATOR_AVAILABLE, OPERATOR_OPEN } from "@/lib/auth/mode";
+import { DEMO_MODE } from "@/lib/auth/mode";
+import { adminEmails } from "@/lib/admin/auth";
+import { razorpayConfig, razorpayWebhookSecret } from "@/lib/billing/razorpay";
 import { APP_URL } from "@/lib/email";
 import { voiceBridge } from "@/lib/integrations/keys";
 
@@ -35,11 +37,16 @@ export async function GET() {
     voiceTokenSecret: Boolean(process.env.VOICE_TOKEN_SECRET),
     voiceAvailable: voice.available,
     appUrlSet: Boolean(process.env.APP_URL),
+    // Who may open /admin, and where demo requests are emailed.
+    adminEmailsSet: adminEmails().length > 0,
+    // Plans can be paid for online; and Razorpay can tell us when a payment lands.
+    payments: razorpayConfig().ok,
+    paymentsWebhook: Boolean(razorpayWebhookSecret()),
   };
   const required = ["database", "pgvector", "gemini", "clerk"] as const;
   return Response.json({
     ok: required.every((k) => checks[k]) && !DEMO_MODE,
-    mode: { demo: DEMO_MODE, operatorConsole: OPERATOR_AVAILABLE, operatorOpen: OPERATOR_OPEN },
+    mode: { demo: DEMO_MODE },
     appUrl: APP_URL,
     voiceUrl: voice.url,
     checks,

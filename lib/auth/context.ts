@@ -1,17 +1,11 @@
+import { auth } from "@clerk/nextjs/server";
 import { cookies } from "next/headers";
-import { notFound, redirect } from "next/navigation";
-import { OPERATOR_AVAILABLE } from "./mode";
+import { redirect } from "next/navigation";
 import { cache } from "react";
 import { BRAND_COOKIE, resolveBrand } from "./brand";
 import type { brands } from "@/lib/db/schema";
-import { demoEnabled, getDemoStaffSession, getDemoTenantSession } from "./demo";
-import {
-  getStaffSession,
-  getTenantSession,
-  getVisibleBrands,
-  type StaffSession,
-  type TenantSession,
-} from "./session";
+import { demoEnabled, getDemoTenantSession } from "./demo";
+import { getTenantSession, getVisibleBrands, type TenantSession } from "./session";
 
 /**
  * The request context for each console: who is asking, and what they may see.
@@ -42,8 +36,10 @@ export const getConsoleContext = cache(async (): Promise<ConsoleContext> => {
   const session = real ?? (await getDemoTenantSession());
 
   if (!session) {
-    // No Clerk session, and demo mode is off or the workspace is unseeded.
-    redirect(demoEnabled() ? "/no-workspace" : "/sign-in?redirect_url=%2Fapp");
+    if (demoEnabled()) redirect("/no-workspace");
+    // Signed in but in no business yet: they set one up. Not signed in: sign in.
+    const { userId } = await auth();
+    redirect(userId ? "/welcome" : "/sign-in?redirect_url=%2Fapp");
   }
 
   const visible = await getVisibleBrands(session);
@@ -57,24 +53,3 @@ export const getConsoleContext = cache(async (): Promise<ConsoleContext> => {
     isDemo: !real,
   };
 });
-
-/**
- * The operator console. Staff are a separate table, not a tenant role, so no
- * amount of editing an organization can reach this.
- */
-export const requireStaff = cache(
-  async (): Promise<{ staff: StaffSession; isDemo: boolean }> => {
-    // Not on a deployment: /operator runs on the team's own machines only.
-    if (!OPERATOR_AVAILABLE) notFound();
-    const real = await getStaffSession();
-    const staff = real ?? (await getDemoStaffSession());
-
-    if (!staff) {
-      if (demoEnabled()) redirect("/no-workspace");
-      // A local production build without CORVA_OPERATOR_OPEN=1.
-      redirect("/operator-closed");
-    }
-
-    return { staff, isDemo: !real };
-  },
-);

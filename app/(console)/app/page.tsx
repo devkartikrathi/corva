@@ -1,3 +1,4 @@
+import { GettingStarted } from "@/components/GettingStarted";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Bar, Kicker, LinkAction, LiveDot, OutlineButton, PrimaryButton, ScreenTitle, SectionTitle } from "@/components/ui";
@@ -74,6 +75,7 @@ export default async function HomePage() {
 
   return (
     <section>
+      <GettingStarted orgId={session.orgId} brandId={brand.id} agentName={brand.agentName ?? "your assistant"} />
       <div
         style={{
           padding: "24px 24px 20px",

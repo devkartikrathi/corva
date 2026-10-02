@@ -16,7 +16,7 @@ export default async function SignUpPage({
     <AuthFrame
       kicker="Get started"
       title="Create your account"
-      lede="Use the email your invitation was sent to — that is how Corva knows which business you belong to."
+      lede="Starting your own business on Corva? You will set it up on the next screen — 14 days free. Joining one? Use the email your invitation was sent to."
     >
       {DEMO_MODE ? (
         <p style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--color-neutral-800)", maxWidth: "38ch" }}>

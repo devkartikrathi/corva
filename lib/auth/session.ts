@@ -28,14 +28,7 @@ export type TenantSession = {
   actor: Actor;
 };
 
-export type StaffSession = {
-  kind: "staff";
-  clerkUserId: string;
-  staffId: string;
-  name: string;
-  email: string;
-  isAdmin: boolean;
-};
+
 
 /**
  * Bind whatever is waiting for this email to the account that just signed in.
@@ -66,11 +59,6 @@ async function claimByEmail(clerkUserId: string, email: string) {
         inArray(s.memberships.status, ["invited", "active"]),
       ),
     );
-
-  await db
-    .update(s.staff)
-    .set({ clerkUserId })
-    .where(and(eq(s.staff.email, address), eq(s.staff.clerkUserId, "staff_seed_operator")));
 }
 
 /** The signed-in tenant member, or null. Memoised per request. */
@@ -136,24 +124,7 @@ export const getTenantSession = cache(async (): Promise<TenantSession | null> =>
   };
 });
 
-/** The signed-in Corva staff member, or null. Never derived from a tenant role. */
-export const getStaffSession = cache(async (): Promise<StaffSession | null> => {
-  if (!clerkConfigured()) return null;
-  const { userId } = await auth();
-  if (!userId) return null;
 
-  const [row] = await db.select().from(s.staff).where(eq(s.staff.clerkUserId, userId)).limit(1);
-  if (!row) return null;
-
-  return {
-    kind: "staff",
-    clerkUserId: userId,
-    staffId: row.id,
-    name: row.name,
-    email: row.email,
-    isAdmin: row.isAdmin,
-  };
-});
 
 
 /** The brands this session may see, already scoped. */

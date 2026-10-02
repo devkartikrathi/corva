@@ -1,12 +1,9 @@
 # Deploying Corva to Vercel
 
-Corva is one Next.js app. On Vercel it serves the public site (`/`), a business's console
-(`/app`), the public API (`/api/v1/*`), the developer docs (`/developers`) and the voice bridge
-(`/api/voice`, a WebSocket) — no second server to run.
-
-Corva's own console (`/operator` — adding businesses, test calls) is **not** part of the
-deployment: it runs on the Corva team's machines with `npm run dev`, against the same database,
-and returns 404 on Vercel.
+Corva is one Next.js app. On Vercel it serves the public site (`/`, `/demo`), self-serve
+signup (`/sign-up`, `/welcome`), a business's console (`/app`), Corva's back office (`/admin`),
+the public API (`/api/v1/*`), the developer docs (`/developers`), the payment routes
+(`/api/razorpay/*`) and the voice bridge (`/api/voice`, a WebSocket) — no second server to run.
 
 ## 1. Import the project
 
@@ -34,9 +31,16 @@ Settings → Environment Variables. `.env.example` has the same list with notes.
 | `VOICE_TOKEN_SECRET` | recommended | A long random string: `openssl rand -base64 32` |
 | `RESEND_API_KEY` | recommended | From Resend (step 4). Without it emails are logged, not sent |
 | `EMAIL_FROM` | once a domain is verified | e.g. `Corva <hello@your-domain.com>` |
+| `CORVA_ADMIN_EMAILS` | yes | Comma-separated emails that may open `/admin` and receive demo requests |
+| `RAZORPAY_KEY_ID` | to take payment | From Razorpay → Account & Settings → API Keys (`rzp_test_…` or `rzp_live_…`) |
+| `RAZORPAY_KEY_SECRET` | to take payment | Shown once, when the key is generated |
+| `RAZORPAY_WEBHOOK_SECRET` | to take payment | A string you choose when creating the webhook (step 6) — **not** the key secret |
 
-Do **not** set `CORVA_DEMO` or `CORVA_OPERATOR_OPEN` on Vercel. They are ignored on the
-production deployment anyway: sign-in is always required there, and `/operator` does not exist.
+Do **not** set `CORVA_DEMO` on Vercel. It is ignored on the production deployment anyway:
+sign-in is always required there.
+
+Without the Razorpay keys everything else works: Billing shows the plans and says online
+payment is not switched on, and plans are set from `/admin`.
 
 ## 3. Clerk (sign-in)
 
@@ -56,15 +60,29 @@ Until a sending domain is verified in Resend, emails only reach the Resend accou
 address; once it is, set `EMAIL_FROM` to an address on it and redeploy. Customer confirmations
 and lead notifications depend on this.
 
-## 5. Domain
+## 5. Payments (Razorpay)
+
+1. Razorpay dashboard → **Account & Settings → API Keys** → generate a key. Set
+   `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` on the project. Use test keys first: checkout
+   then takes Razorpay's test cards and no money moves.
+2. **Settings → Webhooks → Add** — URL `https://<corva>/api/razorpay/webhook`, a secret of your
+   choosing, events `payment.captured`, `payment.failed` and `refund.processed`. Set the same
+   secret as `RAZORPAY_WEBHOOK_SECRET`.
+3. Redeploy. `/api/status` shows `payments` and `paymentsWebhook` true.
+
+A business pays a month at a time from **Billing**. The amount is worked out on the server
+(plan + any overage owed + 18% GST); the plan changes once the payment's signature verifies,
+and the webhook does the same if the payer closed the tab. Without the webhook secret,
+deliveries are refused and only the in-browser path grants a plan.
+
+## 6. Domain
 
 Settings → Domains → add the domain, add the DNS record Vercel shows, then set `APP_URL` to it
 and redeploy.
 
-## 6. Database
+## 7. Database
 
-One Neon database (with the `vector` extension) serves production and the team's local
-operator console.
+One Neon database (with the `vector` extension).
 
 - A fresh database: `npm run db:migrate`.
 - A schema change: `npm run db:generate` writes a migration; run `npm run db:migrate` **before**
@@ -72,25 +90,27 @@ operator console.
 - The `db:seed*` scripts build a fictional demo workspace. Never run them on the database real
   businesses live in.
 
-## 7. Check it
+Local development uses the same database unless you point `.env.local` elsewhere.
+
+## 8. Check it
 
 Open **`https://<corva>/api/status`**. It answers yes/no for every piece — never a value — and
 lists anything required that is `missing`:
 
 ```json
-{ "ok": true, "mode": { "demo": false, "operatorConsole": false },
+{ "ok": true, "mode": { "demo": false },
   "voiceUrl": "wss://corva.example.com/api/voice", "missing": [] }
 ```
 
-Also: `/operator` is 404, `/app` redirects to sign-in, `/developers` loads.
+Also: `/app` redirects to sign-in, `/admin` opens for an admin email and is a 404 for anyone
+else, `/developers` and `/demo` load.
 
-## 8. Add a business and connect its website
+## 9. A business, and its website
 
-Follow [docs/ONBOARDING.md](docs/ONBOARDING.md). In short:
+A business signs itself up at `/sign-up` and sets itself up at `/welcome`; you can also add one
+at `/admin/new`. [docs/ONBOARDING.md](docs/ONBOARDING.md) has both paths. To connect its site:
 
-1. Add the business from your machine: `npm run dev` → `/operator/onboarding`.
-2. The owner signs up on the live site with the email you entered; `/app` opens their console.
-3. In **Settings → Website & API keys** they make a key. Their site's server gets two
+1. In its console, **Settings → Website & API keys** → make a key. Its site's server gets two
    variables, and nothing else:
 
    | Variable | Value |
@@ -98,14 +118,14 @@ Follow [docs/ONBOARDING.md](docs/ONBOARDING.md). In short:
    | `CORVA_API_URL` | your Corva address, no trailing slash |
    | `CORVA_API_KEY` | the `ck_…` key |
 
-4. Check: `curl -H "Authorization: Bearer ck_…" https://<corva>/api/v1/health` — `ok: true`,
+2. Check: `curl -H "Authorization: Bearer ck_…" https://<corva>/api/v1/health` — `ok: true`,
    and `features.voice` / `voiceSecure` true if they will use voice.
-5. Optional: **Settings → Webhooks** — their URL, and the signing secret into their server as
+3. Optional: **Settings → Webhooks** — their URL, and the signing secret into their server as
    `CORVA_WEBHOOK_SECRET`.
 
 Their developer works from `/developers`.
 
-## 9. Test the whole loop
+## 10. Test the whole loop
 
 On the business's site:
 
@@ -117,8 +137,11 @@ On the business's site:
 - Press the site's call button and talk → the call is on **Live**; take the line → the assistant
   says it is transferring the caller, and you speak to them from the call panel.
 
-From the local operator console (`/operator/testing`), dial the business's line or chat as a
-customer.
+From the business's own console, **Try it** rings or chats to the assistant as a customer —
+free, and kept out of the numbers.
+
+Sign up with a fresh email → `/welcome` → the pilot → **Billing** → pay with a Razorpay test
+card → the plan changes, and the payment is in `/admin/payments`.
 
 ## Voice: how it runs, limits, and plan B
 
@@ -141,7 +164,10 @@ process alive — `npm run voice` with the same `DATABASE_URL`, `DATABASE_URL_UN
 
 | Symptom | Look at |
 | --- | --- |
-| Sign-in page missing, `/operator` reachable | `CORVA_DEMO` is set on Vercel — remove it |
+| `/admin` is a 404 for you | Your verified email is not in `CORVA_ADMIN_EMAILS` (redeploy after changing it) |
+| A business's assistant has stopped answering | Its pilot or plan ended, or the pilot's allowance is used — `/admin` shows which; extend it there |
+| A payment was taken but the plan did not change | `/admin/payments` shows it as "not applied": check `RAZORPAY_WEBHOOK_SECRET` and the webhook's deliveries in Razorpay, then set the plan by hand |
+| No demo request emails | `RESEND_API_KEY` / `CORVA_ADMIN_EMAILS`; the requests are still in `/admin/demo-requests` |
 | The site's voice button does not appear | `/api/v1/health`: `features.voice` / `voiceSecure`; the site's `CORVA_API_KEY` |
 | A call connects and the assistant never answers, or the line drops | The conversation's last turn in Corva says why the model closed; `docs/VOICE.md` §10 |
 | Chat replies take many seconds | The model provider is slow; streams hedge after `MODEL_HEDGE_MS`. Check `/app/tuning` → model |

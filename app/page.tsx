@@ -188,7 +188,14 @@ export default function LandingPage() {
               Sign in
             </Link>
             <Link
-              href="#pricing"
+              href="/demo"
+              className="hov-invert"
+              style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)", border: "2px solid var(--color-text)", padding: "9px 16px" }}
+            >
+              Book a demo
+            </Link>
+            <Link
+              href="/sign-up"
               className="hov-accent"
               style={{
                 fontSize: 13,
@@ -198,7 +205,7 @@ export default function LandingPage() {
                 padding: "11px 18px",
               }}
             >
-              Book a demo
+              Start free
             </Link>
           </div>
         </div>
@@ -255,17 +262,17 @@ export default function LandingPage() {
                 textWrap: "pretty",
               }}
             >
-              Corva puts an AI that knows your business on your website&rsquo;s chat, on voice calls
-              and on your phone line, around the clock. Every conversation becomes a customer record,
+              Corva puts an AI that knows your business on your website&rsquo;s chat and on voice calls
+              started from your site, around the clock. Every conversation becomes a customer record,
               anyone who wants something becomes a lead with an owner, and every promised callback has
               a name and a time on it — with your team one click from taking over.
             </p>
 
             <div style={{ marginTop: 36, display: "flex", gap: 10 }}>
-              <AccentLink href="#platform" arrow minWidth={200}>
-                See the platform
+              <AccentLink href="/sign-up" arrow minWidth={220}>
+                Start free for 14 days
               </AccentLink>
-              <OutlineLink href="#loop">How it works</OutlineLink>
+              <OutlineLink href="/demo">Book a demo</OutlineLink>
             </div>
 
             <div
@@ -1087,7 +1094,7 @@ export default function LandingPage() {
 
                 {p.featured ? (
                   <Link
-                    href="#"
+                    href={p.href}
                     className="hov-accent"
                     style={{
                       marginTop: 22,
@@ -1103,7 +1110,7 @@ export default function LandingPage() {
                   </Link>
                 ) : (
                   <Link
-                    href="#"
+                    href={p.href}
                     className="hov-invert"
                     style={{
                       marginTop: 22,
@@ -1156,7 +1163,7 @@ export default function LandingPage() {
           </h2>
           <div style={{ marginTop: 32, display: "flex", alignItems: "center", gap: 12 }}>
             <Link
-              href="#pricing"
+              href="/demo"
               style={{
                 fontSize: 14,
                 fontWeight: 700,
@@ -1174,7 +1181,7 @@ export default function LandingPage() {
               <span aria-hidden="true">→</span>
             </Link>
             <Link
-              href="#platform"
+              href="/sign-up"
               className="hov-invert-light"
               style={{
                 fontSize: 14,
@@ -1184,7 +1191,7 @@ export default function LandingPage() {
                 padding: "13px 22px",
               }}
             >
-              See the platform
+              Start free for 14 days
             </Link>
           </div>
         </div>
@@ -1229,7 +1236,7 @@ export default function LandingPage() {
           </div>
         </div>
         <div style={{ ...SHELL, padding: "0 48px 32px", fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-          © 2026 Corva Systems Ltd · London
+          © 2026 Tiruvi · Corva is a Tiruvi product
         </div>
       </footer>
     </div>

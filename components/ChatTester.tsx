@@ -326,12 +326,12 @@ export function ChatTester({
               End the chat
             </button>
             <a
-              href={`/operator/open?brand=${brandId}&next=${encodeURIComponent(`/app/live?call=${chat.id}`)}`}
+              href={`/app/live?call=${chat.id}`}
               target="_blank"
               rel="noreferrer"
               style={{ fontSize: 11.5, fontWeight: 700, color: "var(--color-accent-400)" }}
             >
-              Watch this chat in their console →
+              Watch this chat on Live →
             </a>
           </>
         )}

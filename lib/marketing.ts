@@ -3,14 +3,16 @@
  *
  * The layout came from `design/Corva Landing.dc.html`; the words describe
  * what Corva is now — an AI front office on a business's website chat, voice
- * and phone that turns every conversation into a customer record, a lead and
+ * that turns every conversation into a customer record, a lead and
  * a follow-up, with an API for the business's own site and systems. Nothing
  * here claims a feature the product does not have; what is planned is in
  * docs/ROADMAP.md, not on this page.
  */
 
+import { PLANS, amount, rupees } from "@/lib/billing/plans";
+
 export const heroStats = [
-  { label: "Chat, voice and phone, day or night", value: "24", suffix: "/7", suffixAccent: true },
+  { label: "Website chat and voice, day or night", value: "24", suffix: "/7", suffixAccent: true },
   { label: "Conversations that become a record", value: "100", suffix: "%", suffixAccent: true },
   { label: "From your website to a working assistant", value: "5", suffix: "min", suffixAccent: false },
   { label: "Settings your site needs to connect", value: "2", suffix: "keys", suffixAccent: false },
@@ -40,7 +42,7 @@ export const loopSteps = [
   {
     n: "01",
     title: "The AI answers",
-    body: "On your website's chat, on a voice call from your site, or on your phone number. It knows a returning customer and loads their record; anyone new becomes a contact as they speak.",
+    body: "On your website's chat, or on a voice call started from your site. It knows a returning customer and loads their record; anyone new becomes a contact as they speak.",
   },
   {
     n: "02",
@@ -70,8 +72,8 @@ export const industryNotes = [
 
 export const platformCards = [
   {
-    title: "An AI on chat, voice and phone",
-    body: "One assistant on your website's chat, on voice calls from your site, and on your number. Same knowledge, same limits, same record afterwards.",
+    title: "An AI on chat and voice",
+    body: "One assistant on your website's chat and on voice calls from your site. Same knowledge, same limits, same record afterwards.",
   },
   {
     title: "Answers only from your business",
@@ -123,59 +125,65 @@ export const platformCards = [
 export const connectWays = [
   {
     n: "A",
-    title: "On your website",
-    body: "Your chat window and a voice button, Corva's assistant behind them. Your developer needs an afternoon and two settings.",
+    title: "Chat on your website",
+    body: "Your chat window, Corva's assistant behind it — with booking cards your customer confirms. Your developer needs an afternoon and two settings.",
     link: { label: "Developer docs", href: "/developers" },
   },
   {
     n: "B",
-    title: "On your phone number",
-    body: "No code at all. Callers reach the assistant; your team sees the call live and can take it.",
-    link: null,
+    title: "Voice on your website",
+    body: "A call button on your site: customers talk to the assistant from their browser, and your team can take the call over and speak to them.",
+    link: { label: "How voice works", href: "/developers#voice" },
   },
   {
     n: "C",
     title: "Behind what you already have",
-    body: "Keep your own forms or chatbot. Send Corva the bookings and transcripts, and get owners, follow-ups and emails back.",
+    body: "Keep your own forms or chatbot. Send Corva the bookings and transcripts, and get owners, follow-ups and emails back — with webhooks to your systems.",
     link: { label: "API reference", href: "/developers#reference" },
   },
 ] as const;
 
 
 /**
- * The plans. A monthly price with usage included — see docs/PRICING.md for the
- * reasoning, the unit costs, and what is not yet enforced by the product.
+ * The plans, as the public site shows them. Prices and included usage come
+ * from lib/billing/plans.ts — the same figures Billing charges and the product
+ * enforces — so this page cannot quote something else.
  */
+const { starter, growth } = PLANS;
+const history = (days: number) => (days >= 365 ? `${Math.round(days / 365)}-year history` : `${days}-day history`);
+
 export const plans = [
   {
-    name: "Starter",
-    price: "₹2,999",
+    name: starter.name,
+    price: rupees(starter.priceRupees!),
     unit: " / month",
     blurb: "One business with a small team. Everything needed to answer, book and follow up.",
     features: [
-      "500 AI chats + 150 voice minutes",
-      "Website chat, voice and a phone line",
+      `${amount(starter.chats)} AI chats + ${amount(starter.voiceMinutes)} voice minutes`,
+      "Website chat and voice",
       "Leads, follow-ups, customer records",
       "Details to collect, bookings by card",
       "API and webhooks",
-      "3 team members · 90-day history",
+      `${starter.members} team members · ${history(starter.historyDays)}`,
     ],
-    cta: "Start a pilot",
+    cta: "Start free for 14 days",
+    href: "/sign-up",
     featured: false,
   },
   {
-    name: "Growth",
-    price: "₹8,999",
+    name: growth.name,
+    price: rupees(growth.priceRupees!),
     unit: " / month",
     blurb: "Several brands or branches, a bigger team, and the numbers to manage it.",
     features: [
-      "2,500 AI chats + 800 voice minutes",
+      `${amount(growth.chats)} AI chats + ${amount(growth.voiceMinutes)} voice minutes`,
       "Everything in Starter",
-      "Up to three brands",
-      "Team performance, roles, audit log",
-      "15 team members · 2-year history",
+      `Up to ${growth.brands} brands`,
+      "Team performance and the audit log",
+      `${growth.members} team members · ${history(growth.historyDays)}`,
     ],
-    cta: "Book a demo",
+    cta: "Start free for 14 days",
+    href: "/sign-up",
     featured: true,
     badge: "Most businesses",
   },
@@ -183,35 +191,35 @@ export const plans = [
     name: "Business",
     price: "Talk to us",
     unit: "",
-    blurb: "Many branches, your own phone lines, and help moving over from what you use today.",
+    blurb: "Many branches, a larger team, and help moving over from what you use today.",
     features: [
       "Usage and team sized to you",
-      "Your existing numbers",
+      "Many brands or branches",
       "Custom industry setup",
-      "SSO and an SLA",
+      "An SLA",
       "A named person at Corva",
     ],
-    cta: "Contact us",
+    cta: "Book a demo",
+    href: "/demo",
     featured: false,
   },
 ] as const;
 
 export const planNotes = [
   "A chat is one conversation, however many messages. A voice minute is a minute on a call.",
-  "Beyond what is included: ₹5 a chat and ₹6 a voice minute on Starter; ₹4 and ₹5 on Growth.",
-  "Setup is done with you, free, and every business starts with a 14-day pilot. Prices exclude GST.",
+  `Beyond what is included: ${rupees(starter.overage!.chat)} a chat and ${rupees(starter.overage!.voiceMinute)} a voice minute on Starter; ${rupees(growth.overage!.chat)} and ${rupees(growth.overage!.voiceMinute)} on Growth — the assistant never stops mid-month.`,
+  `Every business starts with a free ${PLANS.pilot.periodDays}-day pilot: ${PLANS.pilot.chats} chats and ${PLANS.pilot.voiceMinutes} voice minutes, no card. Prices exclude GST.`,
 ] as const;
-
 
 export const footerColumns = [
   {
     title: "Product",
     links: [
-      { label: "AI assistant", href: "#platform" },
-      { label: "Leads & follow-ups", href: "#loop" },
-      { label: "Ways to connect", href: "#connect" },
-      { label: "Industries", href: "#signals" },
-      { label: "Pricing", href: "#pricing" },
+      { label: "AI assistant", href: "/#platform" },
+      { label: "How it works", href: "/#loop" },
+      { label: "Ways to connect", href: "/#connect" },
+      { label: "Industries", href: "/#signals" },
+      { label: "Pricing", href: "/#pricing" },
     ],
   },
   {
@@ -220,15 +228,14 @@ export const footerColumns = [
       { label: "API docs", href: "/developers" },
       { label: "Webhooks", href: "/developers#webhooks" },
       { label: "OpenAPI spec", href: "/api/v1/openapi.json" },
-      { label: "Status", href: "/api/status" },
     ],
   },
   {
-    title: "Your team",
+    title: "Get started",
     links: [
+      { label: "Start free", href: "/sign-up" },
+      { label: "Book a demo", href: "/demo" },
       { label: "Sign in", href: "/app" },
-      { label: "Create your account", href: "/sign-up" },
     ],
   },
 ] as const;
-

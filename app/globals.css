@@ -304,6 +304,26 @@ body:has(.operator-root) {
 .operator-root :focus-visible {
   outline: 2px solid var(--color-accent-500);
 }
+
+/* A dark panel inside the light console — where an owner tries their own
+   assistant. The same inversion as above, without taking over the page. */
+.dark-surface {
+  background: var(--color-text);
+  color: var(--color-bg);
+  font-variant-numeric: tabular-nums;
+}
+.dark-surface a {
+  color: var(--color-accent-500);
+}
+.dark-surface a:hover {
+  color: var(--color-accent-400);
+}
+.dark-surface ::selection {
+  background: var(--color-accent-800);
+}
+.dark-surface :focus-visible {
+  outline: 2px solid var(--color-accent-500);
+}
 .operator-root ::-webkit-scrollbar-thumb {
   background: var(--color-neutral-700);
 }

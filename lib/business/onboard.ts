@@ -8,6 +8,7 @@ import { bootstrapBusiness, resolvePhoneNumber } from "./bootstrap";
 import { industryFor } from "./industries";
 import { inviteEmail, sendEmail } from "@/lib/email";
 import { ROLE_LABELS } from "@/lib/auth/permissions";
+import { PLANS } from "@/lib/billing/plans";
 
 /**
  * Adding a business.
@@ -96,7 +97,13 @@ export type OnboardingInput = {
 
 export async function createBusiness(
   input: OnboardingInput,
+  /** Who is adding it, for the audit log: Corva (an admin, a script) or the owner themselves. */
   staff: { staffId: string; name: string },
+  /**
+   * The owner is setting it up themselves, signed in: their seat is theirs
+   * from the first second — no invitation to send or accept.
+   */
+  selfServe?: { clerkUserId: string },
 ): Promise<OnboardingResult> {
   const businessName = input.businessName.trim();
   const ownerEmail = input.ownerEmail.trim().toLowerCase();
@@ -139,6 +146,10 @@ export async function createBusiness(
       mrrPaise: 0,
       healthScore: null,
       renewsAt: new Date(Date.now() + 30 * 864e5),
+      // Every business starts on the pilot; Billing is where it becomes a plan.
+      tier: "pilot",
+      periodStart: new Date(),
+      periodEnd: new Date(Date.now() + PLANS.pilot.periodDays * 864e5),
     })
     .returning();
 
@@ -188,7 +199,15 @@ export async function createBusiness(
   });
 
   await db.insert(s.memberships).values([
-    member({ name: ownerName, email: ownerEmail, role: "owner" }, inviteToken),
+    selfServe
+      ? {
+          ...member({ name: ownerName, email: ownerEmail, role: "owner" }, null),
+          clerkUserId: selfServe.clerkUserId,
+          status: "active" as const,
+          availability: "available" as const,
+          invitedByName: null,
+        }
+      : member({ name: ownerName, email: ownerEmail, role: "owner" }, inviteToken),
     ...team.people.map((p) => member(p, DEMO_MODE ? null : randomUUID())),
   ]);
 
@@ -224,7 +243,7 @@ export async function createBusiness(
   await db.insert(s.auditLog).values({
     orgId: org.id,
     brandId: brand.id,
-    actorType: "staff",
+    actorType: selfServe ? "user" : "staff",
     actorId: staff.staffId,
     actorName: staff.name,
     action: "workspace.created",

@@ -126,18 +126,37 @@ happens (a lead saved, a follow-up scheduled, a brief written, a conversation cl
 awaited, and delivered after the response with one retry. Each delivery is signed with the
 webhook's own secret; the last result is stored on the webhook.
 
+## Plans and payment
+
+`lib/billing/plans.ts` is the catalogue; `organizations.tier`, `period_start` and `period_end`
+are a business's place in it. `accountState()` (`lib/billing/usage.ts`) derives everything else
+on demand — usage from the period's conversations, overage, whether the period is active, in
+grace or lapsed — so there is no counter to keep in step. `blocked()` is asked when a chat or a
+call starts; the team and brand limits are asked where those are created.
+
+Payment is Razorpay Checkout (`app/api/razorpay/order|verify|webhook`). The order is priced on
+the server and carries the business and tier in its notes; `payments` is keyed on the Razorpay
+payment id and `grantPlan()` flips `granted` once, so the browser's verified report and the
+webhook can both arrive without doing anything twice.
+
 ## Sign-in and roles
 
 Clerk proves who someone is; Postgres decides what they may do. `memberships` holds role and
 brand scope; `lib/auth/permissions.ts` is the capability matrix; `guardScreen()` gates pages and
-`assertCan()` gates actions. A verified email claims a waiting membership on first sign-in.
-Corva's own staff console exists only off-Vercel.
+`assertCan()` gates actions. A verified email claims a waiting membership on first sign-in;
+someone signed in with no membership is sent to `/welcome` to set a business up
+(`lib/actions/welcome.ts`).
+
+Corva's own back office, `/admin`, is not a role in any business: `requireAdmin()`
+(`lib/admin/auth.ts`) allows the verified emails in `CORVA_ADMIN_EMAILS` and answers 404 to
+everyone else. It reads plans, usage and payments — never a business's conversations.
 
 ## Data model, briefly
 
 | Area | Tables |
 | --- | --- |
-| Tenancy and people | `organizations`, `brands`, `memberships`, `staff`, `audit_log` |
+| Tenancy and people | `organizations`, `brands`, `memberships`, `audit_log` |
+| Billing | `organizations.tier` / `period_*`, `payments`, `demo_requests` |
 | Assistant | `agent_versions` (+ `authority_limits`, `escalation_triggers`, `never_rules`), `intake_fields`, `documents`, `document_chunks` |
 | Conversations | `conversations`, `turns`, `turn_citations`, `conversation_actions`, `handoffs`, `chat_proposals` |
 | CRM | `customers`, `leads`, `follow_ups`, `customer_notes`, `customer_scores` |

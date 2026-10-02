@@ -5,28 +5,31 @@ expect to be asked. "Built" means in the product today.
 
 ## Built
 
-- An assistant per business on website chat, website voice and a test phone line, answering only
-  from the business's knowledge and inside its limits
+- An assistant per business on website chat and website voice, answering only from the
+  business's knowledge and inside its limits
 - Bookings and callbacks the customer confirms on a card; leads with owners; follow-ups with due times
 - Details to collect, defined by the business, shown on live conversations and leads
 - Taking over a chat or a voice call live, and handing it back
 - Customers, pipeline in the business's own stage words, team performance, roles, audit log
 - A public API (chat, config, leads, visits, voice), signed webhooks, an OpenAPI spec and developer docs
 - Industry templates: clinic, real estate, retail, education, home services, laundry, restaurant, general
+- Self-serve signup: an account, one form, a working assistant on a 14-day pilot
+- Plans with usage metered and limits enforced; paying for a month with Razorpay; receipts
+- A back office for Corva (`/admin`): every business, plans, payments, demo requests
 
 ## Next — what stands between a pilot and a paying business
 
 1. **Real phone numbers.** A telephony provider (Exotel, Plivo or Twilio) bridged to the voice
    route, so the number on a business's signboard reaches the assistant, and a taken-over call
-   can ring a team member's phone. Today public voice is the website button only.
+   can ring a team member's phone. Today voice is the website's call button only.
 2. **Email that reaches customers.** A verified sending domain per business (or a shared Corva
    domain with the business's name), so confirmations do not depend on one account's test sender.
-3. **Plans, metering and invoices.** A plan on each organization, included-usage counters, the
-   limits in [PRICING.md](PRICING.md) enforced, a monthly invoice with GST.
+3. **Tax invoices and automatic renewal.** A GST invoice per payment, and Razorpay
+   Subscriptions so a plan renews without the owner coming back each month.
 4. **Production sign-in.** A Clerk production instance on the Corva domain; Organizations for
-   multi-business owners.
-5. **Self-serve onboarding.** The operator form, opened up: sign up, describe the business,
-   paste a website, get a working assistant and a key — with us reviewing rather than typing.
+   people who belong to more than one business.
+5. **Guarding self-serve.** Sign-up is open: a rate limit per IP on `/welcome`, a check on
+   disposable emails, and a cap on website pages read, before it is advertised widely.
 
 ## Soon — what a business asks for in its first month
 

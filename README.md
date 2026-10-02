@@ -2,10 +2,10 @@
 
 An AI front office for small and mid-sized businesses in India.
 
-Each business gets an AI assistant that answers its **website chat**, **voice calls from the
-website**, and its **phone number** — from the business's own knowledge, inside limits the
-business sets. Every conversation becomes work the team can act on: a **customer** record, a
-**lead** with an owner, a **follow-up** with a name and a time. The team works those from one
+Each business gets an AI assistant that answers its **website chat** and **voice calls from
+its website** — from the business's own knowledge, inside limits the business sets. (A real
+telephone number is next; see the roadmap.) Every conversation becomes work the team can act
+on: a **customer** record, a **lead** with an owner, a **follow-up** with a name and a time. The team works those from one
 console, can **take any chat or call over live**, and the owner can see who is winning leads
 and keeping promises.
 
@@ -17,11 +17,11 @@ Three things in one product, on purpose:
 | **Customer management** | Customers, leads in the business's own pipeline words, follow-ups, the details the business chose to collect | The business's team |
 | **Team management** | People and roles, who owns what, performance per person, an audit log | The business's owner |
 
-A business connects in whichever way suits it — and they all reach the same assistant and land
-in the same console:
+A business signs itself up (`/sign-up` → `/welcome`), gets a working assistant from its website
+in a couple of minutes on a free 14-day pilot, and then connects its site:
 
-1. **The API** — its website's chat window and voice button talk to Corva (`/developers`).
-2. **A phone number** — callers reach the assistant; no code at all.
+1. **Chat on its website** — its chat window talks to Corva's assistant (`/developers`).
+2. **Voice on its website** — a call button; the team can take the call over and talk.
 3. **Its own assistant or forms** — it keeps what it has and sends Corva the results.
 
 Tumble Days (a laundry in Gurugram, `../tumbledays`) is the first business live on it and the
@@ -41,9 +41,10 @@ npm run dev                    # http://localhost:3000
 npm run voice                  # the voice bridge, for calls (ws://localhost:8787)
 ```
 
-- `/` — the public site · `/developers` — API docs · `/app` — a business's console
-- `/operator` — Corva's own console, where businesses are added. **Local only**: it does not
-  exist on a deployment.
+- `/` — the public site · `/demo` — the demo request form · `/developers` — API docs
+- `/sign-up` → `/welcome` — a business setting itself up · `/app` — its console
+- `/admin` — Corva's own back office: every business, plans, payments, demo requests. Only
+  for the emails in `CORVA_ADMIN_EMAILS`.
 - `/api/status` — which pieces are configured (never a secret's value).
 
 ## Documentation
@@ -54,7 +55,7 @@ npm run voice                  # the voice bridge, for calls (ws://localhost:878
 | [docs/ONBOARDING.md](docs/ONBOARDING.md) | Bringing a new business on, step by step — ours and theirs |
 | [docs/INTEGRATION.md](docs/INTEGRATION.md) | What a business's developer builds; the checklist we hold an integration to |
 | `/developers` (live) | The API reference, generated from `lib/integrations/openapi.ts`; also `/api/v1/openapi.json` |
-| [docs/PRICING.md](docs/PRICING.md) | The plans, what they cost us to serve, and what is not built yet |
+| [docs/PRICING.md](docs/PRICING.md) | The plans, what they cost us to serve, how they are enforced and paid for |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What businesses will need next, in the order we think they will ask |
 | [DEPLOYING.md](DEPLOYING.md) | Putting Corva on Vercel, and connecting a business's site |
 | [docs/VOICE.md](docs/VOICE.md) | Voice measurements, protocol notes and gotchas |
@@ -71,13 +72,15 @@ npm run voice                  # the voice bridge, for calls (ws://localhost:878
 | Sales | `/app/leads` | The pipeline, in the business's own stage names, with collected details on each card |
 | | `/app/follow-ups` | Callbacks and promises — overdue, today, upcoming, done |
 | | `/app/customers` | Customers and each one's record: leads, follow-ups, conversations, website visits |
-| AI assistant | `/app/knowledge` | What the AI may answer from; gaps it found |
+| AI assistant | `/app/try` | **Try it** — chat to or ring your own assistant as a customer; free, and kept out of the numbers |
+| | `/app/knowledge` | What the AI may answer from; gaps it found |
 | | `/app/tuning` | Persona, tone, what it may do alone, when it hands over — drafted, then published |
 | | `/app/details` | **Details to collect** — the fields the AI asks every customer for |
 | | `/app/analytics` | Containment and what the AI still cannot finish |
 | Team | `/app/performance` | Per person: leads owned and won, follow-ups on time, handoffs |
 | | `/app/team` | People, roles and invitations |
-| | `/app/setup` | Settings — number, channels, hours, **API keys**, **webhooks**, privacy, audit log |
+| | `/app/setup` | Settings — channels, hours, **API keys**, **webhooks**, privacy, audit log |
+| | `/app/billing` | **Billing** — the plan, usage against what it includes, overage, pay or renew, receipts |
 
 Roles are Owner, Admin, Manager, Agent and Analyst (`lib/auth/permissions.ts`). An Agent sees
 their own leads, follow-ups and customers; a Manager or Owner sees the whole business. Every
@@ -87,18 +90,40 @@ Sign-in is Clerk; roles and memberships live in Postgres. Signing in with a *ver
 claims whatever is waiting for it — an invitation or the Owner seat created at onboarding
 (`claimByEmail`, `lib/auth/session.ts`).
 
-## Corva's own console — `/operator/*` (local only)
+## Plans, usage and payment
+
+`lib/billing/plans.ts` is the one catalogue: the public pricing, what Razorpay is asked to
+collect and what the product enforces all read it.
+
+- Every business starts on a **pilot**: 14 days, 100 chats, 30 voice minutes, no card.
+- **Usage** is read from the conversations themselves for the current period
+  (`lib/billing/usage.ts`). Conversations from *Try it* are free.
+- **Limits** are checked where a thing starts: a new chat or call (`402` from the API once a
+  pilot is used up or a plan has lapsed — never mid-conversation), an invitation (team size),
+  a new brand. Paid plans do not stop at their allowance: the overage is added to the next
+  payment. Team performance and the audit log come with Growth; history is readable for the
+  plan's window.
+- **Payment** is Razorpay Checkout, a month at a time (`app/api/razorpay/*`,
+  `lib/billing/razorpay.ts`, `lib/billing/payments.ts`): the server prices the order, the
+  signature is verified before a plan changes, and Razorpay's webhook grants the plan when
+  the tab was closed. There is no automatic renewal.
+
+## Corva's back office — `/admin/*`
+
+For the people who run Corva — an allowlist of verified emails (`CORVA_ADMIN_EMAILS`), not a
+role inside any business. It works on the live site.
 
 | Route | Screen |
 | --- | --- |
-| `/operator` | Businesses — whether each can take a call, its number, activity this week |
-| `/operator/onboarding` | Add a business: name, industry, website, what the AI should know, owner, team |
-| `/operator/companies/[slug]` | One business — number, model, knowledge, team, recent calls, remove |
-| `/operator/testing` | Ring a business's assistant from a dialer, or chat to it as a customer |
+| `/admin` | Every business: plan, when it ends, usage, leads, last conversation, what it has paid |
+| `/admin/businesses/[slug]` | One business: set or extend its plan, its people, its payments, remove it |
+| `/admin/demo-requests` | Requests from `/demo` (each is also emailed to the admins) |
+| `/admin/payments` | Every payment Razorpay reported |
+| `/admin/new` | Set a business up on someone's behalf; the owner gets an invitation |
 
-`OPERATOR_AVAILABLE` (`lib/auth/mode.ts`) is false on any Vercel deployment and `proxy.ts`
-returns 404 for `/operator*` there. Businesses are onboarded from a Corva team member's
-machine against the shared database.
+It shows nothing of a business's conversations or customers. (There used to be a local-only
+`/operator` console for adding and testing businesses; self-serve signup, *Try it* and this
+replaced it.)
 
 ## The public API — `/api/v1/*`
 
@@ -167,8 +192,10 @@ database real businesses live in.
 app/
   page.tsx                      the public site (content in lib/marketing.ts)
   developers/                   API documentation
+  demo/  welcome/               the demo request form; a new business setting itself up
   (console)/app/<route>/        a business's console
-  (operator)/operator/<route>/  Corva's own console (local only)
+  admin/                        Corva's back office
+  api/razorpay/*                order, verify, webhook
   api/v1/*                      the public API
   api/voice                     the voice bridge on Vercel (WebSocket)
   api/status                    deployment self-check
@@ -178,11 +205,13 @@ lib/
   business/       industries, onboarding, details to collect, phone numbers, reading a website
   crm/            what the assistant writes into the CRM while it talks
   integrations/   API keys, request handling, intake, webhooks, the OpenAPI description
+  billing/        plans, usage and limits, Razorpay, the payments ledger
+  admin/          who may open /admin, and what it reads
   auth/           sessions, the role matrix, per-screen gates, scope
   actions/        server actions — each re-checks its capability
   queries/        read models, one module per screen
   db/             schema and maintenance scripts
-components/       console and operator UI
+components/       console, admin and public-site UI
 drizzle/          migrations
 scripts/          the local voice bridge, smoke tests, key creation
 docs/             the documents listed above

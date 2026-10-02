@@ -1,58 +1,59 @@
 # Bringing a business onto Corva
 
-Every business comes on the same way. Tumble Days was the first; nothing below is particular
-to it. The whole thing is an afternoon: about twenty minutes of ours, the same of the owner's,
-and — if they want the assistant on their own website — a few hours of their developer's.
+Every business comes on the same way, and most do it themselves. Tumble Days was the first;
+nothing below is particular to it.
 
-## What we need from them
+## The usual way: the business signs itself up
+
+1. **`/sign-up`** — the owner creates an account and verifies their email.
+2. **`/welcome`** — one form: the business's name, what kind of business it is, its website
+   (or a few lines about what it offers), a name for the assistant. Submitting it creates the
+   business, the assistant from the industry template, the knowledge read from the website,
+   the default **Details to collect**, and the Owner seat — theirs at once. It takes about a
+   minute, and starts a **14-day pilot**: 100 chats, 30 voice minutes, no card.
+3. **`/app`** opens with a *Getting started* list that ticks itself off:
+
+   | Step | Where |
+   | --- | --- |
+   | Talk to the assistant as a customer would | **Try it** — chat or call; free, kept out of the numbers |
+   | Check what it knows | **Knowledge** — correct or add to what it read |
+   | Choose what it collects | **Details to collect** |
+   | Invite the team | **People & roles** — leads and follow-ups are given to people here |
+   | Put it on the website | **Settings → Website & API keys**, and hand the key to their developer |
+   | Choose a plan | **Billing** — before the pilot ends |
+
+A person whose email already has an invitation waiting lands in that business instead; one
+person sets up one business this way (more brands are added from Settings, on a plan that
+covers them).
+
+## After a demo: we set it up for them
+
+Someone fills in **`/demo`**. The request is emailed to the admins (`CORVA_ADMIN_EMAILS`) and
+listed at **`/admin/demo-requests`**. After talking to them, either send them to `/sign-up`,
+or do it for them:
+
+- **`/admin/new`** — the same form, plus the owner's email and optionally the team
+  (`Name, email, role` per line). The owner gets an invitation; signing up with that email
+  puts them in the Owner seat.
+- **`/admin/businesses/<slug>`** — give them a longer pilot, or put them on a plan paid some
+  other way (*Set plan … for N days*).
+
+## What we need from them, either way
 
 | | Why |
 | --- | --- |
-| Business name, and what kind of business it is | Picks the industry template: pipeline words, what the assistant may do, what it collects |
+| Business name, and what kind of business it is | Picks the industry template: pipeline words, what the assistant may do, what it collects, what can be booked |
 | Website address | Corva reads it into the assistant's knowledge |
-| Anything the site does not say — prices, hours, policies, service area | Pasted in as a second document |
-| The owner's name and **email** | Becomes the Owner seat; that email is how they sign in |
+| Anything the site does not say — prices, hours, policies, service area | Typed in as a second document |
+| The owner's **email** | The Owner seat; it is how they sign in |
 | The team: name, email, role for each | Invitations, and who leads and follow-ups can be given to |
 | What to call the assistant | Its name in chat and on calls |
-| A phone number, if they have one to point at us | Otherwise they get a Corva test line |
-
-## Our part — on a Corva team machine
-
-The operator console is local only (`npm run dev` → `http://localhost:3000/operator`), against
-the shared database.
-
-1. **`/operator/onboarding`** — fill in the form above and submit. In one go this creates the
-   organization and brand, the assistant from the industry template, the knowledge (website +
-   pasted text, embedded), a phone line, the Owner seat and team invitations, and the default
-   **Details to collect**.
-2. **`/operator/testing`** — ring the number and chat to it as a new customer. Check it answers
-   from their facts, asks for the right details, and that a lead and follow-up appear.
-3. **`/operator/companies/<slug>`** — look over what the assistant knows; fix the model or the
-   number if needed.
-4. Tell the owner to sign in at the live site with the email we entered.
-
-`npm run smoke:business` runs the same path end to end against a throwaway business.
-
-## Their part — the owner, in the live console
-
-1. **Sign up** at `/sign-up` with the Owner email and verify it. `/app` opens their business.
-2. **Knowledge** — read what the assistant knows; correct anything; add what is missing.
-3. **Behaviour & limits** — the persona, what it may do on its own (and up to how much), what
-   it must never say, when it hands over. Changes are drafted, then published.
-4. **Details to collect** — the fields the assistant asks every customer for. Add, remove,
-   reorder, mark required. This is the list their team will see filled in on every lead.
-5. **People & roles** — invite the team. Leads and follow-ups are only given to people who
-   exist here.
-6. **Settings** — hours, and for a website integration: **make an API key** and hand it to
-   their developer; optionally add a **webhook** to their own system.
 
 ## Their developer's part
 
 Everything is at `/developers` on the live site; [INTEGRATION.md](INTEGRATION.md) is the short
 version and the checklist. Two environment variables on their server — `CORVA_API_URL` and
 `CORVA_API_KEY` — and their chat window talks to the assistant.
-
-A business that only wants the phone line has nothing to build.
 
 ## Before we call it live
 
@@ -63,9 +64,14 @@ A business that only wants the phone line has nothing to build.
 - [ ] The confirmation email arrives — needs a verified sending domain (`EMAIL_FROM`)
 - [ ] Their Details to collect are the ones they actually need, and show on the lead
 - [ ] Each team member has signed in once
+- [ ] They are on a plan, or know the day the pilot ends
 
-## Removing a business
+## Looking after a business
 
-`/operator/companies/<slug>` → Remove. It deletes the brand and everything under it. Export
-first if they will want their data (`/app/customers` exports CSV; each conversation exports
-its transcript).
+`/admin` lists every business with its plan, when it ends, its usage and its last
+conversation — the ones ending soon or stopped are marked. `/admin/businesses/<slug>` is where
+a plan is extended or changed, and where a business is removed (type its name to confirm; it
+deletes everything in it — export first if they will want their data: `/app/customers` exports
+CSV, each conversation exports its transcript).
+
+`npm run smoke:business` runs the creation path end to end against a throwaway business.

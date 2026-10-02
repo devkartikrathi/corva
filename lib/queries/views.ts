@@ -58,7 +58,6 @@ export async function listSavedViews(
 const SURFACE_PATH: Record<string, string> = {
   customers: "/app/customers",
   conversations: "/app/conversations",
-  fleet: "/operator",
 };
 
 /**

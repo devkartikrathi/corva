@@ -17,25 +17,3 @@ export const DEMO_MODE =
     // without Clerk keys. With keys it is real sign-in unless someone asks
     // for the demo in so many words.
     (process.env.CORVA_DEMO === undefined && !process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY));
-
-/**
- * Whether Corva's own console exists at all here.
- *
- * It does not on any Vercel deployment. Onboarding businesses, test calls and
- * everything else under /operator run on the Corva team's own machines, against
- * the same database — a public address for "create a business, delete a
- * business" is a door nobody needs. On Vercel, /operator is simply not found.
- */
-export const OPERATOR_AVAILABLE = !process.env.VERCEL;
-
-/**
- * Whether that console opens without signing in, where it exists.
- *
- * Open in development (`npm run dev` on a team machine). A local production
- * build (`next start`) needs `CORVA_OPERATOR_OPEN=1` to open it.
- */
-export const OPERATOR_OPEN =
-  OPERATOR_AVAILABLE &&
-  (DEMO_MODE ||
-    process.env.CORVA_OPERATOR_OPEN === "1" ||
-    (process.env.CORVA_OPERATOR_OPEN !== "0" && process.env.NODE_ENV !== "production"));

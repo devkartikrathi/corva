@@ -155,15 +155,15 @@ export default function DevelopersPage() {
           {[
             {
               title: "Corva’s assistant on your site",
-              body: "Your chat window, Corva’s brain. Send each message to /chat, show the reply, show a card when a booking is ready. Voice calls in the browser use the same assistant. Most sites want this.",
+              body: "Your chat window, Corva’s brain. Send each message to /chat, show the reply, show a card when a booking is ready. Most sites start here.",
             },
             {
               title: "Your own assistant, Corva behind it",
               body: "Keep the bot or the forms you have. Send bookings and callbacks to /leads and transcripts to /chats; Corva gives them owners, follow-ups and emails.",
             },
             {
-              title: "A phone number",
-              body: "No code. The business gets a number from Corva; callers reach the same assistant, with the same knowledge, and land in the same console.",
+              title: "Voice on your site",
+              body: "A call button: your server fetches a short-lived token, the page talks to the assistant over a WebSocket, and the business’s team can take the call over and speak.",
             },
           ].map((c) => (
             <div key={c.title} style={{ border: "2px solid var(--color-text)", padding: "16px 18px" }}>
@@ -278,6 +278,7 @@ await corva("chat/confirm", { sessionId, proposalId: turn.proposal.id, approved:
               ["200", "Done. The body is the result."],
               ["400", "Something in the request is wrong. `error` says what, in words you can show a user."],
               ["401", "The key is missing, wrong, or revoked."],
+              ["402", "The business's plan has no room for a new conversation. `error` is safe to show a customer; treat the assistant as offline."],
               ["404", "No conversation or card with that id."],
               ["409", "The chat has ended (start a new sessionId), or a card was answered or replaced already."],
               ["413", "The body is over 64 KB."],

@@ -3,7 +3,8 @@
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
-import { requireStaff } from "@/lib/auth/context";
+import { getConsoleContext } from "@/lib/auth/context";
+import { assertCan } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { loadAgentConfig } from "@/lib/agent/config";
@@ -34,8 +35,30 @@ function refresh(conversationId: string) {
   void conversationId;
 }
 
+/**
+ * Who may try the assistant: someone on the business's own team who handles
+ * conversations, and only against their own business — whatever brand id or
+ * number the browser sends.
+ */
+async function ownBusiness() {
+  const { session, brand } = await getConsoleContext();
+  assertCan(session.actor, "calls.handle", { brandId: brand.id });
+  return brand;
+}
+
+async function ownConversation(conversationId: string) {
+  const brand = await ownBusiness();
+  const [conversation] = await db
+    .select()
+    .from(s.conversations)
+    .where(and(eq(s.conversations.id, conversationId), eq(s.conversations.brandId, brand.id)))
+    .limit(1);
+  return conversation ?? null;
+}
+
 export async function startTestChat(input: { brandId: string; callerPhone: string; countsInMetrics: boolean }) {
-  await requireStaff();
+  const brand = await ownBusiness();
+  input = { ...input, brandId: brand.id };
   const config = await loadAgentConfig(input.brandId);
   if (!config) throw new Error("That business has no AI assistant set up.");
 
@@ -62,15 +85,10 @@ export async function startTestChat(input: { brandId: string; callerPhone: strin
 }
 
 export async function sendTestChat(conversationId: string, message: string) {
-  await requireStaff();
   const text = message.trim();
   if (!text) throw new Error("Type something first.");
 
-  const [conversation] = await db
-    .select()
-    .from(s.conversations)
-    .where(eq(s.conversations.id, conversationId))
-    .limit(1);
+  const conversation = await ownConversation(conversationId);
   if (!conversation) throw new Error("That chat has ended.");
   if (conversation.status === "resolved" || conversation.status === "abandoned") {
     throw new Error("That chat has ended. Start a new one.");
@@ -100,7 +118,7 @@ export async function sendTestChat(conversationId: string, message: string) {
 
 /** What a person on the console has typed since `afterOrdinal`, for a held chat. */
 export async function pollTestChat(conversationId: string, afterOrdinal: number) {
-  await requireStaff();
+  if (!(await ownConversation(conversationId))) return { turns: [], lastOrdinal: afterOrdinal, heldBy: null, ended: true };
   const rows = await db
     .select({ ordinal: s.turns.ordinal, speaker: s.turns.speaker, author: s.turns.authorName, body: s.turns.body })
     .from(s.turns)
@@ -120,7 +138,7 @@ export async function pollTestChat(conversationId: string, afterOrdinal: number)
 }
 
 export async function endTestChat(conversationId: string) {
-  await requireStaff();
+  if (!(await ownConversation(conversationId))) return;
   const [c] = await db
     .update(s.conversations)
     .set({ status: "resolved", endedAt: new Date() })
@@ -146,9 +164,9 @@ async function nextOrdinal(conversationId: string) {
  * call alike and never has to accept an unsigned one in production.
  */
 export async function dialToken(input: { dialed: string; callerPhone: string; countsInMetrics: boolean }) {
-  await requireStaff();
+  const brand = await ownBusiness();
   const found = await brandForNumber(input.dialed);
-  if (!found) throw new Error(`The number ${formatPhone(input.dialed)} is not in service.`);
+  if (!found || found.brand.id !== brand.id) throw new Error(`The number ${formatPhone(input.dialed)} is not one of your lines.`);
   const bridge = voiceBridge();
   if (!bridge.available) throw new Error("Voice calls are not available on this deployment.");
   const { token } = signVoiceToken({

@@ -3,9 +3,9 @@ import { cookies } from "next/headers";
 import { cache } from "react";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
-import { DEMO_MODE, OPERATOR_OPEN } from "./mode";
+import { DEMO_MODE } from "./mode";
 import { PROFILE_COOKIE } from "./profile";
-import type { StaffSession, TenantSession } from "./session";
+import type { TenantSession } from "./session";
 
 /**
  * Demo mode.
@@ -31,7 +31,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * moves it, and any seeded email works here.
  */
 const DEMO_MEMBER_EMAIL = process.env.CORVA_DEMO_EMAIL ?? "dania@aureliusgroup.com";
-const DEMO_STAFF_EMAIL = process.env.CORVA_DEMO_STAFF_EMAIL ?? "you@corva.systems";
 
 export const getDemoTenantSession = cache(async (): Promise<TenantSession | null> => {
   if (!demoEnabled()) return null;
@@ -92,26 +91,5 @@ export const getDemoTenantSession = cache(async (): Promise<TenantSession | null
     availability: row.membership.availability,
     brandIds,
     actor: { role: row.membership.role, brandIds },
-  };
-});
-
-/**
- * The stand-in staff member while the operator console is open — which can be
- * true even when the business console requires a real sign-in (see
- * `OPERATOR_OPEN`).
- */
-export const getDemoStaffSession = cache(async (): Promise<StaffSession | null> => {
-  if (!OPERATOR_OPEN) return null;
-
-  const [row] = await db.select().from(s.staff).where(eq(s.staff.email, DEMO_STAFF_EMAIL)).limit(1);
-  if (!row) return null;
-
-  return {
-    kind: "staff",
-    clerkUserId: `demo:${row.email}`,
-    staffId: row.id,
-    name: row.name,
-    email: row.email,
-    isAdmin: row.isAdmin,
   };
 });

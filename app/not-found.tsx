@@ -57,7 +57,7 @@ export default function NotFound() {
           {[
             { href: "/app", label: "Command center" },
             { href: "/app/customers", label: "Customers" },
-            { href: "/operator", label: "Operator console" },
+            { href: "/", label: "Corva home" },
           ].map((l) => (
             <Link
               key={l.href}

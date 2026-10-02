@@ -68,7 +68,7 @@ export function VoicePlayground({
   costPerMinutePaise,
   initialDial,
 }: {
-  /** Signs a token for this call (staff only) and says where the bridge is. */
+  /** Signs a token for this call and says where the bridge is. */
   onToken: (input: { dialed: string; callerPhone: string; countsInMetrics: boolean }) => Promise<{ token: string; bridgeUrl: string }>;
   /** Every number that has a business and an AI behind it. */
   numbers: { number: string; brandId: string; business: string; agentName: string | null; industry: string }[];
@@ -707,7 +707,7 @@ export function VoicePlayground({
             )}
             {session.conversationId && (
               <a
-                href={`/operator/open?brand=${session.brandId}&next=${encodeURIComponent(`/app/live?call=${session.conversationId}`)}`}
+                href={`/app/live?call=${session.conversationId}`}
                 target="_blank"
                 rel="noreferrer"
                 style={{
