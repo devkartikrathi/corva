@@ -195,8 +195,8 @@ export function ChatTester({
   };
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", minHeight: 520 }}>
-      <div style={{ borderRight: "2px solid var(--color-neutral-700)", display: "flex", flexDirection: "column" }}>
+    <div className="m-stack m-auto-h" style={{ display: "grid", gridTemplateColumns: "1fr 340px", minHeight: 520 }}>
+      <div className="m-noborder-x" style={{ borderRight: "2px solid var(--color-neutral-700)", display: "flex", flexDirection: "column" }}>
         <div ref={log} style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12, maxHeight: 470 }}>
           {lines.length === 0 && (
             <p style={{ margin: 0, fontSize: 12.5, color: "var(--color-neutral-500)", lineHeight: 1.6, maxWidth: "56ch" }}>
@@ -211,7 +211,7 @@ export function ChatTester({
                 {l.text}
               </div>
             ) : (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "70px 1fr", gap: 12 }}>
+              <div key={i} className="cv-turn" style={{ display: "grid", gridTemplateColumns: "70px 1fr", gap: 12 }}>
                 <span
                   style={{
                     fontSize: 9.5,

@@ -345,9 +345,9 @@ export function VoicePlayground({
   };
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", minHeight: 520 }}>
+    <div className="m-stack m-auto-h" style={{ display: "grid", gridTemplateColumns: "1fr 340px", minHeight: 520 }}>
       {/* Transcript */}
-      <div style={{ borderRight: "2px solid var(--color-neutral-700)", display: "flex", flexDirection: "column" }}>
+      <div className="m-noborder-x" style={{ borderRight: "2px solid var(--color-neutral-700)", display: "flex", flexDirection: "column" }}>
         <div
           style={{
             padding: "12px 20px",
@@ -428,7 +428,7 @@ export function VoicePlayground({
             }
             if (e.kind === "human") {
               return (
-                <div key={i} style={{ display: "grid", gridTemplateColumns: "70px 1fr", gap: 12 }}>
+                <div key={i} className="cv-turn" style={{ display: "grid", gridTemplateColumns: "70px 1fr", gap: 12 }}>
                   <span
                     style={{
                       fontSize: 9.5,
@@ -447,7 +447,7 @@ export function VoicePlayground({
             }
             const isCaller = e.kind === "heard";
             return (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "70px 1fr", gap: 12 }}>
+              <div key={i} className="cv-turn" style={{ display: "grid", gridTemplateColumns: "70px 1fr", gap: 12 }}>
                 <span
                   style={{
                     fontSize: 9.5,

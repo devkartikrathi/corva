@@ -168,7 +168,7 @@ export default async function LiveCallPage({
       )}
       {/* Call bar */}
       <div
-        style={{
+        className="m-wrap" style={{
           padding: "14px 24px",
           borderBottom: "2px solid var(--color-divider)",
           display: "flex",
@@ -195,7 +195,7 @@ export default async function LiveCallPage({
         <span style={{ fontWeight: 800, fontSize: 22, letterSpacing: "-0.02em" }}>{call.elapsed}</span>
         {/* Keeps polling after the call ends, so the next live one is offered. */}
         <LiveRefresh active label={call.ended ? "Watching" : "Following"} />
-        <span style={{ height: 26, width: 2, background: "var(--color-neutral-400)" }} />
+        <span className="m-hide" style={{ height: 26, width: 2, background: "var(--color-neutral-400)" }} />
         <Link
           href={call.customer ? `/app/customers/${call.customer.id}` : "/app/customers"}
           style={{ textAlign: "left", color: "var(--color-text)" }}
@@ -220,7 +220,7 @@ export default async function LiveCallPage({
         >
           Priority {call.priority ?? "—"}
         </span>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+        <div className="cv-screen-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
           {call.heldBy && (
             <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)", marginRight: 4 }}>
               Held by <b style={{ color: "var(--color-text)" }}>{call.heldBy}</b>
@@ -377,14 +377,14 @@ export default async function LiveCallPage({
       )}
 
       <div
-        style={{
+        className="m-stack m-auto-h" style={{
           display: "grid",
           gridTemplateColumns: "268px 1fr 316px",
           minHeight: "calc(100vh - 52px - 63px)",
         }}
       >
         {/* Who is calling */}
-        <div style={{ borderRight: "2px solid var(--color-divider)" }}>
+        <div className="m-noborder-x m-rail" style={{ borderRight: "2px solid var(--color-divider)" }}>
           {config && <DetailsPanel fields={config.fields} values={details} editHref="/app/details" />}
           <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--color-neutral-300)" }}>
             <Kicker>Who is calling</Kicker>
@@ -456,14 +456,14 @@ export default async function LiveCallPage({
 
         {/* Transcript */}
         <div
-          style={{
+          className="m-noborder-x m-order-first" style={{
             borderRight: "2px solid var(--color-divider)",
             display: "flex",
             flexDirection: "column",
           }}
         >
           <div
-            style={{
+            className="m-wrap" style={{
               padding: "11px 20px",
               borderBottom: "1px solid var(--color-neutral-300)",
               display: "flex",
@@ -482,7 +482,7 @@ export default async function LiveCallPage({
             >
               Live transcript
             </span>
-            <span style={{ flex: 1, fontSize: 11, color: "var(--color-neutral-700)" }}>
+            <span className="m-full" style={{ flex: 1, fontSize: 11, color: "var(--color-neutral-700)" }}>
               {transcript.length} turn{transcript.length === 1 ? "" : "s"} ·{" "}
               {call.ungroundedTurns === 0
                 ? "every AI answer is cited"
@@ -514,7 +514,7 @@ export default async function LiveCallPage({
             }}
           >
             {transcript.map((t) => (
-              <div key={t.id} style={{ display: "grid", gridTemplateColumns: "84px 1fr", gap: 14 }}>
+              <div key={t.id} className="cv-turn" style={{ display: "grid", gridTemplateColumns: "84px 1fr", gap: 14 }}>
                 <div
                   style={{
                     fontSize: 10,
@@ -610,7 +610,7 @@ export default async function LiveCallPage({
                 The AI has stopped negotiating and is holding the customer with a status update. A
                 brief is written and waiting in the handoff queue.
               </div>
-              <div style={{ marginTop: 11, display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <div className="m-wrap" style={{ marginTop: 11, display: "flex", alignItems: "flex-start", gap: 8 }}>
                 {call.aiHolding && !call.ended && (
                   <ActionButton
                     variant="primary"
@@ -667,7 +667,7 @@ export default async function LiveCallPage({
         </div>
 
         {/* Documents and actions */}
-        <div>
+        <div className="m-rail">
           {/* What the call has produced so far — the reason the AI is on the phone at all. */}
           <div
             style={{

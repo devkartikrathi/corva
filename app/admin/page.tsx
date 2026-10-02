@@ -21,7 +21,8 @@ export default async function AdminBusinessesPage() {
         {accounts.length} in all · {paying} on a paid plan · {lapsing} ending or ended.
       </p>
 
-      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 20 }}>
+      <div className="m-scroll">
+      <table className="cv-table" style={{ width: "100%", borderCollapse: "collapse", marginTop: 20 }}>
         <thead>
           <tr style={{ borderBottom: "2px solid var(--color-divider)" }}>
             <th style={th}>Business</th>
@@ -88,6 +89,7 @@ export default async function AdminBusinessesPage() {
           })}
         </tbody>
       </table>
+      </div>
     </section>
   );
 }

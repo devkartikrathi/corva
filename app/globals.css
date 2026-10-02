@@ -376,3 +376,534 @@ body:has(.operator-root) {
 @media (prefers-reduced-motion: reduce) {
   [aria-busy="true"] * { animation: none !important; opacity: 0.7; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Small screens.
+
+   The console's layouts are written as inline styles for a wide viewport, and
+   an inline style cannot hold a media query. So the phone layout is a short
+   list of classes that override the inline value below one breakpoint — the
+   element keeps its desktop style, and gains a class saying what it becomes.
+   Nothing here applies above 900px.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* Shown only on a small screen. */
+.m-only {
+  display: none !important;
+}
+
+@media (max-width: 900px) {
+  .m-only {
+    display: revert !important;
+  }
+  .m-only-flex {
+    display: flex !important;
+  }
+  .m-hide {
+    display: none !important;
+  }
+
+  /* A grid of columns becomes one column, or two for small tiles. */
+  .m-stack {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .m-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .m-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+  /* A grid child that spanned columns or rows takes its place in the stack. */
+  .m-span {
+    grid-column: auto !important;
+    grid-row: auto !important;
+  }
+
+  /* A row becomes a column, or wraps. */
+  .m-col {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .m-wrap {
+    flex-wrap: wrap !important;
+  }
+  .m-gap {
+    gap: 12px !important;
+  }
+
+  /* Wide content — a table, a board — scrolls inside its own box. */
+  .m-scroll {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+  /* A row of tabs or chips scrolls sideways rather than wrapping. */
+  .m-strip {
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .m-strip::-webkit-scrollbar {
+    display: none;
+  }
+  .m-strip > * {
+    flex-shrink: 0 !important;
+  }
+
+  /* Fixed sizes let go. */
+  .m-full {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    flex-basis: auto !important;
+  }
+  .m-auto-w {
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+  .m-auto-h {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+  }
+  .m-grow {
+    flex: 1 1 auto !important;
+  }
+  .m-static {
+    position: static !important;
+  }
+  .m-ml0 {
+    margin-left: 0 !important;
+  }
+  .m-order-first {
+    order: -1 !important;
+  }
+
+  /* 24px gutters become 16px. */
+  .m-pad {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+  .m-pad0 {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  /* A rail that sat beside the content sits under it: the rule that divided
+     them sideways now divides them top to bottom. */
+  .m-rail {
+    border-left: 0 !important;
+    border-right: 0 !important;
+    border-top: 2px solid var(--color-divider) !important;
+    width: auto !important;
+    max-width: none !important;
+  }
+  .m-noborder-x {
+    border-left: 0 !important;
+    border-right: 0 !important;
+  }
+  .m-border-b {
+    border-bottom: 1px solid var(--color-neutral-300) !important;
+  }
+
+  .m-nowrap-off {
+    white-space: normal !important;
+  }
+  .m-break {
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+  }
+
+  /* iOS zooms the page when a focused field's text is under 16px. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Long words — an email address, a URL, an API key — never widen the page. */
+  .cv-main p,
+  .cv-main li,
+  .cv-main td,
+  .cv-main dd {
+    overflow-wrap: anywhere;
+  }
+  .cv-main pre {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  ::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
+  /* ── The console shell ─────────────────────────────────────────────────
+     The page scrolls, not the pane, so the browser's own bars can collapse;
+     the sidebar becomes a drawer opened from the top bar. */
+  .cv-shell {
+    display: block !important;
+    height: auto !important;
+    min-height: 100dvh;
+    overflow: visible !important;
+  }
+  .cv-main {
+    overflow: visible !important;
+  }
+  .cv-main-inner {
+    min-width: 0 !important;
+  }
+
+  .cv-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(86vw, 304px);
+    z-index: 70;
+    transform: translateX(-102%);
+    visibility: hidden;
+    transition: transform 200ms ease, visibility 0s linear 200ms;
+    padding-bottom: env(safe-area-inset-bottom);
+    overscroll-behavior: contain;
+  }
+  html[data-nav="open"] .cv-sidebar {
+    transform: none;
+    visibility: visible;
+    transition: transform 200ms ease;
+    box-shadow: var(--shadow-lg);
+  }
+  html[data-nav="open"] body {
+    overflow: hidden;
+  }
+  .cv-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 65;
+    background: color-mix(in srgb, var(--color-text) 45%, transparent);
+    border: 0;
+    padding: 0;
+  }
+  /* Thumb-sized rows in the drawer. */
+  .cv-sidebar nav a {
+    padding-top: 11px !important;
+    padding-bottom: 11px !important;
+    font-size: 14px !important;
+  }
+  .cv-sidebar [role="option"] {
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+  }
+  .cv-avail button {
+    padding-top: 9px !important;
+    padding-bottom: 9px !important;
+    font-size: 10.5px !important;
+  }
+
+  .cv-topbar {
+    padding: 0 12px 0 4px !important;
+    gap: 10px !important;
+  }
+  .cv-iconbtn {
+    width: 44px;
+    height: 44px;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--color-text);
+  }
+
+  /* ── Shared screen furniture ─────────────────────────────────────────── */
+  .cv-screen-header {
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+  .cv-screen-header h1 {
+    font-size: 24px !important;
+    line-height: 1.08 !important;
+  }
+  .cv-screen-header > p {
+    max-width: none !important;
+    flex-basis: 100%;
+  }
+  .cv-screen-actions {
+    margin-left: 0 !important;
+    flex-wrap: wrap;
+    flex-basis: 100%;
+  }
+
+  /* A strip of headline numbers: two to a row, ruled like a table. */
+  .cv-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    overflow: hidden;
+  }
+  .cv-tiles > * {
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--color-neutral-300);
+    margin-bottom: -1px;
+    min-width: 0;
+  }
+  .cv-tiles > *:nth-child(odd) {
+    border-right: 1px solid var(--color-neutral-300) !important;
+  }
+
+  /* The operator console keeps its ink ground but gives up its width floor. */
+  .operator-root {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 900px) and (prefers-reduced-motion: reduce) {
+  .cv-sidebar,
+  html[data-nav="open"] .cv-sidebar {
+    transition: none;
+  }
+}
+
+@media (max-width: 900px) {
+  /* A transcript turn: who spoke goes above what they said, not beside it. */
+  .cv-turn {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 3px !important;
+  }
+}
+
+@media (max-width: 900px) {
+  /* The list half of a list-and-detail screen: a short scrolling queue above
+     the thing it selects, rather than a column beside it. */
+  .cv-master {
+    max-height: 44vh;
+    overflow-y: auto;
+    border-right: 0 !important;
+    border-bottom: 2px solid var(--color-divider);
+    overscroll-behavior: contain;
+  }
+}
+
+@media (max-width: 900px) {
+  .m-strip > * {
+    white-space: nowrap;
+  }
+  /* Filter chips grow to something a thumb can hit. */
+  .cv-chip {
+    padding: 7px 11px !important;
+  }
+}
+
+@media (max-width: 900px) {
+  /* A table keeps its columns and scrolls inside .m-scroll. */
+  .cv-table {
+    min-width: 720px;
+  }
+  .cv-table-wide {
+    min-width: 860px;
+  }
+  /* The column that names the row is the one that must stay readable. */
+  .cv-table th:first-child,
+  .cv-table td:first-child,
+  .cv-table-wide th:first-child,
+  .cv-table-wide td:first-child {
+    min-width: 150px;
+  }
+
+  /* A panel that is open beside the content on a wide screen and folds
+     behind a button on a small one — a real checkbox, so no script. */
+  .cv-fold-body {
+    display: none;
+  }
+  .cv-fold-input:checked ~ .cv-fold-body {
+    display: block;
+  }
+  .cv-fold-label {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    padding: 13px 24px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-bottom: 1px solid var(--color-neutral-300);
+    background: var(--color-surface);
+  }
+  .cv-fold-label::after {
+    content: "▾";
+  }
+  .cv-fold-input:checked ~ .cv-fold-label::after {
+    content: "▴";
+  }
+  .cv-fold-input:focus-visible ~ .cv-fold-label {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+}
+
+@media (max-width: 900px) {
+  .m-gap-s {
+    gap: 4px !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .cv-table-xl {
+    min-width: 1040px;
+  }
+}
+
+@media (max-width: 900px) {
+  /* One detail in the Details editor: its number, then each control on a
+     line of its own. */
+  .cv-field-row {
+    grid-template-columns: 28px minmax(0, 1fr) !important;
+  }
+  .cv-field-row > :nth-child(n + 3) {
+    grid-column: 2;
+  }
+  .m-pad-t0 {
+    padding-top: 0 !important;
+  }
+
+  /* The transfer alert spans the bottom of the screen instead of sitting in
+     a corner that is narrower than it is. */
+  .cv-alert {
+    left: 10px !important;
+    right: 10px !important;
+    bottom: calc(10px + env(safe-area-inset-bottom)) !important;
+    width: auto !important;
+    max-height: calc(100dvh - 20px);
+    overflow-y: auto;
+  }
+}
+
+/* ── The public site on a small screen ───────────────────────────────────── */
+@media (max-width: 900px) {
+  .lp-shell {
+    padding-left: 20px !important;
+    padding-right: 20px !important;
+  }
+  /* Section padding: 56–72px of air becomes 40. */
+  .lp-sec[style*="padding: 56px"],
+  .lp-sec[style*="padding: 72px"] {
+    padding-top: 40px !important;
+  }
+  .lp-sec[style*="48px 64px"],
+  .lp-sec[style*="48px 56px"],
+  .lp-sec[style*="padding: 72px"] {
+    padding-bottom: 44px !important;
+  }
+  .lp h1 {
+    font-size: clamp(36px, 11vw, 54px) !important;
+    line-height: 0.98 !important;
+    margin-top: 20px !important;
+  }
+  .lp h2 {
+    font-size: 28px !important;
+    line-height: 1.06 !important;
+  }
+  .lp-hero {
+    padding: 40px 0 36px !important;
+    border-right: 0 !important;
+  }
+  .lp-hero > p {
+    font-size: 16.5px !important;
+    margin-top: 20px !important;
+  }
+  .lp-stats {
+    grid-template-rows: auto !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-top: 2px solid var(--color-divider);
+  }
+  .lp-stats > * {
+    padding: 20px 0 18px !important;
+    border-bottom: 0 !important;
+  }
+  .lp-stats > * > div:nth-child(2) {
+    font-size: 34px !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .lp header a {
+    white-space: nowrap;
+  }
+  /* Columns ruled apart sideways are ruled apart top to bottom. */
+  .lp-cols > * {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    padding-bottom: 22px !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--color-neutral-300);
+  }
+  .lp-cols > *:last-child {
+    border-bottom: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  /* Plans stack as cards with the same padding each. */
+  .lp-plans > * {
+    padding: 26px 0 !important;
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--color-neutral-300);
+    margin-top: 0 !important;
+  }
+  .lp-plans > *[style*="border-top"] {
+    padding: 24px 20px !important;
+  }
+}
+
+@media (max-width: 900px) {
+  /* Sign-in, sign-up, demo, invite: the pitch sits above the form. */
+  .cv-auth {
+    align-content: start;
+  }
+  .cv-auth-side {
+    padding: 20px 20px 24px !important;
+    border-right: 0 !important;
+    border-bottom: 2px solid var(--color-divider);
+  }
+  .cv-auth-side > div {
+    margin: 22px 0 0 !important;
+    max-width: none !important;
+  }
+  .cv-auth-side h1 {
+    font-size: 30px !important;
+  }
+  .cv-auth-side p {
+    font-size: 14px !important;
+    margin-top: 12px !important;
+  }
+  .cv-auth-main {
+    padding: 24px 16px 40px !important;
+    place-items: start center !important;
+  }
+  .cv-auth-main > * {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .dev h1 {
+    font-size: 32px !important;
+    margin-top: 28px !important;
+  }
+  .dev pre {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  /* Corva's back office: the bar wraps, the page keeps a narrow gutter. */
+  .cv-admin-bar {
+    height: auto !important;
+    flex-wrap: wrap;
+    gap: 8px 18px !important;
+    padding: 12px 16px !important;
+  }
+  .cv-admin-main {
+    padding: 18px 16px !important;
+  }
+}

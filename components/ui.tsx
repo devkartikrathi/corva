@@ -240,6 +240,7 @@ export function ScreenHeader({
 }) {
   return (
     <div
+      className="cv-screen-header"
       style={{
         padding,
         borderBottom: border ? "2px solid var(--color-divider)" : undefined,
@@ -254,7 +255,11 @@ export function ScreenHeader({
           {lede}
         </p>
       )}
-      {children && <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>{children}</div>}
+      {children && (
+        <div className="cv-screen-actions" style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          {children}
+        </div>
+      )}
     </div>
   );
 }

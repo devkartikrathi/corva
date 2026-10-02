@@ -63,7 +63,7 @@ export function ConnectInbox({
             <input id="mb-host" style={input} value={host} onChange={(e) => setHost(e.target.value)} placeholder="imap.yourprovider.com" />
           </div>
         )}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div>
             <label style={label} htmlFor="mb-address">
               Email address customers write to

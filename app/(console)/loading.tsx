@@ -30,7 +30,7 @@ export default function ConsoleLoading() {
         }}
       />
       <div
-        style={{
+        className="cv-tiles" style={{
           marginTop: 26,
           display: "grid",
           gridTemplateColumns: "repeat(5, 1fr)",

@@ -80,7 +80,7 @@ export default async function EmailPage() {
           <Link
             key={t.id}
             href={`/app/conversations/${t.id}`}
-            className="hov-row"
+            className="hov-row m-stack m-gap-s"
             style={{ display: "grid", gridTemplateColumns: "220px 1fr 150px 120px", gap: 16, padding: "13px 0", borderBottom: "1px solid var(--color-neutral-300)", alignItems: "baseline", fontSize: 12.5 }}
           >
             <span>

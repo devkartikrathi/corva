@@ -112,7 +112,7 @@ export default async function WhatsAppPage() {
           <Link
             key={t.id}
             href={`/app/conversations/${t.id}`}
-            style={{ display: "grid", gridTemplateColumns: "220px 1fr 170px 120px", gap: 16, padding: "13px 0", borderBottom: "1px solid var(--color-neutral-300)", alignItems: "baseline", fontSize: 12.5 }}
+            className="m-stack m-gap-s" style={{ display: "grid", gridTemplateColumns: "220px 1fr 170px 120px", gap: 16, padding: "13px 0", borderBottom: "1px solid var(--color-neutral-300)", alignItems: "baseline", fontSize: 12.5 }}
           >
             <span>
               <b>{t.customerName ?? "Unknown"}</b>

@@ -101,7 +101,7 @@ export function FieldsEditor({
         {rows.map((r, i) => (
           <div
             key={r.id}
-            style={{
+            className="cv-field-row" style={{
               border: "1px solid var(--color-neutral-400)",
               background: "var(--color-bg)",
               padding: "12px 14px",
@@ -165,7 +165,7 @@ export function FieldsEditor({
                 style={input}
               />
             </label>
-            <div style={{ display: "flex", gap: 4, paddingTop: 16 }}>
+            <div className="m-pad-t0" style={{ display: "flex", gap: 4, paddingTop: 16 }}>
               <button type="button" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)} style={small}>
                 ↑
               </button>

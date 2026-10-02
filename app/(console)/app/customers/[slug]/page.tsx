@@ -120,7 +120,7 @@ export default async function Customer360Page({
     <section>
       {/* Identity header */}
       <div
-        style={{
+        className="m-wrap m-gap" style={{
           padding: "20px 24px",
           borderBottom: "2px solid var(--color-divider)",
           display: "flex",
@@ -203,7 +203,7 @@ export default async function Customer360Page({
             ))}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="m-wrap" style={{ display: "flex", gap: 8 }}>
           {liveCall ? (
             <PrimaryButton href={`/app/live?call=${liveCall.id}`}>Join the call</PrimaryButton>
           ) : (
@@ -222,8 +222,8 @@ export default async function Customer360Page({
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px" }}>
-        <div style={{ borderRight: "2px solid var(--color-divider)" }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 340px" }}>
+        <div className="m-noborder-x" style={{ borderRight: "2px solid var(--color-divider)" }}>
           {/* Score and its rationale — only once there is one. A caller the
               business met five minutes ago has no history to score, and a
               large "—" at the top of their record says nothing useful. */}
@@ -237,7 +237,7 @@ export default async function Customer360Page({
               background: "var(--color-surface)",
             }}
           >
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 28 }}>
+            <div className="m-col m-gap" style={{ display: "flex", alignItems: "flex-start", gap: 28 }}>
               <div style={{ flexShrink: 0 }}>
                 <Kicker>Blended priority</Kicker>
                 <div style={{ marginTop: 4, display: "flex", alignItems: "baseline", gap: 8 }}>
@@ -281,8 +281,8 @@ export default async function Customer360Page({
                     }}
                   >
                     {contributions.map((b) => (
-                      <div key={b.axisLabel} style={{ display: "flex", gap: 12 }}>
-                        <span style={{ width: 210, color: "var(--color-neutral-800)" }}>
+                      <div key={b.axisLabel} className="m-col" style={{ display: "flex", gap: 12 }}>
+                        <span className="m-auto-w" style={{ width: 210, color: "var(--color-neutral-800)" }}>
                           {b.axisLabel} {Math.round(b.value)} × weight {b.weight.toFixed(2)}
                         </span>
                         <b
@@ -301,14 +301,14 @@ export default async function Customer360Page({
                     {rules.map((r) => (
                       <div
                         key={r.name}
-                        style={{
+                        className="m-wrap" style={{
                           display: "flex",
                           gap: 12,
                           paddingTop: 7,
                           borderTop: "1px solid var(--color-neutral-400)",
                         }}
                       >
-                        <span style={{ width: 210, fontWeight: 700 }}>Rule · &ldquo;{r.name}&rdquo;</span>
+                        <span className="m-auto-w" style={{ width: 210, fontWeight: 700 }}>Rule · &ldquo;{r.name}&rdquo;</span>
                         <b style={{ width: 44, color: "var(--color-accent-700)" }}>
                           {r.effect >= 0 ? "+" : ""}
                           {r.effect}
@@ -328,7 +328,7 @@ export default async function Customer360Page({
           )}
 
           {/* What they want, and what was promised them */}
-          <div style={{ padding: "16px 24px 12px", display: "flex", alignItems: "baseline", gap: 14, borderTop: "2px solid var(--color-divider)" }}>
+          <div className="m-wrap" style={{ padding: "16px 24px 12px", display: "flex", alignItems: "baseline", gap: 14, borderTop: "2px solid var(--color-divider)" }}>
             <SectionTitle>Leads &amp; follow-ups</SectionTitle>
             <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
               {leads.length} lead{leads.length === 1 ? "" : "s"} · {openFollowUps.length} follow-up{openFollowUps.length === 1 ? "" : "s"} open
@@ -350,7 +350,7 @@ export default async function Customer360Page({
               </div>
             )}
             {leads.map((l) => (
-              <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
+              <div key={l.id} className="m-wrap" style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <b style={{ fontSize: 13 }}>{l.interest || "Enquiry"}</b>
                   {l.createdByAi && (
@@ -384,7 +384,7 @@ export default async function Customer360Page({
               </div>
             ))}
             {[...openFollowUps, ...doneFollowUps].map((f) => (
-              <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 24px", borderBottom: "1px solid var(--color-neutral-300)", opacity: f.status === "open" ? 1 : 0.6 }}>
+              <div key={f.id} className="m-wrap" style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 24px", borderBottom: "1px solid var(--color-neutral-300)", opacity: f.status === "open" ? 1 : 0.6 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <b style={{ fontSize: 13, textDecoration: f.status === "open" ? undefined : "line-through" }}>{f.title}</b>
                   <div style={{ marginTop: 2, fontSize: 11.5, color: f.overdue ? "var(--color-accent-700)" : "var(--color-neutral-700)" }}>
@@ -415,7 +415,7 @@ export default async function Customer360Page({
           </div>
 
           {/* Conversation history */}
-          <div style={{ padding: "16px 24px 12px", display: "flex", alignItems: "baseline", gap: 14 }}>
+          <div className="m-wrap" style={{ padding: "16px 24px 12px", display: "flex", alignItems: "baseline", gap: 14 }}>
             <SectionTitle>Conversation history</SectionTitle>
             <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
               {conversations.length} contact{conversations.length === 1 ? "" : "s"} · every channel,
@@ -533,7 +533,7 @@ export default async function Customer360Page({
               Commercial record
             </h2>
             <div
-              style={{
+              className="cv-tiles" style={{
                 display: "grid",
                 gridTemplateColumns: "repeat(4, 1fr)",
                 borderTop: "2px solid var(--color-divider)",
@@ -603,7 +603,7 @@ export default async function Customer360Page({
         </div>
 
         {/* Right rail */}
-        <div>
+        <div className="m-rail">
           {website && (
             <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
               <Kicker>On the website</Kicker>

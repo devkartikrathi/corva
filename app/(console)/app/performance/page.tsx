@@ -97,7 +97,7 @@ export default async function TeamPerformancePage() {
         lede="Who owns which leads and how many they win, whether callbacks happen when the AI promised them, and how fast a handed-over customer gets picked up."
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${kpis.length}, 1fr)`, borderBottom: "2px solid var(--color-divider)" }}>
+      <div className="cv-tiles" style={{ display: "grid", gridTemplateColumns: `repeat(${kpis.length}, 1fr)`, borderBottom: "2px solid var(--color-divider)" }}>
         {kpis.map((k, i) => (
           <div key={k.label} style={{ padding: "16px 20px", borderRight: i < kpis.length - 1 ? "1px solid var(--color-neutral-300)" : undefined }}>
             <Kicker>{k.label}</Kicker>
@@ -118,7 +118,8 @@ export default async function TeamPerformancePage() {
           , and every column here fills itself from the work they do.
         </p>
       ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <div className="m-scroll">
+        <table className="cv-table" style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ borderBottom: "2px solid var(--color-divider)" }}>
               <Th padding="9px 24px">Person</Th>
@@ -219,12 +220,13 @@ export default async function TeamPerformancePage() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       {/* How routing reads the table above. Written out because a queue that
           chooses a person and never says why is a queue people distrust. */}
       <div
-        style={{
+        className="m-stack" style={{
           padding: "18px 24px 28px",
           borderTop: "2px solid var(--color-divider)",
           display: "grid",

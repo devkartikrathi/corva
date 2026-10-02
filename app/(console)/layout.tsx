@@ -48,6 +48,7 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
 
   return (
     <div
+      className="cv-shell"
       style={{
         display: "grid",
         gridTemplateColumns: "232px 1fr",
@@ -74,14 +75,16 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
         onSwitchProfile={switchProfile}
         onSetAvailability={setAvailability}
       />
-      <main style={{ overflow: "auto", position: "relative" }}>
-        {/* The console's layouts are built for a wide viewport; below this the
-            main pane scrolls sideways rather than reflowing. */}
-        <div style={{ minWidth: 1180 }}>
+      <main className="cv-main" style={{ overflow: "auto", position: "relative" }}>
+        {/* Between a tablet and this width the main pane scrolls sideways
+            rather than reflowing; on a phone the floor is lifted and each
+            screen stacks — see "Small screens" in globals.css. */}
+        <div className="cv-main-inner" style={{ minWidth: 1180 }}>
           <TopBar live={stats.live} waiting={stats.waiting} signedIn={!isDemo} />
           {planNotice && (
             <a
               href="/app/billing"
+              className="m-pad"
               style={{
                 display: "block",
                 padding: "9px 24px",

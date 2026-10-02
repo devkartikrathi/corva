@@ -18,9 +18,9 @@ export function AuthFrame({
   children: ReactNode;
 }) {
   return (
-    <div style={{ minHeight: "100vh", display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+    <div className="m-stack cv-auth" style={{ minHeight: "100vh", display: "grid", gridTemplateColumns: "1fr 1fr" }}>
       <div
-        style={{
+        className="cv-auth-side" style={{
           borderRight: "2px solid var(--color-divider)",
           padding: "48px",
           display: "flex",
@@ -67,13 +67,13 @@ export function AuthFrame({
           </p>
         </div>
 
-        <div style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+        <div className="m-hide" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
           © 2026 Corva Systems Ltd · London
         </div>
       </div>
 
       <div
-        style={{
+        className="cv-auth-main" style={{
           display: "grid",
           placeItems: "center",
           padding: 48,

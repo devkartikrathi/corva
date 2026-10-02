@@ -135,9 +135,9 @@ export default async function HandoffsPage({
       </ScreenHeader>
       {tabs}
 
-      <div style={{ display: "grid", gridTemplateColumns: "320px 1fr" }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "320px 1fr" }}>
         {/* Queue */}
-        <div style={{ borderRight: "2px solid var(--color-divider)" }}>
+        <div className="cv-master" style={{ borderRight: "2px solid var(--color-divider)" }}>
           {handoffs.map((h) => (
             <Link
               key={h.id}
@@ -210,7 +210,7 @@ export default async function HandoffsPage({
         {/* Brief */}
         <div>
           <div
-            style={{
+            className="m-wrap" style={{
               padding: "18px 24px",
               borderBottom: "2px solid var(--color-divider)",
               background: "var(--color-surface)",
@@ -253,7 +253,7 @@ export default async function HandoffsPage({
                 </div>
               )}
             </div>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <div className="m-wrap" style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
               <LinkAction href={`/app/live?call=${selected.conversationId}`} size={12}>
                 Open the conversation →
               </LinkAction>
@@ -291,13 +291,13 @@ export default async function HandoffsPage({
           </div>
 
           <div
-            style={{
+            className="m-stack" style={{
               display: "grid",
               gridTemplateColumns: "1fr 1fr",
               borderBottom: "2px solid var(--color-divider)",
             }}
           >
-            <div style={{ padding: "18px 24px", borderRight: "1px solid var(--color-neutral-300)" }}>
+            <div className="m-noborder-x m-border-b" style={{ padding: "18px 24px", borderRight: "1px solid var(--color-neutral-300)" }}>
               <Kicker>{isClosure ? "What the customer asked for" : "What the customer wants"}</Kicker>
               <p
                 style={{
@@ -352,7 +352,7 @@ export default async function HandoffsPage({
                 >
                   {brief.decisionContext ?? "—"}
                 </div>
-                <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                <div className="m-wrap" style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "flex-start" }}>
                   <ActionButton
                     action={async () => {
                       "use server";
@@ -428,7 +428,7 @@ export default async function HandoffsPage({
               }}
             >
               {briefTranscript.map((t) => (
-                <div key={t.label} style={{ display: "grid", gridTemplateColumns: "78px 1fr", gap: 12 }}>
+                <div key={t.label} className="cv-turn" style={{ display: "grid", gridTemplateColumns: "78px 1fr", gap: 12 }}>
                   <span
                     style={{
                       fontSize: 10,

@@ -57,7 +57,7 @@ export default async function AdminBusinessPage({ params }: { params: Promise<{ 
       <h2 style={h2}>People</h2>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {people.map((p) => (
-          <div key={p.email} style={{ display: "grid", gridTemplateColumns: "200px 1fr 90px 90px 130px", gap: 10 }}>
+          <div key={p.email} className="m-stack m-gap-s m-border-b" style={{ display: "grid", gridTemplateColumns: "200px 1fr 90px 90px 130px", gap: 10 }}>
             <b>{p.name}</b>
             <span>{p.email}</span>
             <span>{p.role}</span>
@@ -73,7 +73,7 @@ export default async function AdminBusinessPage({ params }: { params: Promise<{ 
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {payments.map((p) => (
-            <div key={p.id} style={{ display: "grid", gridTemplateColumns: "110px 100px 110px 1fr", gap: 10 }}>
+            <div key={p.id} className="m-cols-2 m-gap-s" style={{ display: "grid", gridTemplateColumns: "110px 100px 110px 1fr", gap: 10 }}>
               <span>{date(p.createdAt)}</span>
               <b>{rupees(p.amountPaise / 100)}</b>
               <span>{p.status}</span>

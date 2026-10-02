@@ -81,7 +81,7 @@ export default async function AllCustomersPage({
 
   return (
     <section>
-      <div style={{ padding: "24px 24px 0", display: "flex", alignItems: "flex-end", gap: 24 }}>
+      <div className="cv-screen-header" style={{ padding: "24px 24px 0", display: "flex", alignItems: "flex-end", gap: 24 }}>
         <ScreenTitle
           kicker={
             scope.kind === "own"
@@ -90,7 +90,7 @@ export default async function AllCustomersPage({
           }
           title={scope.kind === "own" ? "My customers" : "All customers"}
         />
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <div className="cv-screen-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "flex-start", gap: 8 }}>
           <SearchBox ctx={ctx} placeholder="Name, phone, email, town" width={230} />
           <ExportCsvButton
             filename={`corva-customers-${brand.slug}.csv`}
@@ -113,9 +113,14 @@ export default async function AllCustomersPage({
         {currentView && <RemoveViewButton view={currentView} onDelete={deleteView} />}
       </TabStrip>
 
-      <div style={{ display: "grid", gridTemplateColumns: "272px 1fr" }}>
-        {/* Filter rail */}
-        <div style={{ borderRight: "2px solid var(--color-divider)" }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "272px 1fr" }}>
+        {/* Filter rail — on a small screen it folds behind its own button. */}
+        <div className="m-noborder-x" style={{ borderRight: "2px solid var(--color-divider)" }}>
+          <input type="checkbox" id="customer-filters" className="chk cv-fold-input" />
+          <label htmlFor="customer-filters" className="m-only cv-fold-label">
+            Filters
+          </label>
+          <div className="cv-fold-body">
           <div
             style={{
               padding: "14px 18px",
@@ -236,6 +241,7 @@ export default async function AllCustomersPage({
               as one of the tabs above.
             </div>
           </div>
+          </div>
         </div>
 
         {/* Table */}
@@ -259,7 +265,8 @@ export default async function AllCustomersPage({
             </span>
           </div>
 
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+          <div className="m-scroll">
+          <table className="cv-table-wide" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
             <thead>
               <tr style={{ borderBottom: "2px solid var(--color-divider)" }}>
                 <SortTh ctx={ctx} field="name">Customer</SortTh>
@@ -302,6 +309,7 @@ export default async function AllCustomersPage({
               ))}
             </tbody>
           </table>
+          </div>
           {customers.length === 0 && (
             <p style={{ padding: "28px 24px", fontSize: 12.5, color: "var(--color-neutral-700)" }}>
               No customer in {brand.name} matches these filters.{" "}

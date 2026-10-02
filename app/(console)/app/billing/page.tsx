@@ -57,9 +57,9 @@ export default async function BillingPage() {
     <section>
       <ScreenHeader kicker={`Workspace · ${session.orgName}`} title="Billing" lede={statusLine} />
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
         {/* This period */}
-        <div style={{ padding: "20px 24px", borderRight: "2px solid var(--color-divider)", borderBottom: "2px solid var(--color-divider)" }}>
+        <div className="m-noborder-x" style={{ padding: "20px 24px", borderRight: "2px solid var(--color-divider)", borderBottom: "2px solid var(--color-divider)" }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
             <SectionTitle size={16}>{plan.name}</SectionTitle>
             <span
@@ -159,7 +159,7 @@ export default async function BillingPage() {
           are before {Math.round(GST_RATE * 100)}% GST. There is no automatic charge: you pay for each month here.
         </p>
 
-        <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+        <div className="m-stack" style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
           {BUYABLE.map((id) => {
             const p = PLANS[id];
             const price = quote(p, state);

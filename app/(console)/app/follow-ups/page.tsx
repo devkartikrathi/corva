@@ -115,7 +115,8 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: Pr
                 : "Nothing completed yet."}
         </p>
       ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+        <div className="m-scroll">
+        <table className="cv-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--color-neutral-400)" }}>
               <Th padding="9px 24px">What</Th>
@@ -205,6 +206,7 @@ export default async function FollowUpsPage({ searchParams }: { searchParams: Pr
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </section>
   );

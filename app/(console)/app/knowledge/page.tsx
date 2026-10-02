@@ -63,9 +63,9 @@ export default async function KnowledgeBasePage({
         <PrimaryButton href="/app/knowledge/new">New document</PrimaryButton>
       </ScreenHeader>
 
-      <div style={{ display: "grid", gridTemplateColumns: "226px 1fr 316px" }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "226px 1fr 316px" }}>
         {/* Collections */}
-        <div style={{ borderRight: "2px solid var(--color-divider)", padding: "14px 0" }}>
+        <div className="m-noborder-x" style={{ borderRight: "2px solid var(--color-divider)", padding: "14px 0" }}>
           <div
             style={{
               padding: "0 18px 8px",
@@ -198,8 +198,9 @@ export default async function KnowledgeBasePage({
         </div>
 
         {/* Documents */}
-        <div style={{ borderRight: "2px solid var(--color-divider)" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+        <div className="m-noborder-x" style={{ borderRight: "2px solid var(--color-divider)" }}>
+          <div className="m-scroll">
+          <table className="cv-table-wide" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
             <thead>
               <tr style={{ borderBottom: "2px solid var(--color-divider)" }}>
                 <Th padding="9px 24px">Document</Th>
@@ -262,6 +263,7 @@ export default async function KnowledgeBasePage({
               ))}
             </tbody>
           </table>
+          </div>
           {kbDocs.length === 0 && (
             <p style={{ padding: "28px 24px", fontSize: 12.5, color: "var(--color-neutral-700)" }}>
               Nothing matches.{" "}
@@ -278,7 +280,7 @@ export default async function KnowledgeBasePage({
         </div>
 
         {/* Gaps and readiness */}
-        <div>
+        <div className="m-rail">
           <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
             <Kicker color="var(--color-accent-700)">Gaps the AI hit this month</Kicker>
             <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 11 }}>

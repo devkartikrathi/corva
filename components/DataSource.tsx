@@ -53,7 +53,8 @@ function Table({ result }: { result: Rows }) {
   if (result.rows.length === 0) return <div style={{ fontSize: 12, color: "var(--color-neutral-700)" }}>No rows matched.</div>;
   return (
     <div style={{ overflowX: "auto", border: "1px solid var(--color-neutral-300)" }}>
-      <table style={{ borderCollapse: "collapse", fontSize: 11.5, width: "100%" }}>
+      <div className="m-scroll">
+      <table className="cv-table" style={{ borderCollapse: "collapse", fontSize: 11.5, width: "100%" }}>
         <thead>
           <tr>
             {result.columns.map((c) => (
@@ -75,6 +76,7 @@ function Table({ result }: { result: Rows }) {
           ))}
         </tbody>
       </table>
+      </div>
       {result.truncated && <div style={{ fontSize: 11, padding: "5px 8px", color: "var(--color-neutral-700)" }}>More rows matched than are shown.</div>}
     </div>
   );
@@ -256,7 +258,7 @@ export function DataSource({
           {drafts.length === 0 && <div style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>No lookups yet. Let Corva suggest some from your tables, or write one.</div>}
           {drafts.map((d) => (
             <div key={d.local} style={{ border: "1px solid var(--color-neutral-300)", padding: "12px 14px", background: "var(--color-surface)" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 1fr) minmax(200px, 2fr)", gap: 10 }}>
+              <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "minmax(160px, 1fr) minmax(200px, 2fr)", gap: 10 }}>
                 <div>
                   <label style={label}>Name</label>
                   <input style={input} value={d.name} onChange={(e) => change(d.local, { name: e.target.value })} placeholder="Order status" />
