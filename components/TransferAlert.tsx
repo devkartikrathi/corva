@@ -114,7 +114,7 @@ export function TransferAlert({
       role="alertdialog"
       aria-live="assertive"
       aria-label={`${transfer.customerName} — ${closure ? "closed by agreement" : "transfer from the AI"}`}
-      style={{
+      className="cv-alert" style={{
         position: "fixed",
         right: 20,
         bottom: 20,

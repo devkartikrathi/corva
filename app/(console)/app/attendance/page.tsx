@@ -94,7 +94,8 @@ export default async function AttendancePage({ searchParams }: { searchParams: P
       </div>
 
       <div style={{ padding: "0 24px 24px" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 12.5 }}>
+        <div className="m-scroll">
+        <table className="cv-table-xl" style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", fontSize: 12.5 }}>
           <thead>
             <tr>
               <th style={{ textAlign: "left", padding: "12px 8px 8px 0", width: 200 }}>
@@ -183,6 +184,7 @@ export default async function AttendancePage({ searchParams }: { searchParams: P
             })}
           </tbody>
         </table>
+        </div>
       </div>
     </section>
   );

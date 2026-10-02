@@ -72,7 +72,7 @@ export function DemoForm({
         });
       }}
     >
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <label style={label}>
           Your name
           <input name="name" required maxLength={80} style={field} autoComplete="name" />
@@ -82,7 +82,7 @@ export function DemoForm({
           <input name="email" type="email" required maxLength={120} style={field} autoComplete="email" />
         </label>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <label style={label}>
           Phone <span style={{ fontWeight: 400 }}>(optional)</span>
           <input name="phone" maxLength={30} style={field} autoComplete="tel" inputMode="tel" />
@@ -92,7 +92,7 @@ export function DemoForm({
           <input name="business" maxLength={120} style={field} autoComplete="organization" />
         </label>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <label style={label}>
           What kind of business?
           <select name="industry" defaultValue="" style={field}>

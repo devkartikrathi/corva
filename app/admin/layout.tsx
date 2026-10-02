@@ -11,9 +11,9 @@ export const metadata = { title: "Corva admin" };
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const admin = await requireAdmin();
   return (
-    <div style={{ minHeight: "100vh", background: "var(--color-bg)", fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
+    <div className="cv-admin" style={{ minHeight: "100vh", background: "var(--color-bg)", fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
       <header style={{ borderBottom: "2px solid var(--color-divider)", background: "var(--color-text)", color: "var(--color-bg)" }}>
-        <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 24px", height: 56, display: "flex", alignItems: "center", gap: 26 }}>
+        <div className="cv-admin-bar" style={{ maxWidth: 1240, margin: "0 auto", padding: "0 24px", height: 56, display: "flex", alignItems: "center", gap: 26 }}>
           <Link href="/admin" style={{ fontWeight: 800, fontSize: 17, letterSpacing: "-0.02em", color: "var(--color-bg)" }}>
             CORVA <span style={{ fontWeight: 600, fontSize: 11, letterSpacing: "0.12em", opacity: 0.7 }}>ADMIN</span>
           </Link>
@@ -27,8 +27,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               {label}
             </Link>
           ))}
-          <span style={{ marginLeft: "auto", fontSize: 12, opacity: 0.75 }}>{admin.email}</span>
-          <Link href="/app" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-bg)" }}>
+          <span className="m-hide" style={{ marginLeft: "auto", fontSize: 12, opacity: 0.75 }}>{admin.email}</span>
+          <Link href="/app" className="cv-admin-main" style={{ fontSize: 12.5, fontWeight: 600, color: "var(--color-bg)" }}>
             My console →
           </Link>
         </div>

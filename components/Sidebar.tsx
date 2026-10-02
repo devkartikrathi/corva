@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { NavItem } from "@/lib/nav";
+import { NAV_CLOSE_EVENT } from "./MobileNav";
 
 export type BrandOption = { id: string; name: string; initials: string; isLive: boolean };
 
@@ -62,9 +63,13 @@ export function Sidebar({
   const [whoOpen, setWhoOpen] = useState(false);
   const [switching, startSwitch] = useTransition();
   const [changingWho, startWho] = useTransition();
+  // On a small screen this is a drawer; see MobileNav.
+  const closeDrawer = () => window.dispatchEvent(new Event(NAV_CLOSE_EVENT));
 
   return (
     <aside
+      id="cv-sidebar"
+      className="cv-sidebar"
       style={{
         borderRight: "2px solid var(--color-divider)",
         display: "flex",
@@ -84,6 +89,15 @@ export function Sidebar({
       >
         <span style={{ fontWeight: 800, fontSize: 17, letterSpacing: "-0.02em" }}>CORVA</span>
         <span style={{ width: 7, height: 7, background: "var(--color-accent)", display: "block" }} />
+        <button
+          type="button"
+          className="m-only"
+          aria-label="Close menu"
+          onClick={closeDrawer}
+          style={{ marginLeft: "auto", fontSize: 20, lineHeight: 1, padding: "0 4px", alignSelf: "center" }}
+        >
+          ×
+        </button>
       </div>
 
       {/* The brand switcher. Only brands this membership is scoped to appear
@@ -237,6 +251,7 @@ export function Sidebar({
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   className="hov-raise"
+                  onClick={closeDrawer}
                   style={{
                     width: "100%",
                     textAlign: "left",
@@ -456,7 +471,7 @@ export function Sidebar({
             person said, not what the console guessed.
           */}
           {canTakeCalls && (
-            <div style={{ marginTop: 9, display: "flex", gap: 3 }}>
+            <div className="cv-avail" style={{ marginTop: 9, display: "flex", gap: 3 }}>
               {(["available", "busy", "offline"] as const).map((state) => {
                 const on = availability === state;
                 return (

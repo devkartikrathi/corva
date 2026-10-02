@@ -133,7 +133,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
         ))}
       </ScreenHeader>
 
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${headline.length}, 1fr)`, borderBottom: "2px solid var(--color-divider)" }}>
+      <div className="cv-tiles" style={{ display: "grid", gridTemplateColumns: `repeat(${headline.length}, 1fr)`, borderBottom: "2px solid var(--color-divider)" }}>
         {headline.map((h, i) => (
           <div key={h.label} style={{ padding: "18px 24px", borderInlineStart: i ? "1px solid var(--color-neutral-300)" : undefined }}>
             <Kicker style={{ letterSpacing: "0.12em" }}>{h.label}</Kicker>
@@ -143,7 +143,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
         ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", borderBottom: "2px solid var(--color-divider)" }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "3fr 2fr", borderBottom: "2px solid var(--color-divider)" }}>
         {/* Day by day: who answered */}
         <div style={{ padding: "20px 24px" }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 14 }}>
@@ -216,7 +216,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
             Attendance →
           </Link>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+        <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
           {data.people.map((p) => (
             <Person key={p.id} p={p} max={max} days={days} you={p.id === session.membershipId} />
           ))}

@@ -67,9 +67,9 @@ export function CallComposer({
 
   return (
     <div style={{ borderTop: "2px solid var(--color-divider)", padding: "12px 20px" }}>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+      <div className="m-wrap" style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
         <span
-          style={{
+          className="m-full" style={{
             fontSize: 10,
             fontWeight: 700,
             letterSpacing: "0.12em",
@@ -132,12 +132,12 @@ export function CallComposer({
         </button>
       </div>
       {error && (
-        <p role="alert" style={{ margin: "8px 0 0 126px", fontSize: 11.5, color: "var(--color-accent-700)" }}>
+        <p role="alert" className="m-ml0" style={{ margin: "8px 0 0 126px", fontSize: 11.5, color: "var(--color-accent-700)" }}>
           {error}
         </p>
       )}
       {!error && aiHolding && !ended && (
-        <p style={{ margin: "8px 0 0 126px", fontSize: 11, color: "var(--color-neutral-700)" }}>
+        <p className="m-ml0" style={{ margin: "8px 0 0 126px", fontSize: 11, color: "var(--color-neutral-700)" }}>
           The reply comes from the live agent version, grounded in this brand&rsquo;s documents. If it
           hits a ceiling or a trigger it will stop and write a brief, exactly as it would on the phone.
         </p>

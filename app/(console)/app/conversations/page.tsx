@@ -133,7 +133,7 @@ export default async function ConversationsPage({
 
   return (
     <section>
-      <div style={{ padding: "20px 24px 0", display: "flex", alignItems: "flex-end", gap: 24 }}>
+      <div className="cv-screen-header" style={{ padding: "20px 24px 0", display: "flex", alignItems: "flex-end", gap: 24 }}>
         <ScreenTitle
           kicker={`${stats.total} conversation${stats.total === 1 ? "" : "s"} · retained 2 years`}
           title="Conversations"
@@ -148,7 +148,7 @@ export default async function ConversationsPage({
         >
           Everything the AI and your team ever said, with the documents each answer came from.
         </p>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+        <div className="cv-screen-actions" style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <OutlineButton href={href(PATH, params, { reviewed: "no", outcome: null })}>
             Unreviewed
           </OutlineButton>
@@ -182,22 +182,22 @@ export default async function ConversationsPage({
       >
         <SearchBox ctx={ctx} placeholder="Search intents and transcripts" width={250} />
 
-        <span style={{ width: 1, height: 18, background: "var(--color-neutral-400)" }} />
+        <span className="m-hide" style={{ width: 1, height: 18, background: "var(--color-neutral-400)" }} />
         {facets.channels.map((c) => (
           <Chip key={c.key} ctx={ctx} paramKey="channel" value={c.key} label={`${c.label} ${c.count}`} multi />
         ))}
 
-        <span style={{ width: 1, height: 18, background: "var(--color-neutral-400)" }} />
+        <span className="m-hide" style={{ width: 1, height: 18, background: "var(--color-neutral-400)" }} />
         {facets.outcomes.map((o) => (
           <Chip key={o.key} ctx={ctx} paramKey="outcome" value={o.key} label={`${o.label} ${o.count}`} multi />
         ))}
 
-        <span style={{ width: 1, height: 18, background: "var(--color-neutral-400)" }} />
+        <span className="m-hide" style={{ width: 1, height: 18, background: "var(--color-neutral-400)" }} />
         {facets.anonymous > 0 && (
           <>
             <Chip ctx={ctx} paramKey="who" value="anonymous" label={`Anonymous enquiries ${facets.anonymous}`} />
             <Chip ctx={ctx} paramKey="who" value="all" label="Everything" />
-            <span style={{ width: 1, height: 18, background: "var(--color-neutral-400)" }} />
+            <span className="m-hide" style={{ width: 1, height: 18, background: "var(--color-neutral-400)" }} />
           </>
         )}
         <Chip ctx={ctx} paramKey="reviewed" value="no" label={`Unreviewed ${facets.reviewed.no}`} />
@@ -208,7 +208,7 @@ export default async function ConversationsPage({
           <Chip key={w.value} ctx={ctx} paramKey="since" value={w.value} label={w.label} />
         ))}
 
-        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+        <span className="m-ml0" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
           <ActiveFilters ctx={ctx} ignore={["page", "sort", "id"]} />
           <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
             {result.total} result{result.total === 1 ? "" : "s"}
@@ -216,9 +216,9 @@ export default async function ConversationsPage({
         </span>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "372px 1fr" }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "372px 1fr" }}>
         {/* List */}
-        <div style={{ borderRight: "2px solid var(--color-divider)" }}>
+        <div className="cv-master" style={{ borderRight: "2px solid var(--color-divider)" }}>
           {convos.length === 0 && (
             <p style={{ padding: "24px 18px", fontSize: 12.5, color: "var(--color-neutral-700)" }}>
               No conversation matches these filters. {stats.total} exist in {brand.name}.
@@ -297,7 +297,7 @@ export default async function ConversationsPage({
               background: "var(--color-surface)",
             }}
           >
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 20 }}>
+            <div className="m-wrap m-gap" style={{ display: "flex", alignItems: "flex-start", gap: 20 }}>
               <div style={{ flex: 1 }}>
                 <Kicker>
                   {detail!.conversation.startedAt.toLocaleDateString("en-GB", {
@@ -348,7 +348,7 @@ export default async function ConversationsPage({
                   · {outcomeLabel(detail!.conversation.outcome, detail!.conversation.status).toLowerCase()}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div className="m-wrap" style={{ display: "flex", gap: 8 }}>
                 <ExportButton
                   conversationId={detail!.conversation.id}
                   filename={`corva-${detail!.conversation.id.slice(0, 8)}.txt`}
@@ -364,7 +364,7 @@ export default async function ConversationsPage({
             </div>
 
             <div
-              style={{
+              className="m-cols-2 m-gap" style={{
                 marginTop: 14,
                 display: "grid",
                 gridTemplateColumns: "repeat(5, 1fr)",
@@ -476,6 +476,7 @@ export default async function ConversationsPage({
             {detail!.turns.map((t) => (
               <div
                 key={t.id}
+                className="cv-turn"
                 style={
                   t.speaker === "human"
                     ? { borderTop: "2px solid var(--color-divider)", paddingTop: 14, ...TURN_GRID }

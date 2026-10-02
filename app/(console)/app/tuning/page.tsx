@@ -86,7 +86,7 @@ export default async function TuningPage() {
   return (
     <section>
       <div
-        style={{
+        className="cv-screen-header" style={{
           padding: "20px 24px",
           borderBottom: "2px solid var(--color-divider)",
           display: "flex",
@@ -98,7 +98,7 @@ export default async function TuningPage() {
           kicker={`${brand.name} · agent "${brand.agentName ?? "unnamed"}"`}
           title="Tuning & guardrails"
         />
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 3 }}>
+        <div className="m-wrap" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 3 }}>
           <span
             style={{
               fontSize: 11,
@@ -127,7 +127,7 @@ export default async function TuningPage() {
             {draft ? `v${draft.version} · draft` : "no draft"}
           </span>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+        <div className="cv-screen-actions" style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           {draft && (
             <ActionButton
               variant="outline"
@@ -168,9 +168,9 @@ export default async function TuningPage() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "210px 1fr 340px" }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "210px 1fr 340px" }}>
         {/* Section nav */}
-        <div style={{ borderRight: "2px solid var(--color-divider)", padding: "14px 0" }}>
+        <div className="m-noborder-x" style={{ borderRight: "2px solid var(--color-divider)", padding: "14px 0" }}>
           {SECTIONS.map((t, i) => (
             <a
               key={t.name}
@@ -215,7 +215,7 @@ export default async function TuningPage() {
         </div>
 
         {/* Persona, authority, guardrails */}
-        <div style={{ borderRight: "2px solid var(--color-divider)" }}>
+        <div className="m-noborder-x" style={{ borderRight: "2px solid var(--color-divider)" }}>
           <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
             <Kicker>Persona</Kicker>
             <div
@@ -233,7 +233,7 @@ export default async function TuningPage() {
             </div>
 
             <div
-              style={{
+              className="m-stack" style={{
                 marginTop: 14,
                 display: "grid",
                 gridTemplateColumns: "repeat(2, 1fr)",
@@ -263,7 +263,8 @@ export default async function TuningPage() {
                 What the AI may do without asking
               </span>
             </div>
-            <table
+            <div className="m-scroll">
+            <table className="cv-table"
               style={{ width: "100%", borderCollapse: "collapse", marginTop: 12, fontSize: 12.5 }}
             >
               <thead>
@@ -298,10 +299,11 @@ export default async function TuningPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
 
           <div style={{ padding: "18px 24px" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28 }}>
+            <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28 }}>
               <div>
                 <Kicker>Escalation triggers</Kicker>
                 <div
@@ -360,7 +362,7 @@ export default async function TuningPage() {
         </div>
 
         {/* Test console */}
-        <div>
+        <div className="m-rail">
           <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span

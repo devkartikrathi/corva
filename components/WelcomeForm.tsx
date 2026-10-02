@@ -98,7 +98,7 @@ export function WelcomeForm({
           style={{ ...field, resize: "vertical", lineHeight: 1.5 }}
         />
       </label>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         <label style={label}>
           Name your assistant
           <input name="agentName" maxLength={30} placeholder="Asha" style={field} />

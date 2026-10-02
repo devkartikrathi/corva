@@ -141,7 +141,7 @@ const planLabel = (color: string): CSSProperties => ({
 
 export default function LandingPage() {
   return (
-    <div style={{ minHeight: "100vh", fontSize: 15, lineHeight: 1.5 }}>
+    <div className="lp" style={{ minHeight: "100vh", fontSize: 15, lineHeight: 1.5 }}>
       {/* ── Header ── */}
       <header
         style={{
@@ -152,13 +152,13 @@ export default function LandingPage() {
           borderBottom: "2px solid var(--color-divider)",
         }}
       >
-        <div style={{ ...SHELL, height: 68, display: "flex", alignItems: "center", gap: 48 }}>
+        <div className="lp-shell m-gap" style={{ ...SHELL, height: 68, display: "flex", alignItems: "center", gap: 48 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <span style={{ fontWeight: 800, fontSize: 20, letterSpacing: "-0.02em" }}>CORVA</span>
             <span style={{ width: 8, height: 8, background: "var(--color-accent)", display: "block" }} />
           </div>
           <nav
-            style={{
+            className="m-hide" style={{
               display: "flex",
               gap: 28,
               fontSize: 13,
@@ -189,7 +189,7 @@ export default function LandingPage() {
             </Link>
             <Link
               href="/demo"
-              className="hov-invert"
+              className="hov-invert m-hide"
               style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text)", border: "2px solid var(--color-text)", padding: "9px 16px" }}
             >
               Book a demo
@@ -213,8 +213,8 @@ export default function LandingPage() {
 
       {/* ── Hero ── */}
       <section style={{ borderBottom: "2px solid var(--color-divider)" }}>
-        <div style={{ ...SHELL, display: "grid", gridTemplateColumns: "1.55fr 1fr" }}>
-          <div style={{ padding: "88px 64px 72px 0", borderRight: "2px solid var(--color-divider)" }}>
+        <div className="lp-shell m-stack" style={{ ...SHELL, display: "grid", gridTemplateColumns: "1.55fr 1fr" }}>
+          <div className="lp-hero" style={{ padding: "88px 64px 72px 0", borderRight: "2px solid var(--color-divider)" }}>
             <div
               style={{
                 display: "flex",
@@ -268,7 +268,7 @@ export default function LandingPage() {
               a name and a time on it — with your team one click from taking over.
             </p>
 
-            <div style={{ marginTop: 36, display: "flex", gap: 10 }}>
+            <div className="m-wrap" style={{ marginTop: 36, display: "flex", gap: 10 }}>
               <AccentLink href="/sign-up" arrow minWidth={220}>
                 Start free for 14 days
               </AccentLink>
@@ -276,7 +276,7 @@ export default function LandingPage() {
             </div>
 
             <div
-              style={{
+              className="m-wrap" style={{
                 marginTop: 56,
                 display: "flex",
                 alignItems: "center",
@@ -289,7 +289,7 @@ export default function LandingPage() {
               }}
             >
               <span>Built for</span>
-              <span style={{ height: 1, flex: 1, background: "var(--color-neutral-300)" }} />
+              <span className="m-hide" style={{ height: 1, flex: 1, background: "var(--color-neutral-300)" }} />
               {logos.map((l) => (
                 <span key={l} style={{ color: "var(--color-neutral-700)" }}>
                   {l}
@@ -298,7 +298,7 @@ export default function LandingPage() {
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateRows: "repeat(4, 1fr)" }}>
+          <div className="lp-stats" style={{ display: "grid", gridTemplateRows: "repeat(4, 1fr)" }}>
             {heroStats.map((s, i) => (
               <div
                 key={s.label}
@@ -342,9 +342,9 @@ export default function LandingPage() {
         id="platform"
         style={{ borderBottom: "2px solid var(--color-divider)", background: "var(--color-surface)" }}
       >
-        <div style={{ ...SHELL, padding: "56px 48px 64px" }}>
+        <div className="lp-shell lp-sec" style={{ ...SHELL, padding: "56px 48px 64px" }}>
           <div
-            style={{
+            className="m-col m-gap" style={{
               display: "flex",
               alignItems: "flex-end",
               justifyContent: "space-between",
@@ -382,7 +382,7 @@ export default function LandingPage() {
           >
             {/* Call bar */}
             <div
-              style={{
+              className="m-wrap" style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 16,
@@ -447,7 +447,7 @@ export default function LandingPage() {
               </span>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 320px" }}>
+            <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 320px" }}>
               <div style={{ borderRight: "2px solid var(--color-divider)" }}>
                 {/* Waveform */}
                 <div
@@ -591,7 +591,7 @@ export default function LandingPage() {
                   </div>
 
                   <div
-                    style={{
+                    className="m-wrap" style={{
                       border: "2px solid var(--color-accent)",
                       padding: "12px 14px",
                       display: "flex",
@@ -734,7 +734,7 @@ export default function LandingPage() {
 
       {/* ── The loop ── */}
       <section id="loop" style={{ borderBottom: "2px solid var(--color-divider)" }}>
-        <div style={{ ...SHELL, padding: "56px 48px 0" }}>
+        <div className="lp-shell lp-sec" style={{ ...SHELL, padding: "56px 48px 0" }}>
           <Eyebrow>The loop</Eyebrow>
           <h2
             style={{
@@ -750,7 +750,7 @@ export default function LandingPage() {
           </h2>
         </div>
         <div
-          style={{
+          className="lp-shell lp-sec m-stack lp-cols" style={{
             ...SHELL,
             padding: "0 48px 56px",
             display: "grid",
@@ -787,8 +787,8 @@ export default function LandingPage() {
 
       {/* ── Ways to connect ── */}
       <section id="connect" style={{ borderBottom: "2px solid var(--color-divider)", background: "var(--color-surface)" }}>
-        <div style={{ ...SHELL, padding: "56px 48px 64px" }}>
-          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 48 }}>
+        <div className="lp-shell lp-sec" style={{ ...SHELL, padding: "56px 48px 64px" }}>
+          <div className="m-col m-gap" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 48 }}>
             <div>
               <Eyebrow>Connect</Eyebrow>
               <SectionHeading maxWidth="24ch">Three ways in. One assistant, one console.</SectionHeading>
@@ -799,7 +799,7 @@ export default function LandingPage() {
             </p>
           </div>
           <div
-            style={{
+            className="m-stack lp-cols" style={{
               marginTop: 32,
               display: "grid",
               gridTemplateColumns: "repeat(3, 1fr)",
@@ -844,7 +844,7 @@ export default function LandingPage() {
         }}
       >
         <div
-          style={{
+          className="lp-shell lp-sec m-stack m-gap" style={{
             ...SHELL,
             padding: "56px 48px 64px",
             display: "grid",
@@ -890,7 +890,7 @@ export default function LandingPage() {
           </div>
 
           <div
-            style={{
+            className="m-stack lp-cols" style={{
               display: "grid",
               gridTemplateColumns: "1fr 1fr",
               gap: "0 40px",
@@ -927,7 +927,7 @@ export default function LandingPage() {
                   gap: 14,
                 }}
               >
-                <span style={{ fontSize: 13.5, width: 190 }}>{ind.label}</span>
+                <span className="m-auto-w" style={{ fontSize: 13.5, width: 190 }}>{ind.label}</span>
                 <span style={{ flex: 1, fontSize: 12.5, color: "var(--color-neutral-400)" }}>
                   {ind.stages.new} → {ind.stages.qualified} →{" "}
                   <b style={{ color: "var(--color-accent-500)" }}>{ind.stages.won}</b>
@@ -940,7 +940,7 @@ export default function LandingPage() {
 
       {/* ── Platform grid ── */}
       <section style={{ borderBottom: "2px solid var(--color-divider)" }}>
-        <div style={{ ...SHELL, padding: "56px 48px 0" }}>
+        <div className="lp-shell lp-sec" style={{ ...SHELL, padding: "56px 48px 0" }}>
           <Eyebrow>Platform</Eyebrow>
           <h2
             style={{
@@ -956,7 +956,7 @@ export default function LandingPage() {
           </h2>
         </div>
         <div
-          style={{
+          className="lp-shell lp-sec m-stack lp-cols" style={{
             ...SHELL,
             padding: "0 48px 56px",
             display: "grid",
@@ -996,8 +996,8 @@ export default function LandingPage() {
         id="pricing"
         style={{ borderBottom: "2px solid var(--color-divider)", background: "var(--color-surface)" }}
       >
-        <div style={{ ...SHELL, padding: "56px 48px 64px" }}>
-          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 48 }}>
+        <div className="lp-shell lp-sec" style={{ ...SHELL, padding: "56px 48px 64px" }}>
+          <div className="m-col m-gap" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 48 }}>
             <div>
               <Eyebrow>Pricing</Eyebrow>
               <SectionHeading>A monthly plan, with usage included.</SectionHeading>
@@ -1009,7 +1009,7 @@ export default function LandingPage() {
           </div>
 
           <div
-            style={{
+            className="m-stack lp-plans" style={{
               marginTop: 32,
               display: "grid",
               gridTemplateColumns: "repeat(3, 1fr)",
@@ -1148,7 +1148,7 @@ export default function LandingPage() {
 
       {/* ── Closing CTA ── */}
       <section style={{ background: "var(--color-accent)", color: "var(--color-bg)" }}>
-        <div style={{ ...SHELL, padding: "72px 48px" }}>
+        <div className="lp-shell lp-sec" style={{ ...SHELL, padding: "72px 48px" }}>
           <h2
             style={{
               margin: 0,
@@ -1161,7 +1161,7 @@ export default function LandingPage() {
           >
             Your customers are already telling you everything.
           </h2>
-          <div style={{ marginTop: 32, display: "flex", alignItems: "center", gap: 12 }}>
+          <div className="m-wrap" style={{ marginTop: 32, display: "flex", alignItems: "center", gap: 12 }}>
             <Link
               href="/demo"
               style={{
@@ -1199,13 +1199,13 @@ export default function LandingPage() {
 
       {/* ── Footer ── */}
       <footer style={{ background: "var(--color-text)", color: "var(--color-neutral-500)" }}>
-        <div style={{ ...SHELL, padding: "40px 48px", display: "flex", gap: 48, alignItems: "flex-start" }}>
+        <div className="lp-shell m-col" style={{ ...SHELL, padding: "40px 48px", display: "flex", gap: 48, alignItems: "flex-start" }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, color: "var(--color-bg)" }}>
             <span style={{ fontWeight: 800, fontSize: 17, letterSpacing: "-0.02em" }}>CORVA</span>
             <span style={{ width: 7, height: 7, background: "var(--color-accent)", display: "block" }} />
           </div>
           <div
-            style={{
+            className="m-cols-2 m-ml0" style={{
               marginLeft: "auto",
               display: "grid",
               gridTemplateColumns: "repeat(3, minmax(120px, auto))",
@@ -1235,7 +1235,7 @@ export default function LandingPage() {
             ))}
           </div>
         </div>
-        <div style={{ ...SHELL, padding: "0 48px 32px", fontSize: 11.5, color: "var(--color-neutral-700)" }}>
+        <div className="lp-shell" style={{ ...SHELL, padding: "0 48px 32px", fontSize: 11.5, color: "var(--color-neutral-700)" }}>
           © 2026 Tiruvi · Corva is a Tiruvi product
         </div>
       </footer>

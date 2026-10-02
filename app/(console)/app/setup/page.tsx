@@ -134,9 +134,9 @@ export default async function SetupPage() {
         {manages && <AddBrand onCreate={createBrand} />}
       </ScreenHeader>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
         {/* Brands, channels, hours */}
-        <div style={{ borderRight: "2px solid var(--color-divider)" }}>
+        <div className="m-noborder-x" style={{ borderRight: "2px solid var(--color-divider)" }}>
           <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
             <div style={{ marginBottom: 12 }}>
               <SectionTitle size={16}>Brands in this workspace</SectionTitle>
@@ -197,7 +197,7 @@ export default async function SetupPage() {
               {reach.map((r) => (
                 <div
                   key={r.name}
-                  style={{ display: "grid", gridTemplateColumns: "120px 1fr auto", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--color-neutral-300)", alignItems: "start" }}
+                  className="m-stack m-gap-s" style={{ display: "grid", gridTemplateColumns: "120px 1fr auto", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--color-neutral-300)", alignItems: "start" }}
                 >
                   <b>{r.name}</b>
                   <span style={{ color: "var(--color-neutral-800)", lineHeight: 1.5 }}>{r.what}</span>
@@ -211,7 +211,7 @@ export default async function SetupPage() {
                   </span>
                 </div>
               ))}
-              <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "12px 0 2px", alignItems: "start" }}>
+              <div className="m-stack m-gap-s" style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "12px 0 2px", alignItems: "start" }}>
                 <b>Your phone number</b>
                 <span>
                   {manages && brand ? (
@@ -272,7 +272,7 @@ export default async function SetupPage() {
         </div>
 
         {/* Integrations, privacy, plan */}
-        <div>
+        <div className="m-rail">
           <div style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
             <div style={{ marginBottom: 6 }}>
               <SectionTitle size={16}>Website &amp; API keys</SectionTitle>

@@ -108,7 +108,8 @@ export default async function TeamPage() {
             An Agent sees the customers and leads they own; a Manager sees the whole business
           </span>
         </div>
-        <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 14, fontSize: 12.5 }}>
+        <div className="m-scroll">
+        <table className="cv-table" style={{ width: "100%", borderCollapse: "collapse", marginTop: 14, fontSize: 12.5 }}>
           <thead>
             <tr
               style={{
@@ -140,12 +141,14 @@ export default async function TeamPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px" }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 340px" }}>
         {/* People */}
-        <div style={{ borderRight: "2px solid var(--color-divider)" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+        <div className="m-noborder-x" style={{ borderRight: "2px solid var(--color-divider)" }}>
+          <div className="m-scroll">
+          <table className="cv-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
             <thead>
               <tr style={{ borderBottom: "2px solid var(--color-divider)" }}>
                 <Th padding="9px 24px">Person</Th>
@@ -233,10 +236,11 @@ export default async function TeamPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* Right rail */}
-        <div>
+        <div className="m-rail">
           <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
             <Kicker>Brand access</Kicker>
             <div

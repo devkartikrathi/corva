@@ -77,7 +77,7 @@ export default async function HomePage() {
     <section>
       <GettingStarted orgId={session.orgId} brandId={brand.id} agentName={brand.agentName ?? "your assistant"} />
       <div
-        style={{
+        className="cv-screen-header" style={{
           padding: "24px 24px 20px",
           borderBottom: "2px solid var(--color-divider)",
           display: "flex",
@@ -86,7 +86,7 @@ export default async function HomePage() {
         }}
       >
         <ScreenTitle kicker={mine ? `${brand.name} · your work` : brand.name} title="Today" />
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="cv-screen-actions" style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
           <LiveRefresh active={live.length > 0 || waiting.length > 0} />
           <OutlineButton href="/app/follow-ups">Follow-ups</OutlineButton>
           <PrimaryButton href="/app/leads" style={{ fontWeight: 600 }}>
@@ -97,7 +97,7 @@ export default async function HomePage() {
 
       {/* Headline numbers */}
       <div
-        style={{
+        className="cv-tiles" style={{
           display: "grid",
           gridTemplateColumns: `repeat(${headline.length}, 1fr)`,
           borderBottom: "2px solid var(--color-divider)",
@@ -160,7 +160,7 @@ export default async function HomePage() {
         </div>
 
         <div
-          style={{
+          className="m-stack" style={{
             marginTop: 14,
             display: "grid",
             gridTemplateColumns: "repeat(3, 1fr)",
@@ -293,12 +293,12 @@ export default async function HomePage() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 356px" }}>
-        <div style={{ borderRight: "2px solid var(--color-divider)" }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 356px" }}>
+        <div className="m-noborder-x" style={{ borderRight: "2px solid var(--color-divider)" }}>
           {/* Follow-ups */}
           <div style={{ padding: "16px 24px 10px", display: "flex", alignItems: "baseline", gap: 12 }}>
             <SectionTitle>{mine ? "Your follow-ups" : "Follow-ups due"}</SectionTitle>
-            <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>Overdue first, then today</span>
+            <span className="m-hide" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>Overdue first, then today</span>
             <LinkAction href="/app/follow-ups" style={{ marginLeft: "auto" }}>
               All follow-ups →
             </LinkAction>
@@ -392,14 +392,14 @@ export default async function HomePage() {
                   <div style={{ marginTop: 2, fontSize: 12, color: "var(--color-neutral-800)" }}>{l.interest || "—"}</div>
                 </div>
                 <span style={{ fontSize: 11.5, fontWeight: 700 }}>{industry.stages[l.stage]}</span>
-                <span style={{ width: 120, fontSize: 11.5, color: "var(--color-neutral-700)", textAlign: "right" }}>{l.ownerName ?? "Unassigned"}</span>
+                <span className="m-hide" style={{ width: 120, fontSize: 11.5, color: "var(--color-neutral-700)", textAlign: "right" }}>{l.ownerName ?? "Unassigned"}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Right rail */}
-        <div>
+        <div className="m-rail">
           <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
             <Kicker>Needs a human</Kicker>
             <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
