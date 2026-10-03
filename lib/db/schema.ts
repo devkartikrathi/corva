@@ -1431,6 +1431,8 @@ export const emailInboxes = pgTable("email_inboxes", {
    * caught on arrival so the business can read the code in Corva.
    */
   confirmation: jsonb("confirmation").$type<{ code: string | null; link: string | null; from: string; at: string }>(),
+  /** The assistant answers customers' email itself, as it does on chat. The team can always step in. */
+  aiReplies: boolean("ai_replies").notNull().default(true),
   received: integer("received").notNull().default(0),
   kept: integer("kept").notNull().default(0),
   lastReceivedAt: timestamp("last_received_at", { withTimezone: true }),

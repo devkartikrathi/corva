@@ -88,6 +88,19 @@ Customer email arrives by **forwarding** (since 2026-10-03; IMAP inbox reading w
   `email.received` pointed at `https://<corva>/api/email/inbound`, and set its signing secret as
   `RESEND_INBOUND_SECRET`. Replies from the business's own domain need that domain verified in
   Resend (`EMAIL_FROM`).
+- **The assistant answers email** (since 2026-10-03; on by default, a switch on the Email screen,
+  `email_inboxes.ai_replies`). Once Resend has had its answer, `answerEmail` runs the same turn as a
+  chat (`respond`: knowledge, catalog, the business's records, payment links, handoffs), written as
+  an email — greeting, plain text, signed with the assistant's and business's names — and sends it
+  on the thread, threaded and with Reply-To the Corva address. It counts as a chat on the plan;
+  past the allowance the message is left for the team. The thread shows "Answered by the
+  assistant". A turn that brings in a person sends a short holding reply ("I've passed it to the
+  team…") and the thread shows **Needs the team**: the assistant then stays out of that thread, and
+  out of any thread a person on the team has replied on — those are the team's. Email threads are
+  never "live": a handoff waits in the queue (or, nobody free, becomes a callback follow-up).
+  Tested 2026-10-03 against a throwaway business with Resend's API caught in-process and the real
+  model: prices answered from the business's facts, a reply on the same thread answered again, a
+  duplicate delivery ignored, a team reply taking the thread over, an escalation, and the switch off.
 - **Some things only go by email** (`lib/email/details.ts`). Anyone can say an order reference on a
   call or in a chat, so the assistant tells anyone where an order has got to — and nothing more.
   Asked for the bill, the items, the address, the payment or the driver, it offers to email them and
@@ -99,7 +112,7 @@ Customer email arrives by **forwarding** (since 2026-10-03; IMAP inbox reading w
 ### Not yet
 
 - Attachments (photos of a stain, a receipt) are not kept — the text is.
-- The assistant does not answer email itself; the team does, from Corva.
+- The assistant does not read attachments, and does not answer threads the team has taken.
 
 ## WhatsApp (`/app/whatsapp`)
 

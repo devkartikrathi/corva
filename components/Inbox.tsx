@@ -85,3 +85,39 @@ export function EmailReply({ conversationId, to, onReply }: { conversationId: st
     </div>
   );
 }
+
+/** Whether the assistant answers customer email itself (owners and admins). */
+export function EmailAssistantToggle({ on, onChange }: { on: boolean; onChange: (on: boolean) => Promise<void> }) {
+  const [value, setValue] = useState(on);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  return (
+    <label style={{ display: "inline-flex", gap: 7, alignItems: "center", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+      <input
+        type="checkbox"
+        checked={value}
+        disabled={pending}
+        onChange={(e) => {
+          const next = e.target.checked;
+          setValue(next);
+          setError(null);
+          start(async () => {
+            try {
+              await onChange(next);
+            } catch {
+              setValue(!next);
+              setError("That did not save.");
+            }
+          });
+        }}
+      />
+      The assistant answers customer emails
+      {pending && <span style={{ fontWeight: 400, color: "var(--color-neutral-700)" }}>Saving…</span>}
+      {error && (
+        <span role="alert" style={{ fontWeight: 400, color: "var(--color-accent-700)" }}>
+          {error}
+        </span>
+      )}
+    </label>
+  );
+}

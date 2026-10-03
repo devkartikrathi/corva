@@ -1,4 +1,5 @@
-import { takeReceived, verifyInbound } from "@/lib/email/inbound";
+import { after } from "next/server";
+import { answerEmail, takeReceived, verifyInbound } from "@/lib/email/inbound";
 
 /**
  * POST /api/email/inbound — Resend telling us an email arrived at a
@@ -6,10 +7,12 @@ import { takeReceived, verifyInbound } from "@/lib/email/inbound";
  *
  * Signed by Resend (Svix headers, RESEND_INBOUND_SECRET); anything unsigned
  * is refused. A retried delivery is taken once. A failure answers 500 so
- * Resend tries again.
+ * Resend tries again. When the assistant answers the business's email, it
+ * does so after Resend has had its answer, so a slow reply is never retried.
  */
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 export async function POST(req: Request) {
   if (!process.env.RESEND_INBOUND_SECRET) return Response.json({ error: "RESEND_INBOUND_SECRET is not set; deliveries are refused." }, { status: 503 });
@@ -25,8 +28,14 @@ export async function POST(req: Request) {
   if (event.type !== "email.received" || !event.data?.email_id) return Response.json({ ok: true, ignored: event.type ?? "unnamed" });
 
   try {
-    const result = await takeReceived(event.data.email_id);
-    return Response.json({ ok: true, ...result });
+    const { answer, ...result } = await takeReceived(event.data.email_id);
+    if (answer && result.conversationId) {
+      const conversationId = result.conversationId;
+      after(() =>
+        answerEmail(conversationId, answer.body).catch((e) => console.error("[email inbound] answering", (e as Error).message)),
+      );
+    }
+    return Response.json({ ok: true, ...result, answering: Boolean(answer) });
   } catch (e) {
     console.error("[email inbound]", (e as Error).message);
     return Response.json({ error: "Could not take the email; please retry." }, { status: 500 });

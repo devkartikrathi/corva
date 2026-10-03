@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { CopyAddress, EmailReply } from "@/components/Inbox";
+import { CopyAddress, EmailAssistantToggle, EmailReply } from "@/components/Inbox";
 import { Kicker, ScreenHeader, ScreenRefusal } from "@/components/ui";
-import { replyToEmail } from "@/lib/actions/email";
+import { replyToEmail, setEmailAssistant } from "@/lib/actions/email";
 import { can } from "@/lib/auth/permissions";
 import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { emailThreads, inboundDomain, inboxAddress, inboxFor } from "@/lib/email/inbound";
@@ -23,7 +23,7 @@ export default async function EmailPage() {
   const canReply = can(session.actor, "calls.handle", { brandId: brand.id }).allowed;
   const [inbox, threads] = await Promise.all([inboxFor(brand.id, brand.slug), emailThreads(brand.id)]);
   const address = inboxAddress(inbox);
-  const waiting = threads.filter((t) => !t.outcome).length;
+  const waiting = threads.filter((t) => !t.outcome || t.outcome === "escalated").length;
   const when = (d: Date) => d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
   const step = { margin: "0 0 8px", fontSize: 12.5, lineHeight: 1.55, color: "var(--color-neutral-800)" } as const;
 
@@ -52,6 +52,15 @@ export default async function EmailPage() {
                 customer&rsquo;s record. Reply from Corva: the customer gets your reply in your business&rsquo;s name, and
                 their answer comes straight back to this screen.
               </p>
+              <div style={{ margin: "4px 0 10px" }}>
+                <EmailAssistantToggle on={inbox.aiReplies} onChange={setEmailAssistant} />
+                <p style={{ ...step, fontSize: 11.5, color: "var(--color-neutral-700)", margin: "4px 0 0" }}>
+                  The assistant answers each customer email the way it answers chat: from what it knows about your business,
+                  and by email within a minute. Anything it cannot settle, or anyone who asks for a person, comes to you as
+                  &ldquo;Needs the team&rdquo;. Once someone on the team replies on a thread, that thread is theirs and the
+                  assistant stays out of it.
+                </p>
+              </div>
               <details open={!inbox.received}>
                 <summary style={{ cursor: "pointer", fontSize: 12.5, fontWeight: 700, margin: "4px 0 8px" }}>How to set it up (two minutes)</summary>
                 <p style={step}>
@@ -125,7 +134,11 @@ export default async function EmailPage() {
                 <span style={{ display: "block", color: "var(--color-neutral-800)", marginTop: 2 }}>{t.summary}</span>
               </span>
               <span>
-                {t.outcome ? (
+                {t.outcome === "escalated" ? (
+                  <Kicker color="var(--color-accent-700)">Needs the team</Kicker>
+                ) : t.outcome === "ai_resolved" ? (
+                  <span style={{ color: "var(--color-neutral-700)" }}>Answered by the assistant</span>
+                ) : t.outcome ? (
                   <span style={{ color: "var(--color-neutral-700)" }}>Replied{t.handledBy ? ` by ${t.handledBy}` : ""}</span>
                 ) : (
                   <Kicker color="var(--color-accent-700)">Awaiting a reply</Kicker>

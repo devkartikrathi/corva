@@ -76,7 +76,7 @@ export function layout(opts: { heading: string; lines: string[]; button?: { labe
   const html = `<!doctype html><html><body style="margin:0;background:#f6f5f2;font-family:Arial,Helvetica,sans-serif;color:#141414">
 <div style="max-width:520px;margin:0 auto;padding:32px 24px">
 <h1 style="font-size:22px;line-height:1.2;margin:0 0 16px">${escape(opts.heading)}</h1>
-${opts.lines.map((l) => `<p style="font-size:15px;line-height:1.55;margin:0 0 12px">${escape(l)}</p>`).join("")}
+${opts.lines.map((l) => `<p style="font-size:15px;line-height:1.55;margin:0 0 12px;white-space:pre-line">${escape(l)}</p>`).join("")}
 ${
   opts.button
     ? `<p style="margin:22px 0"><a href="${escape(opts.button.href)}" style="display:inline-block;background:#141414;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 18px">${escape(opts.button.label)}</a></p>`

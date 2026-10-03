@@ -75,6 +75,19 @@ ask for several missing details in one message.
 - End with a helpful next step when it is natural, but do not repeat the same
   offer every turn.`;
 
+const EMAIL_STYLE = `## Writing an email
+This is an email conversation, not a phone call or a chat: where your
+description above talks about calls, apply it to email. You are writing the
+body of a reply that will be sent to the customer as it is.
+- Greet them by name if you know it, answer, and sign off with your name and
+  ${"${BRAND}"}'s name. Nothing above the greeting, no subject line.
+- Plain text only: no markdown, no asterisks, no headings. A short list may
+  use "-" at the start of lines.
+- Complete but short: usually under 120 words. Ask for any missing details
+  in the same email, all together.
+- Reply in the language they wrote in.
+- Never ask them to stay on the line or hold: they read this later.`;
+
 /** "Tuesday, 30 September 2026, 9:14 am — today is 2026-09-30", in India time. */
 function nowLine(now = new Date()) {
   const long = new Intl.DateTimeFormat("en-IN", {
@@ -99,6 +112,8 @@ export function systemPrompt(
   webChat = false,
   /** The business's Details to collect already found out, by field key. */
   known: Record<string, string> = {},
+  /** An email thread: the reply is written as an email and sent as one. */
+  email = false,
 ): string {
   const sources = grounded(chunks)
     .map(
@@ -159,7 +174,12 @@ ${sources || "(nothing matched — say you do not have that to hand and offer a 
 ## ${detailsInstructions(config.fields, known, webChat ? "record_details" : "save_caller_details")}
 
 ${
-    webChat
+    email
+      ? `## ${crmInstructions({ isNewCaller, leadQuestions: leadQuestionsFrom(config) }).replace(/^RECORDING WHAT HAPPENS/, "Recording what happens")}
+
+${EMAIL_STYLE.replace("${BRAND}", config.brandName)}
+`
+      : webChat
       ? `## ${proposalInstructions(config.industry, config.agentName)}
 
 If you promise that the team will send or check on something else, call
@@ -419,7 +439,7 @@ export async function* respondStream(opts: {
     const result = streamText({
       model: languageModel(model.id),
       providerOptions: thinkingOptions(model.thinking.turn),
-      system: systemPrompt(config, context, chunks, context.startsWith("New caller"), webChat, known),
+      system: systemPrompt(config, context, chunks, context.startsWith("New caller"), webChat, known, conversation.channel === "email"),
       messages: [
         ...history.map((t) => ({
           role: (t.speaker === "customer" ? "user" : "assistant") as "user" | "assistant",
@@ -818,7 +838,13 @@ export async function* respondStream(opts: {
   const reachThem = known.phone
     ? `Is ${known.phone} the best number to reach you on? You're welcome to leave an email too.`
     : "What's the best number to reach you on — and an email, if you'd like the details in writing?";
-  const holdingLine = authorityBlocked
+  // Email is read later, so nobody is asked to hold.
+  const email = conversation.channel === "email";
+  const holdingLine = email
+    ? free
+      ? `Thank you for your message. I've passed it to a colleague who can help, and they will reply to you by email shortly.`
+      : `Thank you for your message. I've passed it to the team, and someone will get back to you as soon as possible.`
+    : authorityBlocked
     ? free
       ? `That's not my decision to make, and I'd rather not guess at it. I'm getting someone now — nothing you've been offered so far changes.`
       : `That's not my decision to make, and I'd rather not guess at it. Nobody from the team is free to join this minute, so I've passed it on and someone will get back to you as soon as possible — nothing you've been offered so far changes. ${reachThem}`

@@ -7,6 +7,7 @@ import * as s from "@/lib/db/schema";
 import { languageModel, thinkingOptions } from "@/lib/agent/model";
 import { CHAT_MODEL_ID } from "@/lib/agent/models";
 import { layout, sendEmail } from "@/lib/email";
+import { accountState, blocked } from "@/lib/billing/usage";
 
 /**
  * Customer email, by forwarding.
@@ -246,7 +247,7 @@ export type Taken = "duplicate" | "no-business" | "confirmation" | "not-a-custom
  * One received email, start to finish. Safe to call twice for the same email
  * (a webhook retried): the second call changes nothing.
  */
-export async function takeReceived(emailId: string): Promise<{ outcome: Taken; brandId?: string; conversationId?: string }> {
+export async function takeReceived(emailId: string): Promise<TakenResult> {
   const [seen] = await db.select({ id: s.emailMessages.id }).from(s.emailMessages).where(eq(s.emailMessages.providerId, emailId)).limit(1);
   if (seen) return { outcome: "duplicate" };
 
@@ -256,6 +257,29 @@ export async function takeReceived(emailId: string): Promise<{ outcome: Taken; b
   const [inbox] = ours ? await db.select().from(s.emailInboxes).where(eq(s.emailInboxes.localPart, ours.split("@")[0])).limit(1) : [];
   if (!inbox) return { outcome: "no-business" };
   const [brand] = await db.select({ id: s.brands.id, name: s.brands.name }).from(s.brands).where(eq(s.brands.id, inbox.brandId)).limit(1);
+
+  // Claimed before anything else is done with it: a delivery Resend makes twice
+  // (it retries a slow answer) must not become two threads or two replies.
+  const [claimed] = await db
+    .insert(s.emailMessages)
+    .values({ brandId: inbox.brandId, direction: "in", providerId: emailId })
+    .onConflictDoNothing()
+    .returning({ id: s.emailMessages.id });
+  if (!claimed) return { outcome: "duplicate" };
+  try {
+    return await sortReceived(emailId, email, inbox, brand, claimed.id);
+  } catch (e) {
+    // Let go of it, so Resend's retry is taken rather than dropped as a duplicate.
+    await db.delete(s.emailMessages).where(eq(s.emailMessages.id, claimed.id));
+    throw e;
+  }
+}
+
+type TakenResult = { outcome: Taken; brandId?: string; conversationId?: string; answer?: { body: string } };
+
+/** A claimed email, sorted: a forwarding confirmation, a customer's thread, or nothing to keep. */
+async function sortReceived(emailId: string, email: Received, inbox: Inbox, brand: { id: string; name: string }, claimedId: string): Promise<TakenResult> {
+  const domain = inboundDomain();
   await db.update(s.emailInboxes).set({ received: sql`${s.emailInboxes.received} + 1`, lastReceivedAt: new Date() }).where(eq(s.emailInboxes.brandId, inbox.brandId));
 
   const headers = Object.fromEntries(Object.entries(email.headers ?? {}).map(([k, v]) => [k.toLowerCase(), String(v)]));
@@ -264,7 +288,10 @@ export async function takeReceived(emailId: string): Promise<{ outcome: Taken; b
   const subject = (email.subject ?? "").trim().slice(0, 200);
   const at = new Date(email.created_at || Date.now());
   const mark = (conversationId: string | null, address: string | null) =>
-    db.insert(s.emailMessages).values({ brandId: inbox.brandId, conversationId, direction: "in", providerId: emailId, messageId: bare(email.message_id ?? headers["message-id"]), address, subject }).onConflictDoNothing();
+    db
+      .update(s.emailMessages)
+      .set({ conversationId, messageId: bare(email.message_id ?? headers["message-id"]), address, subject })
+      .where(eq(s.emailMessages.id, claimedId));
 
   // "Confirm you may forward to this address": shown to the business, never acted on.
   if (/forwarding-noreply@google\.com/.test(outer.address) || /forwarding confirmation/i.test(subject)) {
@@ -288,11 +315,20 @@ export async function takeReceived(emailId: string): Promise<{ outcome: Taken; b
   const existing = await threadFor(inbox.brandId, headers, from.address, topic);
   if (existing) {
     // They wrote again on a thread we hold: it is waiting on the business once more.
-    await addTurn(existing, "customer", from.name || from.address, body, at);
-    await db.update(s.conversations).set({ outcome: null, endedAt: null }).where(eq(s.conversations.id, existing));
+    // The assistant answers unless a person has taken the thread or it is waiting for one.
+    const [thread] = await db
+      .select({ handledBy: s.conversations.handledBy, status: s.conversations.status, outcome: s.conversations.outcome })
+      .from(s.conversations)
+      .where(eq(s.conversations.id, existing))
+      .limit(1);
+    const withTeam = thread?.outcome === "escalated" || thread?.status === "waiting_human";
+    const assistant = inbox.aiReplies && !thread?.handledBy && !withTeam;
+    if (!assistant) await addTurn(existing, "customer", from.name || from.address, body, at);
+    // A thread already with the team stays marked as needing them.
+    if (!withTeam) await db.update(s.conversations).set({ outcome: null, endedAt: null }).where(eq(s.conversations.id, existing));
     await mark(existing, from.address);
     await db.update(s.emailInboxes).set({ kept: sql`${s.emailInboxes.kept} + 1` }).where(eq(s.emailInboxes.brandId, inbox.brandId));
-    return { outcome: "kept", brandId: inbox.brandId, conversationId: existing };
+    return { outcome: "kept", brandId: inbox.brandId, conversationId: existing, ...(assistant ? { answer: { body } } : {}) };
   }
 
   // A new thread: only a person writing in as a customer, and never a colleague.
@@ -323,10 +359,11 @@ export async function takeReceived(emailId: string): Promise<{ outcome: Taken; b
       summary: verdict.summary.slice(0, 400),
     })
     .returning();
-  await addTurn(conversation.id, "customer", from.name || from.address, body, at);
+  // The assistant's turn writes the customer's message itself; otherwise it is written here.
+  if (!inbox.aiReplies) await addTurn(conversation.id, "customer", from.name || from.address, body, at);
   await mark(conversation.id, from.address);
   await db.update(s.emailInboxes).set({ kept: sql`${s.emailInboxes.kept} + 1` }).where(eq(s.emailInboxes.brandId, inbox.brandId));
-  return { outcome: "kept", brandId: inbox.brandId, conversationId: conversation.id };
+  return { outcome: "kept", brandId: inbox.brandId, conversationId: conversation.id, ...(inbox.aiReplies ? { answer: { body } } : {}) };
 }
 
 /* ─── Replying ─────────────────────────────────────────────────────────── */
@@ -339,7 +376,14 @@ export async function takeReceived(emailId: string): Promise<{ outcome: Taken; b
  * the business's Corva address, so the customer's answer returns to this
  * thread without anyone forwarding it.
  */
-export async function replyOnThread(conversationId: string, brand: { id: string; name: string; slug: string }, text: string, by: string) {
+/**
+ * Send a reply on an email thread, threaded to the customer's last message.
+ *
+ * It comes from Corva's sending address, so it says whose reply it is and to
+ * which message; Reply-To is the business's Corva address, so the customer's
+ * answer returns to this thread without anyone forwarding it.
+ */
+async function sendThreadEmail(conversationId: string, brand: { id: string; name: string; slug: string }, body: string, opts: { greet: boolean }) {
   const [thread] = await db
     .select({ c: s.conversations, customer: s.customers })
     .from(s.conversations)
@@ -349,9 +393,6 @@ export async function replyOnThread(conversationId: string, brand: { id: string;
   if (!thread) throw new Error("No such email thread.");
   const to = thread.customer?.email;
   if (!to) throw new Error("This customer has no email address on record.");
-  const body = text.trim();
-  if (!body) throw new Error("Nothing to send.");
-  if (body.length > 8000) throw new Error("That reply is too long.");
 
   const inbox = await inboxFor(brand.id, brand.slug);
   const replyTo = inboxAddress(inbox) ?? undefined;
@@ -366,7 +407,14 @@ export async function replyOnThread(conversationId: string, brand: { id: string;
   const first = thread.customer?.name && !/@/.test(thread.customer.name) ? thread.customer.name.split(" ")[0] : null;
   const mail = layout({
     heading: `${brand.name} has replied`,
-    lines: [`${first ? `Hi ${first}, this` : "This"} is ${brand.name}'s reply to your message “${topic}”.`, ...body.split(/\n{2,}/)],
+    lines: [
+      opts.greet ? `${first ? `Hi ${first}, this` : "This"} is ${brand.name}'s reply to your message “${topic}”.` : `In reply to your message “${topic}”:`,
+      // What the assistant writes is plain text; any markdown it slips in is taken out.
+      ...body
+        .replace(/\*\*|__|^#+\s*/gm, "")
+        .replace(/[ \t]+$/gm, "")
+        .split(/\n{2,}/),
+    ],
     footer: `Reply to this email and it reaches ${brand.name} directly. Sent for ${brand.name} by Corva.`,
   });
   const sent = await sendEmail({
@@ -382,10 +430,83 @@ export async function replyOnThread(conversationId: string, brand: { id: string;
     },
   });
   if (!sent.sent) throw new Error(sent.reason ?? "The email could not be sent.");
-
   await db.insert(s.emailMessages).values({ brandId: brand.id, conversationId, direction: "out", providerId: sent.id ?? null, messageId, address: to, subject: `Re: ${topic}` });
+  return { to, handledBy: thread.c.handledBy };
+}
+
+/** A person on the team answers a thread from Corva. From then on the thread is theirs. */
+export async function replyOnThread(conversationId: string, brand: { id: string; name: string; slug: string }, text: string, by: string) {
+  const body = text.trim();
+  if (!body) throw new Error("Nothing to send.");
+  if (body.length > 8000) throw new Error("That reply is too long.");
+  const { handledBy } = await sendThreadEmail(conversationId, brand, body, { greet: true });
   await addTurn(conversationId, "human", by, body, new Date());
-  await db.update(s.conversations).set({ outcome: "human_resolved", handledBy: thread.c.handledBy ?? by, endedAt: new Date() }).where(eq(s.conversations.id, conversationId));
+  await db.update(s.conversations).set({ outcome: "human_resolved", handledBy: handledBy ?? by, endedAt: new Date() }).where(eq(s.conversations.id, conversationId));
+  // Answered: a handoff the assistant raised on this thread is done with.
+  await db
+    .update(s.handoffs)
+    .set({ status: "resolved" })
+    .where(and(eq(s.handoffs.conversationId, conversationId), inArray(s.handoffs.status, ["waiting", "accepted"])));
+}
+
+/**
+ * The assistant answers a customer's email, as it would a chat message.
+ *
+ * Runs the same turn as every channel (knowledge, catalog, the business's
+ * records, payment links, handoffs), written as an email, and sends it. A turn
+ * that brings in a person sends the holding reply and leaves the thread
+ * waiting for them. Nothing is lost if it fails: the customer's message is
+ * then on the thread for the team to answer.
+ */
+export async function answerEmail(conversationId: string, body: string) {
+  const [row] = await db
+    .select({ c: s.conversations, brand: s.brands })
+    .from(s.conversations)
+    .innerJoin(s.brands, eq(s.brands.id, s.conversations.brandId))
+    .where(eq(s.conversations.id, conversationId))
+    .limit(1);
+  if (!row) return { answered: false, reason: "no such thread" };
+  const { brand } = row;
+  const leaveForTeam = async (reason: string) => {
+    const [mine] = await db
+      .select({ id: s.turns.id })
+      .from(s.turns)
+      .where(and(eq(s.turns.conversationId, conversationId), eq(s.turns.speaker, "customer"), eq(s.turns.body, body)))
+      .limit(1);
+    if (!mine) await addTurn(conversationId, "customer", "Customer", body, new Date());
+    await db.update(s.conversations).set({ outcome: null, endedAt: null }).where(eq(s.conversations.id, conversationId));
+    return { answered: false, reason };
+  };
+
+  // The plan's allowance is the business's: past it, the team answers.
+  const reason = blocked(await accountState(brand.orgId), "chat");
+  if (reason) return leaveForTeam(reason);
+
+  let reply;
+  try {
+    // Loaded here: the agent reaches modules that reach this one.
+    const { respond } = await import("@/lib/agent/respond");
+    reply = await respond({ conversationId, message: body });
+  } catch (e) {
+    console.error("[email] the assistant could not answer", (e as Error).message);
+    return leaveForTeam("the assistant could not answer");
+  }
+  if (!reply.text.trim()) return leaveForTeam("the assistant had nothing to say");
+
+  try {
+    await sendThreadEmail(conversationId, { id: brand.id, name: brand.name, slug: brand.slug }, reply.text, { greet: false });
+  } catch (e) {
+    console.error("[email] the assistant's reply could not be sent", (e as Error).message);
+    await db.update(s.conversations).set({ outcome: null, endedAt: null }).where(eq(s.conversations.id, conversationId));
+    return { answered: false, reason: (e as Error).message };
+  }
+  // Answered by the assistant, unless it brought in a person — then the team owes the next reply.
+  // An email thread is never "live": the handoff waits in the team's queue, not on a line.
+  await db
+    .update(s.conversations)
+    .set(reply.escalation ? { status: "resolved", endedAt: new Date() } : { status: "resolved", outcome: "ai_resolved", endedAt: new Date() })
+    .where(eq(s.conversations.id, conversationId));
+  return { answered: true, escalated: Boolean(reply.escalation) };
 }
 
 /** The email conversations on record, newest first, for the Email screen. */
