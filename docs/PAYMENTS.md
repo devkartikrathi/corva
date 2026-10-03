@@ -82,11 +82,46 @@ Real money and a real Razorpay webhook delivery have not been tried.
 - **With their own system** (a developer, a website): build the endpoint described at
   `/developers#payments` — any payment provider — and report changes to `POST /api/v1/payments`.
   Tumble Days is the reference implementation.
-- **Without one** (no developer): *not built.* Corva would hold the business's own Razorpay keys
-  (sealed like database passwords, `lib/data/crypto.ts`), make links itself, and receive Razorpay's
-  webhook at a per-business URL. The same `customer_payments` table, tool and screens apply; only
-  `askForPayment` gains a second path. Razorpay's Route / partner onboarding would let a business
-  connect its account without copying keys.
+- **Without one** (no developer): **Collected by Corva**, below.
+
+## Collected by Corva
+
+Built 2026-10-03 for businesses with no payment system of their own (`lib/payments/hosted.ts`).
+
+- **Switched on by Corva**, per brand, at `/admin/businesses/<slug>` → *Payments collected by Corva*:
+  on/off, Corva's fee (a percentage), where payouts go, and later a Razorpay Route account.
+  The business sees it in Settings → Payments, with what is waiting to be paid out. A business
+  with its own endpoint always uses that instead (`paymentRoute`).
+- **Links are made on Corva's own Razorpay account** (`RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET`,
+  the same account as plan billing). Reference `CP-…`; the customer returns to Corva's
+  `/pay/<reference>`, which records a signed return at once.
+- **The amount**: a person may name one; the assistant passes an order reference and the amount is
+  what the business last sent for that order (`POST /api/v1/records`, `amountRupees`) less what
+  has been paid against it. No such order, or no amount on it, and the assistant says so.
+- **Its own webhook**: Razorpay dashboard → Webhooks → `https://corva.tiruvi.site/api/razorpay/collect`,
+  events `payment_link.paid`, `.partially_paid`, `.expired`, `.cancelled`, secret in
+  `RAZORPAY_COLLECT_WEBHOOK_SECRET`. Every link carries `notes.corvaCollect`, and the plan-billing
+  webhook ignores those payments, so a customer's payment is never mistaken for a plan payment.
+- **The ledger**: each payment records `collected_by = 'corva'`, the fee, Razorpay's ids, and when
+  and with what reference it was paid out. Admin → *Record payout* marks everything waiting as
+  settled (manual bank/UPI transfer today).
+
+**Before switching it on for a real business:**
+
+1. **Regulation.** Collecting money on behalf of other businesses is payment aggregation, which the
+   RBI regulates. Doing it on Corva's ordinary merchant account is fine for a pilot with a few
+   known businesses but is not the long-term setup. The way to do it properly is **Razorpay Route**:
+   each business is a *linked account* (KYC done by Razorpay), and every payment is transferred to
+   it automatically, with Corva's fee kept. `routeAccountId` is stored for this; the transfer call
+   is not written yet. Confirm with Razorpay that Route transfers apply to Payment Links on the
+   account (via the link's order) before relying on it.
+2. **Corva's terms** must say Corva collects on the business's behalf, the fee, and the payout
+   schedule; the customer page already says the payment is "for <business>, through Corva".
+3. **Refunds** go out of Corva's account and are not handled in the product yet.
+
+Tested 2026-10-03 with test-mode keys and a throwaway business: the assistant made a link from an
+order record, a signed `payment_link.paid` made it paid, the plan-billing webhook ignored it, ₹147
+of ₹150 was owed after a 2% fee, and "did my payment go through?" was answered.
 
 ## Not yet
 

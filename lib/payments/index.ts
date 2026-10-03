@@ -6,6 +6,7 @@ import { customerForCaller, isUnnamed } from "@/lib/crm/capture";
 import { ApiError } from "@/lib/integrations/api";
 import { sign, webhookUrl } from "@/lib/integrations/webhooks";
 import { formatRupees } from "@/lib/money";
+import { CollectionError, collectForBusiness, collectionFor } from "./hosted";
 
 /**
  * Collecting money from a business's customers.
@@ -91,6 +92,16 @@ export function paymentJson(p: CustomerPayment) {
 export class PaymentError extends Error {}
 
 /**
+ * How this business takes payment, if at all: its own system (an endpoint),
+ * or Corva's account on its behalf. Its own system wins when it has both.
+ */
+export async function paymentRoute(brandId: string): Promise<"endpoint" | "corva" | null> {
+  if (await paymentEndpointFor(brandId)) return "endpoint";
+  if (await collectionFor(brandId)) return "corva";
+  return null;
+}
+
+/**
  * Ask the business for a payment link.
  *
  * `amountPaise` only from a person. The assistant passes an order reference
@@ -109,10 +120,28 @@ export async function askForPayment(input: {
   /** Have the business's provider also send the link by SMS / email. */
   notify?: boolean;
 }): Promise<CustomerPayment> {
-  const endpoint = await paymentEndpointFor(input.brandId);
-  if (!endpoint) throw new PaymentError("This business has not set up payments yet.");
   if (input.byAi && input.amountPaise != null) throw new PaymentError("The assistant cannot name an amount; ask for an order's payment instead.");
   if (!input.orderReference && input.amountPaise == null) throw new PaymentError("Give an order reference or an amount.");
+  const endpoint = await paymentEndpointFor(input.brandId);
+  if (!endpoint) {
+    // No system of its own: Corva collects on its behalf, if that is switched on.
+    if (!(await collectionFor(input.brandId))) throw new PaymentError("This business has not set up payments yet.");
+    try {
+      return await collectForBusiness({
+        brandId: input.brandId,
+        conversationId: input.conversationId ?? null,
+        customerId: input.customerId ?? null,
+        orderReference: input.orderReference ?? null,
+        amountPaise: input.amountPaise ?? null,
+        description: input.description ?? null,
+        requestedByName: input.requestedByName,
+        byAi: input.byAi,
+      });
+    } catch (e) {
+      if (e instanceof CollectionError) throw new PaymentError(e.message);
+      throw e;
+    }
+  }
 
   const [customer] = input.customerId
     ? await db.select().from(s.customers).where(and(eq(s.customers.id, input.customerId), eq(s.customers.brandId, input.brandId))).limit(1)

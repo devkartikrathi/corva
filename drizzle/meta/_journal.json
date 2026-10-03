@@ -169,6 +169,13 @@
       "when": 1791018555835,
       "tag": "0023_customer_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791021742467,
+      "tag": "0024_corva_collections",
+      "breakpoints": true
     }
   ]
 }

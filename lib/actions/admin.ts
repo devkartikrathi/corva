@@ -1,6 +1,6 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/admin/auth";
@@ -69,4 +69,66 @@ export async function setDemoStatus(id: string, status: string) {
   if (!["new", "contacted", "closed"].includes(status)) throw new Error("Unknown status.");
   await db.update(s.demoRequests).set({ status }).where(eq(s.demoRequests.id, id));
   revalidatePath("/admin/demo-requests");
+}
+
+/**
+ * Switch "Collected by Corva" on or off for a brand: payment links on Corva's
+ * own Razorpay account, for a business with no payment system of its own.
+ * Corva's decision, because Corva then holds the business's money.
+ */
+export async function setCollections(brandId: string, input: { enabled: boolean; feePercent: string; payoutNote: string; routeAccountId: string }) {
+  const admin = await requireAdmin();
+  const [brand] = await db.select().from(s.brands).where(eq(s.brands.id, brandId)).limit(1);
+  if (!brand) throw new Error("No such brand.");
+  const fee = Number(input.feePercent || "0");
+  if (!Number.isFinite(fee) || fee < 0 || fee > 20) throw new Error("The fee is a percentage between 0 and 20.");
+  const route = input.routeAccountId.trim();
+  if (route && !/^acc_[A-Za-z0-9]{6,}$/.test(route)) throw new Error("A Route account id looks like acc_XXXXXXXX.");
+  const values = {
+    enabled: input.enabled,
+    feeBasisPoints: Math.round(fee * 100),
+    payoutNote: input.payoutNote.trim().slice(0, 200) || null,
+    routeAccountId: route || null,
+    enabledByName: `${admin.name} (Corva)`,
+    updatedAt: new Date(),
+  };
+  await db.insert(s.collectionSettings).values({ brandId, ...values }).onConflictDoUpdate({ target: s.collectionSettings.brandId, set: values });
+  await db.insert(s.auditLog).values({
+    orgId: brand.orgId,
+    brandId,
+    actorType: "staff",
+    actorId: admin.email,
+    actorName: `${admin.name} (Corva)`,
+    action: input.enabled ? "collections.enabled" : "collections.disabled",
+    target: brand.name,
+    meta: { feeBasisPoints: values.feeBasisPoints, routeAccountId: values.routeAccountId },
+  });
+  revalidatePath("/admin", "layout");
+}
+
+/** Record that what Corva collected for a brand has been paid out to it. */
+export async function recordPayout(brandId: string, reference: string) {
+  const admin = await requireAdmin();
+  const ref = reference.trim();
+  if (!ref) throw new Error("Give the transfer's reference (UTR or UPI id), so the payout can be traced.");
+  const [brand] = await db.select().from(s.brands).where(eq(s.brands.id, brandId)).limit(1);
+  if (!brand) throw new Error("No such brand.");
+  const settled = await db
+    .update(s.customerPayments)
+    .set({ settledAt: new Date(), settlementRef: ref.slice(0, 120), updatedAt: new Date() })
+    .where(and(eq(s.customerPayments.brandId, brandId), eq(s.customerPayments.collectedBy, "corva"), eq(s.customerPayments.status, "paid"), isNull(s.customerPayments.settledAt)))
+    .returning({ id: s.customerPayments.id, paid: s.customerPayments.amountPaidPaise, fee: s.customerPayments.feePaise });
+  if (!settled.length) throw new Error("Nothing is waiting to be paid out.");
+  const owed = settled.reduce((n, p) => n + p.paid - (p.fee ?? 0), 0);
+  await db.insert(s.auditLog).values({
+    orgId: brand.orgId,
+    brandId,
+    actorType: "staff",
+    actorId: admin.email,
+    actorName: `${admin.name} (Corva)`,
+    action: "collections.paid_out",
+    target: brand.name,
+    meta: { payments: settled.length, owedPaise: owed, reference: ref },
+  });
+  revalidatePath("/admin", "layout");
 }

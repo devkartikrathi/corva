@@ -61,6 +61,9 @@ export async function POST(request: Request) {
   if (!status) return Response.json({ ok: true, ignored: name || "unnamed event" });
 
   const entity = event.payload?.payment?.entity;
+  // A customer paying a business through a link Corva made for it is not a
+  // plan payment: it belongs to /api/razorpay/collect (lib/payments/hosted.ts).
+  if ((entity?.notes as Record<string, unknown> | undefined)?.corvaCollect) return Response.json({ ok: true, ignored: "collection payment" });
   const paymentId = text(entity?.id);
   const orderId = text(entity?.order_id);
   if (!paymentId || !orderId || typeof entity?.amount !== "number") {

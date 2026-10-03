@@ -1437,6 +1437,31 @@ export const paymentEndpoints = pgTable("payment_endpoints", {
 });
 
 /**
+ * Corva collecting payments for a business that has no payment system.
+ *
+ * The link is made on Corva's own Razorpay account and the money lands
+ * there; Corva owes it to the business, less `feeBasisPoints`, and pays it
+ * out (by hand today; Razorpay Route to `routeAccountId` later). Switched on
+ * by Corva, not by the business, because it makes Corva answerable for the
+ * money. A business with its own endpoint never uses this.
+ */
+export const collectionSettings = pgTable("collection_settings", {
+  brandId: uuid("brand_id")
+    .primaryKey()
+    .references(() => brands.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(true),
+  /** Corva's cut, in hundredths of a percent: 200 = 2%. */
+  feeBasisPoints: integer("fee_basis_points").notNull().default(0),
+  /** The business's Razorpay Route linked account ("acc_…"), once it has one. */
+  routeAccountId: text("route_account_id"),
+  /** Where a manual payout goes, as the business gave it: "UPI kartik@okicici". */
+  payoutNote: text("payout_note"),
+  enabledByName: text("enabled_by_name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
  * A payment a business asked one of its customers for, as the business last
  * reported it.
  *
@@ -1471,6 +1496,20 @@ export const customerPayments = pgTable(
     orderReference: text("order_reference"),
     requestedByName: text("requested_by_name"),
     requestedByAi: boolean("requested_by_ai").notNull().default(false),
+    /**
+     * Who holds the money: "business" (its own payment system made the link)
+     * or "corva" (Corva's own account collected it on the business's behalf,
+     * and owes it to them — see docs/PAYMENTS.md, "Collected by Corva").
+     */
+    collectedBy: text("collected_by").notNull().default("business"),
+    /** The provider's id for the link, when Corva made it ("plink_…"). */
+    providerLinkId: text("provider_link_id"),
+    providerPaymentId: text("provider_payment_id"),
+    /** Corva's fee on a payment it collected, in paise; the rest is the business's. */
+    feePaise: integer("fee_paise"),
+    /** When what Corva collected was paid out to the business, and the transfer's reference. */
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    settlementRef: text("settlement_ref"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

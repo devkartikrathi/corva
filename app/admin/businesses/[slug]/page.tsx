@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { PlanForm, RemoveBusiness } from "@/components/AdminControls";
-import { removeBusiness, setPlan } from "@/lib/actions/admin";
+import { eq } from "drizzle-orm";
+import { CollectionsForm, PlanForm, RemoveBusiness } from "@/components/AdminControls";
+import { recordPayout, removeBusiness, setCollections, setPlan } from "@/lib/actions/admin";
+import { db } from "@/lib/db";
+import * as s from "@/lib/db/schema";
+import { formatRupees } from "@/lib/money";
+import { corvaRazorpay, owedToBusiness } from "@/lib/payments/hosted";
 import { requireAdmin } from "@/lib/admin/auth";
 import { getAccount } from "@/lib/admin/data";
 import { PLANS, amount, rupees } from "@/lib/billing/plans";
@@ -20,6 +25,15 @@ export default async function AdminBusinessPage({ params }: { params: Promise<{ 
   const data = await getAccount(slug);
   if (!data) notFound();
   const { org, account, brands, people, payments } = data;
+  // Collected by Corva, per brand: its settings (on or off) and what is owed to it.
+  const collections = await Promise.all(
+    brands.map(async (b) => ({
+      brand: b,
+      settings: (await db.select().from(s.collectionSettings).where(eq(s.collectionSettings.brandId, b.id)).limit(1))[0] ?? null,
+      owed: await owedToBusiness(b.id),
+    })),
+  );
+  const corvaKeys = corvaRazorpay();
 
   return (
     <section style={{ maxWidth: 900 }}>
@@ -53,6 +67,31 @@ export default async function AdminBusinessPage({ params }: { params: Promise<{ 
           For a longer pilot, a plan paid by bank transfer, or Business. Changing the plan starts a fresh period; keeping it only moves the end date.
         </p>
       </div>
+
+      <h2 style={h2}>Payments collected by Corva</h2>
+      <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--color-neutral-700)", lineHeight: 1.5 }}>
+        For a business with no payment system of its own: the team and the assistant can still send customers a payment
+        link, made on Corva&rsquo;s Razorpay account. The money lands with Corva and is owed to the business, less the fee,
+        until it is paid out. A business with its own payment endpoint uses that instead.{" "}
+        {!corvaKeys ? <b style={{ color: "var(--color-accent-700)" }}>Corva&rsquo;s Razorpay keys are not set, so no link can be made yet.</b> : corvaKeys.test ? <b>Corva&rsquo;s Razorpay is in test mode.</b> : null}
+      </p>
+      {collections.map(({ brand, settings, owed }) => (
+        <div key={brand.id} style={{ marginBottom: 12 }}>
+          {collections.length > 1 && <div style={{ fontWeight: 700, marginBottom: 4 }}>{brand.name}</div>}
+          <CollectionsForm
+            brandId={brand.id}
+            current={{
+              enabled: settings?.enabled ?? false,
+              feePercent: settings ? String(settings.feeBasisPoints / 100) : "0",
+              payoutNote: settings?.payoutNote ?? "",
+              routeAccountId: settings?.routeAccountId ?? "",
+            }}
+            owed={{ owedLabel: formatRupees(owed.owedPaise, { decimals: "auto" }), payments: owed.payments }}
+            onSave={setCollections}
+            onPayout={recordPayout}
+          />
+        </div>
+      ))}
 
       <h2 style={h2}>People</h2>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>

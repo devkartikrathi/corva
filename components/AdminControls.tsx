@@ -203,3 +203,55 @@ export function AddBusinessForm({ industries, onAdd }: { industries: { key: stri
     </form>
   );
 }
+
+/** Collected by Corva, for one brand: on/off, Corva's fee, where payouts go, and paying out. */
+export function CollectionsForm({
+  brandId,
+  current,
+  owed,
+  onSave,
+  onPayout,
+}: {
+  brandId: string;
+  current: { enabled: boolean; feePercent: string; payoutNote: string; routeAccountId: string };
+  owed: { owedLabel: string; payments: number };
+  onSave: (brandId: string, input: { enabled: boolean; feePercent: string; payoutNote: string; routeAccountId: string }) => Promise<void>;
+  onPayout: (brandId: string, reference: string) => Promise<void>;
+}) {
+  const [form, setForm] = useState(current);
+  const [ref, setRef] = useState("");
+  const save = useAction();
+  const payout = useAction();
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
+          Collect for this business
+        </label>
+        <input value={form.feePercent} onChange={(e) => setForm({ ...form, feePercent: e.target.value })} inputMode="decimal" aria-label="Corva's fee, percent" placeholder="Fee %" style={{ ...input, width: 80 }} />
+        <input value={form.payoutNote} onChange={(e) => setForm({ ...form, payoutNote: e.target.value })} aria-label="Where payouts go" placeholder="Payouts to: UPI / bank" style={{ ...input, width: 210 }} />
+        <input value={form.routeAccountId} onChange={(e) => setForm({ ...form, routeAccountId: e.target.value })} aria-label="Razorpay Route account" placeholder="Route acc_… (later)" style={{ ...input, width: 170 }} />
+        <button type="button" disabled={save.pending} onClick={() => save.run(() => onSave(brandId, form))} style={button}>
+          {save.pending ? "Saving…" : "Save"}
+        </button>
+        {save.done && <span style={{ fontSize: 12 }}>Saved.</span>}
+        {save.error && <span style={{ fontSize: 12, color: "var(--color-accent-700)" }}>{save.error}</span>}
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 13 }}>
+        <span>
+          Owed to the business: <b>{owed.owedLabel}</b> from {owed.payments} payment{owed.payments === 1 ? "" : "s"}
+        </span>
+        {owed.payments > 0 && (
+          <>
+            <input value={ref} onChange={(e) => setRef(e.target.value)} aria-label="Payout reference" placeholder="UTR / UPI ref of the payout" style={{ ...input, width: 220 }} />
+            <button type="button" disabled={payout.pending || !ref.trim()} onClick={() => payout.run(() => onPayout(brandId, ref))} style={button}>
+              {payout.pending ? "Recording…" : "Record payout"}
+            </button>
+          </>
+        )}
+        {payout.error && <span style={{ fontSize: 12, color: "var(--color-accent-700)" }}>{payout.error}</span>}
+      </div>
+    </div>
+  );
+}

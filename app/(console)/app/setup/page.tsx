@@ -5,6 +5,8 @@ import { accountState } from "@/lib/billing/usage";
 import { Webhooks } from "@/components/Webhooks";
 import { PaymentEndpoint } from "@/components/PaymentEndpoint";
 import { paymentEndpointFor } from "@/lib/payments";
+import { collectionFor, owedToBusiness } from "@/lib/payments/hosted";
+import { formatRupees } from "@/lib/money";
 import { connectPaymentEndpoint, disconnectPaymentEndpoint } from "@/lib/actions/payments";
 import { WEBHOOK_EVENTS } from "@/lib/integrations/webhooks";
 import { and, desc, eq, isNull } from "drizzle-orm";
@@ -85,7 +87,11 @@ export default async function SetupPage() {
     .where(and(eq(s.apiKeys.brandId, currentBrand.id), isNull(s.apiKeys.revokedAt)))
     .orderBy(desc(s.apiKeys.createdAt));
   const hooks = await db.select().from(s.webhooks).where(eq(s.webhooks.brandId, currentBrand.id)).orderBy(desc(s.webhooks.createdAt));
-  const paymentEndpoint = await paymentEndpointFor(currentBrand.id);
+  const [paymentEndpoint, collection, owed] = await Promise.all([
+    paymentEndpointFor(currentBrand.id),
+    collectionFor(currentBrand.id),
+    owedToBusiness(currentBrand.id),
+  ]);
   const { brands, brand, channels, hours, afterHours, privacy, audit: fullAudit, org } = setup;
   // The audit log comes with the Growth plan (and the pilot, which shows everything).
   const account = await accountState(session.orgId);
@@ -341,6 +347,14 @@ export default async function SetupPage() {
                 What your endpoint does →
               </a>
             </p>
+            {collection && !paymentEndpoint && (
+              <p style={{ margin: "0 0 12px", padding: "9px 12px", border: "1px solid var(--color-neutral-400)", background: "var(--color-surface)", fontSize: 12, lineHeight: 1.5 }}>
+                <b>Corva collects payments for you.</b> Links are made on Corva&rsquo;s payment account and the money is paid out to
+                you{collection.feeBasisPoints ? `, less a ${collection.feeBasisPoints / 100}% fee` : ""}
+                {collection.payoutNote ? ` (${collection.payoutNote})` : ""}. Waiting to be paid out:{" "}
+                <b>{formatRupees(owed.owedPaise, { decimals: "auto" })}</b>. Connect your own payment system below to collect directly instead.
+              </p>
+            )}
             <PaymentEndpoint
               current={
                 paymentEndpoint

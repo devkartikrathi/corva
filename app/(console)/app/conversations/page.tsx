@@ -5,7 +5,7 @@ import { ReviewForm } from "@/components/ReviewForm";
 import { accountState } from "@/lib/billing/usage";
 import { DetailsPanel } from "@/components/DetailsPanel";
 import { RequestPayment } from "@/components/RequestPayment";
-import { paymentEndpointFor, paymentsInConversation } from "@/lib/payments";
+import { paymentRoute, paymentsInConversation } from "@/lib/payments";
 import { requestConversationPayment } from "@/lib/actions/payments";
 import { can } from "@/lib/auth/permissions";
 import { formatRupees } from "@/lib/money";
@@ -133,11 +133,11 @@ export default async function ConversationsPage({
     convos.find((c) => c.id === params.id) ?? convos.find((c) => c.bad) ?? convos[0] ?? null;
   const detail = focus ? await getConversation(brand.id, focus.id) : null;
   // Payments asked for in this conversation, and whether this business can ask at all.
-  const [paymentEndpoint, conversationPayments] = await Promise.all([
-    paymentEndpointFor(brand.id),
+  const [paymentsVia, conversationPayments] = await Promise.all([
+    paymentRoute(brand.id),
     focus ? paymentsInConversation(focus.id) : Promise.resolve([]),
   ]);
-  const canAskToPay = Boolean(paymentEndpoint) && can(session.actor, "calls.handle", { brandId: brand.id }).allowed;
+  const canAskToPay = paymentsVia !== null && can(session.actor, "calls.handle", { brandId: brand.id }).allowed;
   // The business's Details to collect, as this conversation filled them in.
   const fields = detail ? await intakeFieldsFor(brand.id, brand.industry) : [];
   const details = detail ? await knownDetails(detail.conversation.id, fields) : {};
