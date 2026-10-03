@@ -4,6 +4,8 @@ import * as s from "@/lib/db/schema";
 import { intakeFieldsFor, type IntakeField } from "@/lib/business/intake";
 import { lookupsFor, type Lookup } from "@/lib/data/sources";
 import { catalogOutline, loadCatalog } from "@/lib/catalog";
+import { paymentPolicyFor } from "@/lib/payments/approvals";
+import { offersForAssistant } from "@/lib/payments/offers";
 import { paymentRoute } from "@/lib/payments";
 
 /**
@@ -66,6 +68,10 @@ export type AgentConfig = {
   catalog: string | null;
   /** The business can take payment (its own endpoint, or Corva collecting for it), so the assistant may send a link for an order. */
   canCollect: boolean;
+  /** Whether a person approves each payment link, and whether the customer must prove who they are first. */
+  payments: { approvalRequired: boolean; verifyFirst: boolean };
+  /** The business's published offers, one line each — the only discounts the assistant may mention. */
+  offers: string[];
 };
 
 /** The live version for a brand, or a specific one for replay. */
@@ -86,7 +92,7 @@ export async function loadAgentConfig(
 
   if (!row) return null;
 
-  const [authority, triggers, never, fields, lookups, catalog, payments] = await Promise.all([
+  const [authority, triggers, never, fields, lookups, catalog, payments, policy, offers] = await Promise.all([
     db.select().from(s.authorityLimits).where(eq(s.authorityLimits.agentVersionId, row.version.id)),
     db
       .select()
@@ -102,6 +108,8 @@ export async function loadAgentConfig(
     lookupsFor(row.brand.id, true),
     loadCatalog(row.brand.id),
     paymentRoute(row.brand.id),
+    paymentPolicyFor(row.brand.id),
+    offersForAssistant(row.brand.id),
   ]);
 
   return {
@@ -131,5 +139,7 @@ export async function loadAgentConfig(
     lookups,
     catalog: catalogOutline(catalog),
     canCollect: payments !== null,
+    payments: { approvalRequired: policy.approvalRequired, verifyFirst: policy.verifyFirst },
+    offers,
   };
 }

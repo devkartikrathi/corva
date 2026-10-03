@@ -443,6 +443,67 @@ async function sendThreadEmail(conversationId: string, brand: { id: string; name
   return { to, handledBy: thread.c.handledBy };
 }
 
+/**
+ * A person on the team writes to a customer first. A new thread, in the
+ * business's name, Reply-To its Corva address — so the answer comes back here
+ * — to the email on the customer's record (never one typed in).
+ */
+export async function startEmailThread(opts: { brand: { id: string; name: string; slug: string }; customerId: string; subject: string; body: string; by: string }) {
+  const subject = opts.subject.trim().slice(0, 150);
+  const body = opts.body.trim();
+  if (!subject) throw new Error("Give the email a subject.");
+  if (!body) throw new Error("Write the email.");
+  if (body.length > 8000) throw new Error("That email is too long.");
+  const [customer] = await db.select().from(s.customers).where(and(eq(s.customers.id, opts.customerId), eq(s.customers.brandId, opts.brand.id))).limit(1);
+  if (!customer) throw new Error("No such customer.");
+  if (!customer.email) throw new Error("This customer has no email address on file.");
+
+  const inbox = await inboxFor(opts.brand.id, opts.brand.slug);
+  const messageId = `corva-${randomBytes(12).toString("hex")}@${inboundDomain() ?? "corva"}`;
+  const first = customer.name && !/@|^\+?[\d\s()-]{7,}$/.test(customer.name) ? customer.name.split(" ")[0] : null;
+  const mail = layout({
+    heading: subject,
+    lines: [...(first ? [`Hi ${first},`] : []), ...body.split(/\n{2,}/), `— ${opts.by}, ${opts.brand.name}`],
+    footer: `Reply to this email and it reaches ${opts.brand.name} directly. Sent for ${opts.brand.name} by Corva.`,
+  });
+  const sent = await sendEmail({
+    to: customer.email,
+    subject,
+    html: mail.html,
+    text: mail.text,
+    fromName: opts.brand.name,
+    replyTo: inboxAddress(inbox) ?? undefined,
+    headers: { "Message-ID": `<${messageId}>` },
+  });
+  if (!sent.sent) throw new Error(sent.reason ?? "The email could not be sent.");
+
+  const [conversation] = await db
+    .insert(s.conversations)
+    .values({
+      brandId: opts.brand.id,
+      customerId: customer.id,
+      channel: "email",
+      intent: subject,
+      // Never "live": nobody is on a line. Theirs, answered — until the customer writes back.
+      status: "resolved",
+      outcome: "human_resolved",
+      handledBy: opts.by,
+      identifiedBy: "team",
+      externalRef: `email-out:${messageId}`,
+      startedAt: new Date(),
+      endedAt: new Date(),
+    })
+    .returning();
+  await addTurn(conversation.id, "human", opts.by, body, new Date());
+  await db.insert(s.emailMessages).values({ brandId: opts.brand.id, conversationId: conversation.id, direction: "out", providerId: sent.id ?? null, messageId, address: customer.email, subject });
+  return { conversationId: conversation.id, to: customer.email };
+}
+
+/** A message from the business on an email thread (a payment link, say), without taking the thread over. */
+export async function sendOnThread(conversationId: string, brand: { id: string; name: string; slug: string }, text: string) {
+  await sendThreadEmail(conversationId, brand, text, { greet: true });
+}
+
 /** A person on the team answers a thread from Corva. From then on the thread is theirs. */
 export async function replyOnThread(conversationId: string, brand: { id: string; name: string; slug: string }, text: string, by: string) {
   const body = text.trim();

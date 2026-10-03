@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { and, desc, eq, gte, inArray, like } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import type { Proposal } from "@/lib/agent/proposals";
@@ -20,9 +20,10 @@ import { allowAll } from "@/lib/rate-limit";
  * in the same Conversations, on the same customer. When a person takes the
  * chat over in the console, what they type is sent to the customer's WhatsApp.
  *
- * Corva only ever replies to a customer who wrote first, inside WhatsApp's
- * 24-hour window. It does not start conversations, so no message templates
- * are involved.
+ * The assistant only ever replies to a customer who wrote first, inside
+ * WhatsApp's 24-hour window. A person on the team may write first: inside the
+ * window as they like, outside it only with the business's approved opening
+ * template (Meta's rule).
  */
 
 export class WhatsAppError extends DataSourceError {}
@@ -167,6 +168,125 @@ export async function deliverHumanReply(conversation: { brandId: string; channel
   const number = await whatsappFor(conversation.brandId);
   if (!to || !number) throw new WhatsAppError("This business's WhatsApp is no longer connected, so the reply could not be sent.");
   await sendText(number, to, text);
+}
+
+/* ─── Writing first ────────────────────────────────────────────────────── */
+
+const WINDOW_MS = 24 * 3_600_000;
+
+/** When this customer last wrote to the business on WhatsApp. Inside 24 hours of it, the business may write freely. */
+export async function lastWhatsAppFrom(brandId: string, phone: string) {
+  const digits = phoneDigits(phone);
+  const [row] = await db
+    .select({ at: sql<Date | null>`max(${s.turns.createdAt})` })
+    .from(s.turns)
+    .innerJoin(s.conversations, eq(s.conversations.id, s.turns.conversationId))
+    .where(
+      and(
+        eq(s.conversations.brandId, brandId),
+        eq(s.conversations.channel, "whatsapp"),
+        like(s.conversations.externalRef, `agent:wa-${digits}-%`),
+        eq(s.turns.speaker, "customer"),
+      ),
+    );
+  return row?.at ? new Date(row.at) : null;
+}
+
+/** What "Open on WhatsApp" can do for this customer right now. */
+export async function whatsappOpening(brandId: string, phone: string | null) {
+  const number = await whatsappFor(brandId);
+  if (!number) return { possible: false as const, reason: "WhatsApp is not connected for this business." };
+  if (!phone) return { possible: false as const, reason: "No phone number on file." };
+  const last = await lastWhatsAppFrom(brandId, phone);
+  if (last && Date.now() - last.getTime() < WINDOW_MS) return { possible: true as const, via: "message" as const };
+  if (number.openingTemplate) return { possible: true as const, via: "template" as const, template: number.openingTemplate.name };
+  return {
+    possible: false as const,
+    reason: "They have not written in the last 24 hours, and WhatsApp only lets a business write first with a template Meta has approved. Add one on the WhatsApp screen.",
+  };
+}
+
+/**
+ * A person on the team starts a WhatsApp chat. Inside the 24-hour window
+ * their message goes as it is; outside it, the business's approved opening
+ * template goes instead. The chat is theirs: the customer's reply lands in it
+ * and the assistant stays out.
+ */
+export async function openWhatsAppChat(opts: { brandId: string; customerId: string; phone: string; customerName: string; by: string; message?: string | null }) {
+  const number = await whatsappFor(opts.brandId);
+  if (!number) throw new WhatsAppError("WhatsApp is not connected for this business.");
+  const to = phoneDigits(opts.phone);
+  const opening = await whatsappOpening(opts.brandId, opts.phone);
+  if (!opening.possible) throw new WhatsAppError(opening.reason);
+  const text = opts.message?.trim() ?? "";
+  if (opening.via === "message" && !text) throw new WhatsAppError("Write the message to send.");
+
+  const session = await sessionFor(opts.brandId, to);
+  const ref = `agent:${session}`;
+  const [existing] = await db.select().from(s.conversations).where(and(eq(s.conversations.brandId, opts.brandId), eq(s.conversations.externalRef, ref))).limit(1);
+
+  let line: string;
+  if (opening.via === "message") {
+    await sendText(number, to, text);
+    line = text;
+  } else {
+    const tpl = number.openingTemplate!;
+    const first = opts.customerName.split(" ")[0];
+    await send(number, to, {
+      type: "template",
+      template: {
+        name: tpl.name,
+        language: { code: tpl.language },
+        ...(tpl.nameParam ? { components: [{ type: "body", parameters: [{ type: "text", text: first || "there" }] }] } : {}),
+      },
+    });
+    line = `(Sent the WhatsApp template "${tpl.name}". The chat opens when they reply.)`;
+  }
+
+  const conversation =
+    existing ??
+    (
+      await db
+        .insert(s.conversations)
+        .values({
+          brandId: opts.brandId,
+          customerId: opts.customerId,
+          channel: "whatsapp",
+          status: "live",
+          externalRef: ref,
+          handledBy: opts.by,
+          identifiedBy: "team",
+          startedAt: new Date(),
+        })
+        .returning()
+    )[0];
+  if (existing && existing.handledBy !== opts.by) {
+    await db.update(s.conversations).set({ handledBy: opts.by }).where(eq(s.conversations.id, existing.id));
+  }
+  const [last] = await db.select({ ordinal: s.turns.ordinal }).from(s.turns).where(eq(s.turns.conversationId, conversation.id)).orderBy(desc(s.turns.ordinal)).limit(1);
+  await db.insert(s.turns).values({
+    conversationId: conversation.id,
+    ordinal: (last?.ordinal ?? -1) + 1,
+    speaker: opening.via === "message" ? "human" : "system",
+    authorName: opts.by,
+    body: line,
+  });
+  return { conversationId: conversation.id, via: opening.via };
+}
+
+/** The template Meta approved for writing first; null removes it. */
+export async function saveOpeningTemplate(brandId: string, template: { name: string; language: string; nameParam: boolean } | null) {
+  const clean = template
+    ? {
+        name: template.name.trim().toLowerCase(),
+        language: template.language.trim() || "en",
+        nameParam: Boolean(template.nameParam),
+      }
+    : null;
+  if (clean && !/^[a-z0-9_]{1,512}$/.test(clean.name)) throw new WhatsAppError("A template name is lower-case letters, digits and underscores, exactly as it is in Meta.");
+  if (clean && !/^[a-z]{2,3}(_[A-Z]{2})?$/.test(clean.language)) throw new WhatsAppError("The language is Meta's code for it, e.g. en, en_US or hi.");
+  const [row] = await db.update(s.whatsappNumbers).set({ openingTemplate: clean }).where(eq(s.whatsappNumbers.brandId, brandId)).returning({ id: s.whatsappNumbers.id });
+  if (!row) throw new WhatsAppError("WhatsApp is not connected for this business.");
 }
 
 /* ─── Receiving ────────────────────────────────────────────────────────── */

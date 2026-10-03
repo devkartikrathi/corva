@@ -28,8 +28,9 @@ import { formatPhone, isPlausiblePhone, phoneDigits } from "@/lib/business/phone
 
 export type HandleKind = "phone" | "email";
 /** How a conversation knows who it is with. The first five are verified. */
-export type IdentifiedBy = "caller_id" | "whatsapp" | "email" | "business" | "team" | "browser" | "stated";
-const VERIFIED_BY = new Set<string>(["caller_id", "whatsapp", "email", "business", "team"]);
+export type IdentifiedBy = "caller_id" | "whatsapp" | "email" | "business" | "team" | "otp" | "browser" | "stated";
+/** "otp": they entered a code sent to the number or email on file (lib/verify/codes.ts). */
+const VERIFIED_BY = new Set<string>(["caller_id", "whatsapp", "email", "business", "team", "otp"]);
 export const isVerified = (by: string | null | undefined) => Boolean(by && VERIFIED_BY.has(by));
 
 /** Where a handle was learned. */
@@ -210,7 +211,7 @@ export async function attachConversation(conversationId: string, customerId: str
     .update(s.conversations)
     .set({
       customerId,
-      identifiedBy: sql`case when ${s.conversations.customerId} = ${customerId} and ${s.conversations.identifiedBy} in ('caller_id','whatsapp','email','business','team') then ${s.conversations.identifiedBy} else ${by} end`,
+      identifiedBy: sql`case when ${s.conversations.customerId} = ${customerId} and ${s.conversations.identifiedBy} in ('caller_id','whatsapp','email','business','team','otp') then ${s.conversations.identifiedBy} else ${by} end`,
     })
     .where(eq(s.conversations.id, conversationId));
   await linkVisitor(conversationId);

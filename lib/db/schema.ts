@@ -1964,6 +1964,12 @@ export const whatsappNumbers = pgTable(
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
     lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
     lastError: text("last_error"),
+    /**
+     * The template Meta approved for writing to a customer first, outside the
+     * 24 hours after their last message: { name, language, nameParam }.
+     * `nameParam` — the template's {{1}} is the customer's first name.
+     */
+    openingTemplate: jsonb("opening_template").$type<{ name: string; language: string; nameParam: boolean }>(),
     createdByName: text("created_by_name"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1993,4 +1999,124 @@ export const rateLimits = pgTable(
     count: integer("count").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.key, t.windowStart] })],
+);
+
+/* ─── Payments, offers and verification (docs/PAYMENTS-AND-VERIFICATION.md) ─ */
+
+/** How far the assistant may go with payment, per business. Both safeguards on by default. */
+export const paymentPolicies = pgTable("payment_policies", {
+  brandId: uuid("brand_id")
+    .primaryKey()
+    .references(() => brands.id, { onDelete: "cascade" }),
+  /** A person approves each payment link the assistant asks for. */
+  approvalRequired: boolean("approval_required").notNull().default(true),
+  /** The customer proves who they are (a code) before the assistant asks for payment. */
+  verifyFirst: boolean("verify_first").notNull().default(true),
+  updatedByName: text("updated_by_name"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** A payment link the assistant asked for, waiting for a person. */
+export const paymentApprovals = pgTable(
+  "payment_approvals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    orderReference: text("order_reference").notNull(),
+    /** A published offer, checked in code when it was asked for: { code, title, … }. */
+    offer: jsonb("offer").$type<Record<string, unknown>>(),
+    /** How we knew who the customer was when they asked (conversations.identified_by). */
+    identifiedBy: text("identified_by"),
+    requestedByName: text("requested_by_name").notNull(),
+    /** "pending" | "approved" | "declined" | "failed". */
+    status: text("status").notNull().default("pending"),
+    decidedByName: text("decided_by_name"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    paymentId: uuid("payment_id").references(() => customerPayments.id, { onDelete: "set null" }),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("payment_approvals_brand_idx").on(t.brandId, t.status, t.createdAt)],
+);
+
+/**
+ * A discount the business has published. The assistant may only ever offer
+ * one of these, and whether it applies is decided in code (lib/payments/offers.ts).
+ */
+export const offers = pgTable(
+  "offers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    /** What the customer says: "FIRST20". Stored upper-case. */
+    code: text("code").notNull(),
+    title: text("title").notNull(),
+    /** "percent" | "flat". */
+    kind: text("kind").notNull(),
+    /** Percent (1–100) or paise off. */
+    value: integer("value").notNull(),
+    maxDiscountPaise: integer("max_discount_paise"),
+    minOrderPaise: integer("min_order_paise"),
+    firstOrderOnly: boolean("first_order_only").notNull().default(false),
+    oncePerCustomer: boolean("once_per_customer").notNull().default(true),
+    /** Profile segments it does not apply to, e.g. ["Short stay"]. */
+    excludeSegments: jsonb("exclude_segments").$type<string[]>().notNull().default([]),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    active: boolean("active").notNull().default(true),
+    createdByName: text("created_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("offers_brand_code_idx").on(t.brandId, t.code)],
+);
+
+/** An offer used by a customer — what "once per customer" counts. */
+export const offerUses = pgTable(
+  "offer_uses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    offerId: uuid("offer_id")
+      .notNull()
+      .references(() => offers.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    orderReference: text("order_reference"),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("offer_uses_offer_customer_idx").on(t.offerId, t.customerId)],
+);
+
+/** A code sent to prove who someone is. Only its HMAC is kept. */
+export const verificationCodes = pgTable(
+  "verification_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** "sms" | "email". */
+    channel: text("channel").notNull(),
+    /** Where it went, normalised (phone digits / email). */
+    destination: text("destination").notNull(),
+    codeHash: text("code_hash").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("verification_codes_conversation_idx").on(t.conversationId, t.createdAt),
+    index("verification_codes_destination_idx").on(t.brandId, t.destination, t.createdAt),
+  ],
 );

@@ -411,53 +411,72 @@ export async function reviewConversation(conversationId: string, score: number, 
 }
 
 /**
- * Start a conversation from the console.
- *
- * Used to open a new line with a customer — an outbound follow-up, or a way to
- * put the agent in front of a real record without waiting for a call.
+ * Starting a conversation from the console, on a channel that reaches the
+ * customer: a phone call (logged, since Corva has no outbound line yet), a
+ * WhatsApp message (or the business's approved opening template), or an
+ * email. Web chat cannot be started from here — nobody is on the website to
+ * receive it — and SMS is never a conversation (docs/PAYMENTS-AND-VERIFICATION.md).
  */
-export async function startConversation(customerId: string, channel: "phone" | "whatsapp" | "web_chat" | "email" | "sms") {
+async function customerToReach(customerId: string) {
   const { session, brand } = await getConsoleContext();
   assertCan(session.actor, "calls.handle", { brandId: brand.id });
-
   const [customer] = await db
     .select()
     .from(s.customers)
     .where(and(eq(s.customers.id, customerId), eq(s.customers.brandId, brand.id)))
     .limit(1);
   if (!customer) throw new Error("No such customer in this brand.");
+  return { session, brand, customer };
+}
 
-  const [liveVersion] = await db
-    .select()
-    .from(s.agentVersions)
-    .where(and(eq(s.agentVersions.brandId, brand.id), eq(s.agentVersions.status, "live")))
-    .limit(1);
-
+/** A call a person made from their own phone: what was said, on the record. */
+export async function logOutboundCall(customerId: string, notes: string) {
+  const { session, brand, customer } = await customerToReach(customerId);
+  const text = notes.trim();
+  if (!text) throw new Error("Write down what was said.");
+  if (text.length > 4000) throw new Error("Those notes are too long.");
   const [conversation] = await db
     .insert(s.conversations)
     .values({
       brandId: brand.id,
       customerId,
-      channel,
-      status: "live",
-      intent: null,
-      agentVersionId: liveVersion?.id ?? null,
+      channel: "phone",
+      status: "resolved",
+      outcome: "human_resolved",
+      handledBy: session.name,
+      identifiedBy: "team",
+      externalRef: `outbound-call:${crypto.randomUUID()}`,
+      intent: "Call from the team",
       startedAt: new Date(),
+      endedAt: new Date(),
     })
     .returning();
-
-  await audit({
-    orgId: session.orgId,
-    brandId: brand.id,
-    actorId: session.membershipId,
-    actorName: session.name,
-    action: "conversation.opened",
-    target: conversation.id,
-    meta: { channel, customer: customer.name },
-  });
-
+  await db.insert(s.turns).values({ conversationId: conversation.id, ordinal: 0, speaker: "human", authorName: session.name, body: `Call notes: ${text}` });
+  await audit({ orgId: session.orgId, brandId: brand.id, actorId: session.membershipId, actorName: session.name, action: "conversation.call_logged", target: conversation.id, meta: { customer: customer.name } });
   refreshConversationScreens(conversation.id);
   return conversation.id;
+}
+
+/** Write to the customer on WhatsApp. Opens the chat in the live console, held by this person. */
+export async function openWhatsAppConversation(customerId: string, message: string) {
+  const { session, brand, customer } = await customerToReach(customerId);
+  if (!customer.phone) throw new Error("This customer has no phone number on file.");
+  const { openWhatsAppChat } = await import("@/lib/whatsapp/cloud");
+  const opened = await openWhatsAppChat({ brandId: brand.id, customerId, phone: customer.phone, customerName: customer.name, by: session.name, message });
+  await audit({ orgId: session.orgId, brandId: brand.id, actorId: session.membershipId, actorName: session.name, action: "conversation.whatsapp_opened", target: opened.conversationId, meta: { via: opened.via } });
+  refreshConversationScreens(opened.conversationId);
+  return opened.conversationId;
+}
+
+/** Email the customer at the address on file; their answer returns to the same thread. */
+export async function openEmailConversation(customerId: string, subject: string, body: string) {
+  const { session, brand, customer } = await customerToReach(customerId);
+  const { startEmailThread } = await import("@/lib/email/inbound");
+  const { conversationId } = await startEmailThread({ brand: { id: brand.id, name: brand.name, slug: brand.slug }, customerId: customer.id, subject, body, by: session.name });
+  await audit({ orgId: session.orgId, brandId: brand.id, actorId: session.membershipId, actorName: session.name, action: "conversation.email_sent", target: conversationId });
+  refreshConversationScreens(conversationId);
+  revalidatePath("/app/email");
+  return conversationId;
 }
 
 /** The transcript, for the export capability the role matrix gates. */

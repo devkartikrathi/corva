@@ -401,7 +401,9 @@ export async function intakeLead(
         notes: [open.notes, notes].filter(Boolean).join("\n"),
         email: email ?? open.email,
         conversationId: open.conversationId ?? conversation?.id ?? null,
-        ...(kind === "pickup" && (open.stage === "new" || open.stage === "contacted") ? { stage: "qualified" as const, stageChangedAt: new Date() } : {}),
+        // A booking they confirmed is the assistant having settled what they asked: Contacted.
+        // Processing is for a person (or the business's system) to say.
+        ...(kind === "pickup" && open.stage === "new" ? { stage: "contacted" as const, stageChangedAt: new Date() } : {}),
         updatedAt: new Date(),
       })
       .where(eq(s.leads.id, open.id))
@@ -420,8 +422,9 @@ export async function intakeLead(
         interest,
         request,
         notes,
-        // A booked pickup is further along than a request to talk.
-        stage: kind === "pickup" ? "qualified" : "new",
+        // A booking they confirmed is settled by the assistant (Contacted); a request
+        // to talk waits for a person (New).
+        stage: kind === "pickup" ? "contacted" : "new",
         ownerMembershipId: owner?.membershipId ?? null,
         source: fromChat ? "web_chat" : "website",
         createdByAi: fromChat,

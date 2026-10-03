@@ -20,7 +20,8 @@ import { channelLabel } from "@/lib/crm/profile";
 import { OwnerPicker } from "@/components/OwnerPicker";
 import { StartConversation } from "@/components/StartConversation";
 import { assignOwner } from "@/lib/actions/customers";
-import { startConversation } from "@/lib/actions/conversations";
+import { logOutboundCall, openEmailConversation, openWhatsAppConversation } from "@/lib/actions/conversations";
+import { whatsappOpening } from "@/lib/whatsapp/cloud";
 import { getTeam } from "@/lib/queries/workspace";
 
 const CONSENT_KINDS = [
@@ -99,12 +100,13 @@ export default async function Customer360Page({
   const liveCall = conversations.find((c) => c.status === "live" || c.status === "waiting_human");
   // Owners are the people who can actually hold an account, so the picker is
   // the team list rather than free text that drifts into three spellings.
-  const [team, leads, followUps, website] = await Promise.all([
+  const [team, leads, followUps, website, whatsapp] = await Promise.all([
     getTeam(session.orgId),
     // The customer's own record: whoever may open it may see all of what is on it.
     listLeads(brand.id, { kind: "all" }, { customerId: customer.id }),
     listFollowUps(brand.id, { kind: "all" }, { customerId: customer.id, limit: 20 }),
     websiteActivity(customer.id),
+    whatsappOpening(brand.id, customer.phone),
   ]);
   const industry = industryFor(brand.industry);
   const openFollowUps = followUps.filter((f) => f.status === "open");
@@ -226,7 +228,12 @@ export default async function Customer360Page({
             <StartConversation
               customerId={customer.id}
               customerName={customer.name}
-              onStart={startConversation}
+              phone={customer.phone}
+              email={customer.email}
+              whatsapp={whatsapp}
+              onCall={logOutboundCall}
+              onWhatsApp={openWhatsAppConversation}
+              onEmail={openEmailConversation}
             />
           )}
           <OwnerPicker

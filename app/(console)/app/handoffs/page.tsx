@@ -14,6 +14,11 @@ import { href, normalise, type RawParams } from "@/lib/params";
 import { ActionButton } from "@/components/ActionButton";
 import { LiveRefresh } from "@/components/LiveRefresh";
 import { ReassignPicker } from "@/components/ReassignPicker";
+import { ApprovalCard } from "@/components/PaymentRules";
+import { decidePaymentApproval } from "@/lib/actions/payments";
+import { pendingApprovals } from "@/lib/payments/approvals";
+import { isVerified } from "@/lib/crm/identity";
+import { channelLabel } from "@/lib/crm/profile";
 
 const PATH = "/app/handoffs";
 const TABS = [
@@ -57,11 +62,49 @@ export default async function HandoffsPage({
     | "resolved"
     | "all";
 
-  const [handoffs, counts, team] = await Promise.all([
+  const [handoffs, counts, team, approvals] = await Promise.all([
     listHandoffs(brand.id, status),
     handoffCounts(brand.id),
     getTeam(session.orgId),
+    pendingApprovals(brand.id),
   ]);
+
+  // Payment links the AI asked for: nothing is sent until a person approves.
+  const IDENTITY: Record<string, string> = {
+    whatsapp: "verified by WhatsApp",
+    caller_id: "verified by caller id",
+    email: "verified — wrote from their email",
+    otp: "verified with a code",
+    business: "verified by your system",
+    team: "known to the team",
+    browser: "not verified (same browser as before)",
+    stated: "not verified (said who they are)",
+  };
+  const approvalsPanel = approvals.length > 0 && (
+    <div style={{ padding: "14px 24px", borderBottom: "2px solid var(--color-divider)", background: "var(--color-surface)", display: "grid", gap: 8 }}>
+      <Kicker color="var(--color-accent-700)">
+        {approvals.length} payment link{approvals.length === 1 ? "" : "s"} to approve
+      </Kicker>
+      {approvals.map(({ approval: a, customer, channel }) => {
+        const offer = a.offer as { code?: string; title?: string } | null;
+        return (
+          <ApprovalCard
+            key={a.id}
+            id={a.id}
+            customer={customer?.name ?? "A customer"}
+            orderReference={a.orderReference}
+            offer={offer?.code ? `${offer.code} — ${offer.title ?? ""}` : null}
+            identity={{ verified: isVerified(a.identifiedBy), label: IDENTITY[a.identifiedBy ?? ""] ?? "not verified" }}
+            channel={channel ? channelLabel(channel) : "a conversation"}
+            requestedBy={a.requestedByName}
+            at={a.createdAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+            conversationHref={a.conversationId ? `/app/conversations/${a.conversationId}` : null}
+            onDecide={decidePaymentApproval}
+          />
+        );
+      })}
+    </div>
+  );
 
   const tabs = (
     <TabStrip>
@@ -85,6 +128,7 @@ export default async function HandoffsPage({
           title="Handoffs"
           lede="When the AI reaches a limit it writes a brief and queues it here. Nothing matches this filter right now."
         />
+        {approvalsPanel}
         {tabs}
       </section>
     );
@@ -133,6 +177,7 @@ export default async function HandoffsPage({
           </ActionButton>
         )}
       </ScreenHeader>
+      {approvalsPanel}
       {tabs}
 
       <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "320px 1fr" }}>

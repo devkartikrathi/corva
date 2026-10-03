@@ -39,6 +39,14 @@ const KINDS: Record<string, Kind> = {
 };
 export const profileKind = (industry: string | null | undefined) => KINDS[industry ?? ""] ?? KINDS.general;
 
+/** The segments a business of this kind sorts customers into — for offers that exclude some of them. */
+export function segmentsFor(industry: string | null | undefined): string[] {
+  const kind = profileKind(industry);
+  if (kind.model === "repeat") return ["Short stay", "New", "Regular", "Occasional", "Lapsing"];
+  if (kind.model === "pipeline") return ["Enquiry", kind.open, kind.won];
+  return [kind.open, kind.won, "Due for recall"];
+}
+
 /** Weights for the priority engine, per model. Seeded once per business; owners can tune them after. */
 export const DEFAULT_WEIGHTS: Record<ProfileModel, Record<string, number>> = {
   repeat: { revenue_ltv: 0.35, churn_risk: 0.3, escalation_likelihood: 0.2, sentiment: 0.15 },

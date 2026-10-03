@@ -700,11 +700,17 @@ export async function conversationStats(brandId: string) {
   const total = real.length;
   const contained = real.filter((r) => r.contained === true).length;
 
+  // A payment link the AI asked for is waiting for a person too.
+  const [approvals] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(s.paymentApprovals)
+    .where(and(eq(s.paymentApprovals.brandId, brandId), eq(s.paymentApprovals.status, "pending")));
+
   return {
     total,
     unresolved: real.filter((r) => isBad(r.outcome)).length,
     containment: total > 0 ? (contained / total) * 100 : 0,
-    waiting: rows.filter((r) => r.status === "waiting_human").length,
+    waiting: rows.filter((r) => r.status === "waiting_human").length + (approvals?.n ?? 0),
     live: rows.filter((r) => r.status === "live" && r.active).length,
   };
 }

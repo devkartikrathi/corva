@@ -52,6 +52,12 @@ export const SMS_PURPOSES = [
     slots: ["WhatsApp link", "business name"],
   },
   {
+    key: "otp",
+    label: "Verification code",
+    body: "{#var#} is your verification code for {#var#}. It expires in 10 minutes. Do not share it with anyone.",
+    slots: ["the code", "business name"],
+  },
+  {
     key: "order_update",
     label: "Order update",
     body: "Your order {#var#} is {#var#}. - {#var#}",
@@ -191,6 +197,8 @@ export async function sendSms(input: {
   customerId?: string | null;
   conversationId?: string | null;
   sentByName?: string | null;
+  /** A value (a verification code) that must not be kept in the SMS log. */
+  secret?: string;
 }): Promise<{ sent: true; message: typeof s.smsMessages.$inferSelect } | { sent: false; reason: string }> {
   if (!input.to || !isPlausiblePhone(input.to)) return { sent: false, reason: "no phone number to send to" };
   const settings = await smsSettingsFor(input.brandId);
@@ -223,7 +231,7 @@ export async function sendSms(input: {
       conversationId: input.conversationId ?? null,
       to,
       purpose: input.purpose,
-      body,
+      body: input.secret ? body.split(input.secret).join("••••••") : body,
       provider: settings.provider,
       status,
       providerMessageId,

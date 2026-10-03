@@ -11,6 +11,8 @@ import { PaymentError, askForPayment, paymentJson, removePaymentEndpoint, savePa
 import { deliverHumanReply } from "@/lib/whatsapp/cloud";
 import { sendSms } from "@/lib/sms";
 import { audit } from "./audit";
+import { decideApproval, savePaymentPolicy } from "@/lib/payments/approvals";
+import { saveOffer, setOfferActive } from "@/lib/payments/offers";
 
 /** Where this business makes payment links. Returns the signing secret, shown once. */
 export async function connectPaymentEndpoint(url: string) {
@@ -106,4 +108,50 @@ export async function requestConversationPayment(
   });
   revalidatePath("/app/conversations");
   return { ...paymentJson(payment), smsNote };
+}
+
+/* ─── The assistant and payment (docs/PAYMENTS-AND-VERIFICATION.md) ────── */
+
+/** Whether a person approves each AI payment link, and whether customers prove who they are first. */
+export async function savePaymentPolicyAction(policy: { approvalRequired: boolean; verifyFirst: boolean }) {
+  const { session, brand } = await getConsoleContext();
+  assertCan(session.actor, "people.manage", { brandId: brand.id });
+  await savePaymentPolicy(brand.id, policy, session.name);
+  await audit({ orgId: session.orgId, brandId: brand.id, actorId: session.membershipId, actorName: session.name, action: "payments.policy", target: brand.name, meta: policy });
+  revalidatePath("/app/setup");
+}
+
+/** Publish an offer — the only kind of discount the AI may give. */
+export async function saveOfferAction(input: Parameters<typeof saveOffer>[1]) {
+  const { session, brand } = await getConsoleContext();
+  assertCan(session.actor, "people.manage", { brandId: brand.id });
+  const row = await saveOffer(brand.id, input, session.name);
+  await audit({ orgId: session.orgId, brandId: brand.id, actorId: session.membershipId, actorName: session.name, action: "offers.saved", target: row.code, meta: { kind: row.kind, value: row.value } });
+  revalidatePath("/app/setup");
+}
+
+export async function setOfferActiveAction(offerId: string, active: boolean) {
+  const { session, brand } = await getConsoleContext();
+  assertCan(session.actor, "people.manage", { brandId: brand.id });
+  await setOfferActive(brand.id, offerId, active);
+  await audit({ orgId: session.orgId, brandId: brand.id, actorId: session.membershipId, actorName: session.name, action: active ? "offers.resumed" : "offers.paused", target: offerId });
+  revalidatePath("/app/setup");
+}
+
+/** A person's call on a payment link the AI asked for. */
+export async function decidePaymentApproval(approvalId: string, approve: boolean) {
+  const { session, brand } = await getConsoleContext();
+  assertCan(session.actor, "calls.handle", { brandId: brand.id });
+  const result = await decideApproval(brand.id, approvalId, approve, session.name);
+  await audit({
+    orgId: session.orgId,
+    brandId: brand.id,
+    actorId: session.membershipId,
+    actorName: session.name,
+    action: approve ? "payments.approved" : "payments.declined",
+    target: approvalId,
+    meta: result.status === "approved" ? { amountPaise: result.payment.amountPaise, reference: result.payment.reference } : {},
+  });
+  revalidatePath("/app/handoffs");
+  return { status: result.status, amount: result.status === "approved" ? formatRupees(result.payment.amountPaise, { decimals: "auto" }) : undefined };
 }

@@ -10,9 +10,13 @@ import { formatRupees } from "@/lib/money";
 import { SmsSettings } from "@/components/SmsSettings";
 import { SMS_PURPOSES, recentSms, smsSettingsFor, smsTemplatesFor } from "@/lib/sms";
 import { saveSmsSetup, saveSmsTemplateAction, sendTestSms } from "@/lib/actions/sms";
-import { connectPaymentEndpoint, disconnectPaymentEndpoint } from "@/lib/actions/payments";
+import { connectPaymentEndpoint, disconnectPaymentEndpoint, saveOfferAction, savePaymentPolicyAction, setOfferActiveAction } from "@/lib/actions/payments";
+import { OffersEditor, PaymentPolicy } from "@/components/PaymentRules";
+import { paymentPolicyFor } from "@/lib/payments/approvals";
+import { describeOffer, offersFor } from "@/lib/payments/offers";
+import { segmentsFor } from "@/lib/crm/profile";
 import { WEBHOOK_EVENTS } from "@/lib/integrations/webhooks";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import {
@@ -90,13 +94,21 @@ export default async function SetupPage() {
     .where(and(eq(s.apiKeys.brandId, currentBrand.id), isNull(s.apiKeys.revokedAt)))
     .orderBy(desc(s.apiKeys.createdAt));
   const hooks = await db.select().from(s.webhooks).where(eq(s.webhooks.brandId, currentBrand.id)).orderBy(desc(s.webhooks.createdAt));
-  const [paymentEndpoint, collection, owed, sms, smsTemplates, smsLog] = await Promise.all([
+  const [paymentEndpoint, collection, owed, sms, smsTemplates, smsLog, paymentPolicy, offerRows, offerUseCounts] = await Promise.all([
     paymentEndpointFor(currentBrand.id),
     collectionFor(currentBrand.id),
     owedToBusiness(currentBrand.id),
     smsSettingsFor(currentBrand.id),
     smsTemplatesFor(currentBrand.id),
     recentSms(currentBrand.id, 8),
+    paymentPolicyFor(currentBrand.id),
+    offersFor(currentBrand.id),
+    db
+      .select({ offerId: s.offerUses.offerId, n: sql<number>`count(*)::int` })
+      .from(s.offerUses)
+      .innerJoin(s.offers, eq(s.offers.id, s.offerUses.offerId))
+      .where(eq(s.offers.brandId, currentBrand.id))
+      .groupBy(s.offerUses.offerId),
   ]);
   const { brands, brand, channels, hours, afterHours, privacy, audit: fullAudit, org } = setup;
   // The audit log comes with the Growth plan (and the pilot, which shows everything).
@@ -377,6 +389,32 @@ export default async function SetupPage() {
               onConnect={connectPaymentEndpoint}
               onDisconnect={disconnectPaymentEndpoint}
             />
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 8 }}>When the AI asks a customer to pay</div>
+              <PaymentPolicy current={{ approvalRequired: paymentPolicy.approvalRequired, verifyFirst: paymentPolicy.verifyFirst }} canEdit onSave={savePaymentPolicyAction} />
+              <p style={{ margin: 0, fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.5 }}>
+                Either way the AI never names an amount: it asks for an order&rsquo;s payment by its reference, and the amount
+                comes from your system (or the order Corva holds).
+              </p>
+            </div>
+          </div>
+
+          <div id="offers" style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
+            <div style={{ marginBottom: 6 }}>
+              <SectionTitle size={16}>Offers</SectionTitle>
+            </div>
+            <p style={{ margin: "0 0 12px", fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.5 }}>
+              The only discounts the AI may ever give. When a customer names a code, whether it applies to them — dates,
+              first order, once each, the kinds of customer it is not for — is checked by Corva, not decided by the AI, and
+              the amount with it is worked out by your payment system. Anything else a customer asks for goes to the team.
+            </p>
+            <OffersEditor
+              offers={offerRows.map((o) => ({ id: o.id, code: o.code, title: o.title, describe: describeOffer(o), active: o.active, uses: offerUseCounts.find((u) => u.offerId === o.id)?.n ?? 0 }))}
+              segments={segmentsFor(currentBrand.industry)}
+              canEdit
+              onSave={saveOfferAction}
+              onActive={setOfferActiveAction}
+            />
           </div>
 
           <div id="sms" style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
@@ -386,8 +424,9 @@ export default async function SetupPage() {
             <p style={{ margin: "0 0 12px", fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.5 }}>
               Texts to customers — a payment link, a callback arranged, a booking confirmed — from your own SMS account.
               In India every SMS must come from a DLT-registered sender and match an approved template, so add each message
-              here exactly as it was approved, with {"{#var#}"} where a value goes. Conversations happen on WhatsApp; SMS
-              is for notices. Start in test mode to see what would be sent.
+              here exactly as it was approved, with {"{#var#}"} where a value goes. SMS is only ever for notices — verification
+              codes, payment links, updates: nobody, and no AI, chats over SMS. Start in test mode to see what would be sent
+              (verification codes are never shown in the log).
             </p>
             <SmsSettings
               current={{

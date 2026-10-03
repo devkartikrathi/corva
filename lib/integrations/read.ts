@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gte, ilike, inArray, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
-import { LEAD_STAGES, industryFor, type LeadStage } from "@/lib/business/industries";
+import { LEAD_STAGES, industryFor, normaliseStage } from "@/lib/business/industries";
 import { cleanDetails, intakeFieldsFor } from "@/lib/business/intake";
 import { phoneDigits } from "@/lib/business/phone";
 import { ApiError } from "./api";
@@ -88,9 +88,11 @@ export async function listLeads(brand: Brand, params: URLSearchParams) {
 
   const stages = (params.get("stage") ?? "").split(",").map((x) => x.trim()).filter(Boolean);
   if (stages.length) {
-    const bad = stages.find((x) => !LEAD_STAGES.includes(x as LeadStage));
+    const bad = stages.find((x) => !normaliseStage(x));
     if (bad) throw new ApiError(400, `"${bad}" is not a stage. Stages: ${LEAD_STAGES.join(", ")}.`);
-    where.push(inArray(s.leads.stage, stages as LeadStage[]));
+    // Processing includes leads written as "qualified" before the stages were simplified.
+    const wanted = stages.map((x) => normaliseStage(x)!);
+    where.push(inArray(s.leads.stage, wanted.includes("proposal") ? [...wanted, "qualified"] : wanted));
   }
   const since = dateOf(params.get("since"), "since");
   if (since) where.push(gte(s.leads.createdAt, since));
@@ -174,13 +176,12 @@ export async function updateLead(brand: Brand, id: string, body: { stage?: unkno
   const set: Partial<typeof s.leads.$inferInsert> = {};
 
   if (body.stage !== undefined) {
-    if (typeof body.stage !== "string" || !LEAD_STAGES.includes(body.stage as LeadStage)) {
-      throw new ApiError(400, `stage must be one of: ${LEAD_STAGES.join(", ")}.`);
-    }
-    if (body.stage !== lead.stage) {
-      set.stage = body.stage as LeadStage;
+    const stage = typeof body.stage === "string" ? normaliseStage(body.stage) : null;
+    if (!stage) throw new ApiError(400, `stage must be one of: ${LEAD_STAGES.join(", ")}.`);
+    if (stage !== lead.stage) {
+      set.stage = stage;
       set.stageChangedAt = new Date();
-      set.lostReason = body.stage === "lost" && typeof body.lostReason === "string" ? body.lostReason.trim().slice(0, 300) || null : null;
+      set.lostReason = stage === "lost" && typeof body.lostReason === "string" ? body.lostReason.trim().slice(0, 300) || null : null;
     }
   }
   if (typeof body.notes === "string") set.notes = body.notes.trim().slice(0, 4000) || null;

@@ -8,14 +8,20 @@
  * worth making an owner type in on day one, so each industry carries sensible
  * defaults and the Tuning screen is where they are changed afterwards.
  *
- * Stage *keys* are shared across industries (see `leadStageEnum`); only the
- * words differ. That is what lets a report count "got to a site visit" and
- * "booked an appointment" as the same step.
+ * The leads board is the same five stages for every business (see
+ * docs/PAYMENTS-AND-VERIFICATION.md): New, Contacted, Processing, Converted,
+ * Lost. What happens *inside* Processing — a pickup, an appointment, a site
+ * visit — is the business's own system's business, not the board's.
  */
 
 export type LeadStage = "new" | "contacted" | "qualified" | "proposal" | "won" | "lost";
 
-export const LEAD_STAGES: LeadStage[] = ["new", "contacted", "qualified", "proposal", "won", "lost"];
+/** The board's columns, in order. `qualified` is an older key that now counts as Processing. */
+export const LEAD_STAGES: LeadStage[] = ["new", "contacted", "proposal", "won", "lost"];
+
+/** Any stage key Corva has used, as the board's stage: `qualified` is Processing now. */
+export const normaliseStage = (stage: string): LeadStage | null =>
+  stage === "qualified" ? "proposal" : (LEAD_STAGES as string[]).includes(stage) ? (stage as LeadStage) : null;
 
 /** The stages still in play, for "open pipeline" counts. */
 export const OPEN_STAGES: LeadStage[] = ["new", "contacted", "qualified", "proposal"];
@@ -64,17 +70,23 @@ export type Industry = {
 };
 
 const COMMON_NEVER = [
-  "Ask for or accept card numbers, CVV, OTPs or UPI PINs — send a secure payment link instead",
+  "Ask for or accept card numbers, CVV, UPI PINs, or a code from a bank or payment app — send a secure payment link instead (the business's own verification code, sent with send_verification_code, is fine to ask for)",
   "Claim to be a human if asked directly",
   "Promise a price, date or availability that is not in the business's documents",
 ];
 
-const COMMON_STAGES: Record<LeadStage, string> = {
+/**
+ * New — they told us who they are; Contacted — the assistant settled what they
+ * asked, or a person spoke to them; Processing — something is under way;
+ * Converted — they paid, or it is done; Lost — a person's call, never the
+ * assistant's.
+ */
+const STAGES: Record<LeadStage, string> = {
   new: "New",
   contacted: "Contacted",
-  qualified: "Qualified",
-  proposal: "Quoted",
-  won: "Won",
+  qualified: "Processing",
+  proposal: "Processing",
+  won: "Converted",
   lost: "Lost",
 };
 
@@ -83,7 +95,7 @@ export const INDUSTRIES: Industry[] = [
     key: "general",
     label: "General business",
     callers: "customers",
-    stages: COMMON_STAGES,
+    stages: STAGES,
     leadQuestions: [
       "their name",
       "what they are looking for",
@@ -107,14 +119,7 @@ export const INDUSTRIES: Industry[] = [
     label: "Clinic / healthcare",
     booking: { noun: "appointment", needsAddress: false, maxDaysAhead: 60 },
     callers: "patients",
-    stages: {
-      new: "New enquiry",
-      contacted: "Contacted",
-      qualified: "Appointment booked",
-      proposal: "Visited",
-      won: "Became a patient",
-      lost: "Lost",
-    },
+    stages: STAGES,
     leadQuestions: [
       "the patient's name",
       "what they want to be seen for, in their words",
@@ -143,14 +148,7 @@ export const INDUSTRIES: Industry[] = [
     label: "Real estate",
     booking: { noun: "site visit", needsAddress: false, maxDaysAhead: 30 },
     callers: "buyers",
-    stages: {
-      new: "New enquiry",
-      contacted: "Contacted",
-      qualified: "Site visit fixed",
-      proposal: "Negotiating",
-      won: "Booked",
-      lost: "Lost",
-    },
+    stages: STAGES,
     leadQuestions: [
       "their name",
       "what they want (e.g. 2BHK, plot, office) and in which area",
@@ -175,7 +173,7 @@ export const INDUSTRIES: Industry[] = [
     key: "retail",
     label: "Retail / e-commerce",
     callers: "customers",
-    stages: COMMON_STAGES,
+    stages: STAGES,
     leadQuestions: [
       "their name",
       "which product they are interested in",
@@ -201,14 +199,7 @@ export const INDUSTRIES: Industry[] = [
     label: "Education / coaching",
     booking: { noun: "counselling session", needsAddress: false, maxDaysAhead: 30 },
     callers: "students and parents",
-    stages: {
-      new: "New enquiry",
-      contacted: "Contacted",
-      qualified: "Counselling booked",
-      proposal: "Demo attended",
-      won: "Enrolled",
-      lost: "Lost",
-    },
+    stages: STAGES,
     leadQuestions: [
       "the student's name and class or level",
       "which course or subject they want",
@@ -232,14 +223,7 @@ export const INDUSTRIES: Industry[] = [
     label: "Home services / repairs",
     booking: { noun: "visit", needsAddress: true, maxDaysAhead: 30 },
     callers: "customers",
-    stages: {
-      new: "New request",
-      contacted: "Contacted",
-      qualified: "Visit booked",
-      proposal: "Quote sent",
-      won: "Job done",
-      lost: "Lost",
-    },
+    stages: STAGES,
     leadQuestions: [
       "their name",
       "what needs fixing or doing",
@@ -262,14 +246,7 @@ export const INDUSTRIES: Industry[] = [
     key: "laundry",
     label: "Laundry / dry cleaning",
     callers: "customers",
-    stages: {
-      new: "New enquiry",
-      contacted: "Contacted",
-      qualified: "Pickup booked",
-      proposal: "Picked up",
-      won: "Delivered",
-      lost: "Lost",
-    },
+    stages: STAGES,
     leadQuestions: [
       "their name",
       "what needs cleaning (clothes, dry-cleaning, shoes, carpets, curtains…)",
@@ -312,14 +289,7 @@ export const INDUSTRIES: Industry[] = [
     label: "Restaurant / café",
     booking: { noun: "reservation", needsAddress: false, maxDaysAhead: 60 },
     callers: "guests",
-    stages: {
-      new: "New enquiry",
-      contacted: "Contacted",
-      qualified: "Reservation made",
-      proposal: "Event quoted",
-      won: "Visited",
-      lost: "Lost",
-    },
+    stages: STAGES,
     leadQuestions: [
       "their name",
       "date, time and number of guests",

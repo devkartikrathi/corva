@@ -127,3 +127,44 @@ export function DisconnectWhatsApp({ onDisconnect }: { onDisconnect: () => Promi
     </button>
   );
 }
+
+/**
+ * The template Meta approved for writing first. WhatsApp lets a business
+ * message a customer who has not written in 24 hours only with one of these.
+ */
+export function OpeningTemplate({
+  current,
+  onSave,
+}: {
+  current: { name: string; language: string; nameParam: boolean } | null;
+  onSave: (t: { name: string; language: string; nameParam: boolean } | null) => Promise<{ ok: true; value: { saved: boolean } } | { ok: false; error: string }>;
+}) {
+  const [t, setT] = useState(current ?? { name: "", language: "en", nameParam: true });
+  const [note, setNote] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const field = { border: "1px solid var(--color-neutral-400)", background: "var(--color-surface)", padding: "6px 8px", fontSize: 12.5, fontFamily: "inherit", borderRadius: 0 } as const;
+  const save = (value: typeof t | null) =>
+    start(async () => {
+      const r = await onSave(value);
+      setNote(r.ok ? (value ? "Saved." : "Removed.") : r.error);
+    });
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: 12.5 }}>
+      <input value={t.name} onChange={(e) => setT({ ...t, name: e.target.value })} placeholder="Template name, e.g. follow_up" aria-label="Template name" style={{ ...field, width: 220 }} />
+      <input value={t.language} onChange={(e) => setT({ ...t, language: e.target.value })} placeholder="en" aria-label="Language code" style={{ ...field, width: 70 }} />
+      <label style={{ display: "flex", gap: 5, alignItems: "center" }}>
+        <input type="checkbox" checked={t.nameParam} onChange={(e) => setT({ ...t, nameParam: e.target.checked })} />
+        {"{{1}}"} is the customer&rsquo;s first name
+      </label>
+      <button type="button" disabled={pending || !t.name.trim()} onClick={() => save(t)} style={{ fontSize: 11.5, fontWeight: 700, background: "var(--color-accent)", color: "var(--color-bg)", padding: "7px 12px" }}>
+        Save
+      </button>
+      {current && (
+        <button type="button" disabled={pending} onClick={() => save(null)} style={{ fontSize: 11, fontWeight: 700, border: "1px solid var(--color-neutral-400)", padding: "5px 9px" }}>
+          Remove
+        </button>
+      )}
+      {note && <span style={{ fontSize: 12 }}>{note}</span>}
+    </div>
+  );
+}

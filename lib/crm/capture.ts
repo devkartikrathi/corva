@@ -379,13 +379,8 @@ export async function scheduleFollowUp(opts: {
     .returning();
   emit(opts.brandId, "follow_up.created", () => followUpPayload(row.id));
 
-  // Promising a callback is contacting them; a lead still at "new" has moved.
-  if (lead) {
-    await db
-      .update(s.leads)
-      .set({ stage: "contacted", stageChangedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(s.leads.id, lead.id), eq(s.leads.stage, "new")));
-  }
+  // A callback promised is not contact made: the lead stays New for the person
+  // who picks it up (docs/PAYMENTS-AND-VERIFICATION.md).
 
   return { followUp: row, assigneeName: assignee?.name ?? null, dueAt };
 }

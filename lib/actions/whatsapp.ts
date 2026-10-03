@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getConsoleContext } from "@/lib/auth/context";
 import { AuthorizationError, assertCan } from "@/lib/auth/permissions";
 import { DataSourceError } from "@/lib/data/postgres";
-import { connectWhatsApp, disconnectWhatsApp } from "@/lib/whatsapp/cloud";
+import { connectWhatsApp, disconnectWhatsApp, saveOpeningTemplate } from "@/lib/whatsapp/cloud";
 import { audit } from "./audit";
 
 /**
@@ -43,5 +43,17 @@ export async function disconnectWhatsAppNumber() {
     const row = await disconnectWhatsApp(brand.id);
     if (row) await audit({ orgId: session.orgId, brandId: brand.id, actorId: session.membershipId, actorName: session.name, action: "whatsapp.disconnected", target: row.displayNumber });
     revalidatePath("/app/whatsapp");
+  });
+}
+
+/** The template Meta approved for writing to a customer first. Null removes it. */
+export async function saveWhatsAppOpeningTemplate(template: { name: string; language: string; nameParam: boolean } | null) {
+  return attempt(async () => {
+    const { session, brand } = await getConsoleContext();
+    assertCan(session.actor, "people.manage", { brandId: brand.id });
+    await saveOpeningTemplate(brand.id, template);
+    await audit({ orgId: session.orgId, brandId: brand.id, actorId: session.membershipId, actorName: session.name, action: "whatsapp.opening_template", target: template?.name ?? "removed" });
+    revalidatePath("/app/whatsapp");
+    return { saved: true };
   });
 }

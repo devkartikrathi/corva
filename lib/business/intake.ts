@@ -1,11 +1,11 @@
 import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { isVerified } from "@/lib/crm/identity";
+import { isStandIn, isVerified } from "@/lib/crm/identity";
 import * as s from "@/lib/db/schema";
 import { industryFor } from "./industries";
 import { formatPhone, isPlausiblePhone } from "./phone";
-import { identifyCustomer } from "@/lib/crm/capture";
+import { identifyCustomer, saveCallerDetails } from "@/lib/crm/capture";
 
 /**
  * The details a business wants from every customer, and what was found out.
@@ -202,7 +202,7 @@ export async function captureDetails(
     .update(s.conversations)
     .set({ captured: sql`${s.conversations.captured} || ${json}::jsonb` })
     .where(eq(s.conversations.id, conversationId))
-    .returning({ brandId: s.conversations.brandId, customerId: s.conversations.customerId, captured: s.conversations.captured });
+    .returning({ brandId: s.conversations.brandId, customerId: s.conversations.customerId, channel: s.conversations.channel, captured: s.conversations.captured });
 
   // A name or a number is who they are: the conversation gets a customer now,
   // rather than staying "Unidentified" until they confirm a booking.
@@ -219,19 +219,28 @@ export async function captureDetails(
     conversation = { ...updated, customerId: customer?.id ?? updated.customerId };
   }
 
+  // Someone who tells us who they are, or where they are, is a lead from now
+  // on: New, until the assistant settles what they want or a person picks it up.
+  const address = fields.find((f) => f.kind === "address" && clean[f.key]);
+  if (conversation?.customerId && !leadId && (clean.name || clean.phone || address)) {
+    const all = (conversation.captured ?? {}) as Record<string, string>;
+    const interest = [all.request_type, all.items, all.service, all.interest].filter(Boolean).join(" · ").slice(0, 300) || undefined;
+    await saveCallerDetails({ conversationId, brandId: conversation.brandId, customerId: conversation.customerId, interest, source: conversation.channel });
+  }
+
   await db
     .update(s.leads)
     .set({ details: sql`${s.leads.details} || ${json}::jsonb`, updatedAt: new Date() })
     .where(leadId ? eq(s.leads.id, leadId) : eq(s.leads.conversationId, conversationId));
 
-  const address = fields.find((f) => f.kind === "address" && clean[f.key]);
-  if (conversation?.customerId && (clean.email || address)) {
-    await db.execute(sql`
-      UPDATE ${s.customers}
-      SET email = coalesce(email, ${clean.email ?? null}),
-          location = coalesce(location, ${address ? clean[address.key] : null})
-      WHERE id = ${conversation.customerId}
-    `);
+  // The address on file, where there is none — only from someone we know is
+  // them, or on a record this conversation made. (Their email is identifyCustomer's.)
+  if (conversation?.customerId && address) {
+    const [c] = await db.select().from(s.customers).where(eq(s.customers.id, conversation.customerId)).limit(1);
+    const [here] = await db.select({ by: s.conversations.identifiedBy }).from(s.conversations).where(eq(s.conversations.id, conversationId)).limit(1);
+    if (c && !c.location && (isVerified(here?.by) || (await isStandIn(c, conversationId)))) {
+      await db.update(s.customers).set({ location: clean[address.key] }).where(eq(s.customers.id, c.id));
+    }
   }
   return { saved: Object.keys(clean), rejected, captured: conversation?.captured ?? clean };
 }

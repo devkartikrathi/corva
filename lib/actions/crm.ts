@@ -8,7 +8,7 @@ import { assertCan, can } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import { customerForHandle, handle } from "@/lib/crm/identity";
 import * as s from "@/lib/db/schema";
-import { LEAD_STAGES, type LeadStage } from "@/lib/business/industries";
+import { normaliseStage, type LeadStage } from "@/lib/business/industries";
 import { formatPhone, isPlausiblePhone } from "@/lib/business/phone";
 import { scheduleFollowUp } from "@/lib/crm/capture";
 import { audit } from "./audit";
@@ -61,8 +61,9 @@ async function assertMember(orgId: string, membershipId: string) {
   return m;
 }
 
-export async function setLeadStage(leadId: string, stage: string, lostReason?: string) {
-  if (!LEAD_STAGES.includes(stage as LeadStage)) throw new Error("Unknown stage.");
+export async function setLeadStage(leadId: string, requested: string, lostReason?: string) {
+  const stage = normaliseStage(requested);
+  if (!stage) throw new Error("Unknown stage.");
   const { ctx, lead } = await ownLead(leadId);
   if (lead.stage === stage) return;
   await db

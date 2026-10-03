@@ -9,6 +9,9 @@ import { requestPaymentForAssistant } from "@/lib/payments";
 import { EMAIL_DETAILS_INSTRUCTIONS, emailOrderDetails } from "@/lib/email/details";
 import { identifyFromTranscript } from "@/lib/crm/identify";
 import type { IdentifiedBy } from "@/lib/crm/identity";
+import { offerInstructions, paymentInstructions } from "@/lib/agent/respond";
+import { checkOffer } from "@/lib/payments/offers";
+import { VERIFY_INSTRUCTIONS, sendVerificationCode, verifyCode } from "@/lib/verify/codes";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { runningSentiment, scoreUtterance } from "@/lib/pipelines/sentiment";
@@ -183,6 +186,21 @@ export const TOOLS = [
         },
       },
       {
+        name: "check_offer",
+        description: "Check whether one of the business's published offers applies to this caller. Decided by the business's rules: use what it returns. There are no other discounts.",
+        parameters: { type: "OBJECT", properties: { code: { type: "STRING", description: "The offer code the caller said, e.g. FIRST20" } }, required: ["code"] },
+      },
+      {
+        name: "send_verification_code",
+        description: "Send the caller a 6-digit code to the phone number (SMS) or email the business already has for them, to prove who they are. Never to one said on the call.",
+        parameters: { type: "OBJECT", properties: { via: { type: "STRING", enum: ["sms", "email", "any"], description: "Their preference, if they said one" } } },
+      },
+      {
+        name: "verify_code",
+        description: "Check the verification code the caller read out. Pass the digits exactly as they said them.",
+        parameters: { type: "OBJECT", properties: { code: { type: "STRING", description: "The code, as digits" } }, required: ["code"] },
+      },
+      {
         name: "close_with_agreement",
         description:
           "End the call by agreement. Use ONLY when you could not do what the caller " +
@@ -260,11 +278,17 @@ export function liveInstruction(
     ...(config.canCollect
       ? [
           "TAKING PAYMENT",
-          "If the caller wants to pay for an order, call request_payment with the order reference. The business",
-          "works out the amount: never say a figure before the tool returns one. The link goes to their phone by text.",
+          paymentInstructions(config),
+          "The link goes to their phone by text; never read it out.",
           "",
         ]
       : []),
+    "OFFERS AND DISCOUNTS",
+    offerInstructions(config),
+    "",
+    "PROVING WHO THEY ARE",
+    VERIFY_INSTRUCTIONS,
+    "",
     "WHAT YOU MAY SAY",
     `- Only what search_knowledge returned${config.catalog ? `, or the list of what ${brandName} offers above` : ""}.`,
     "  If neither has it, say you do not have it in front of you and offer to get",
@@ -355,7 +379,10 @@ function toolsFor(config: AgentConfig) {
             "Give the order reference; the business works out the amount and texts the link to their phone.",
           parameters: {
             type: "OBJECT",
-            properties: { orderReference: { type: "STRING", description: "The order reference, as one string, e.g. TD-7K3QX9" } },
+            properties: {
+              orderReference: { type: "STRING", description: "The order reference, as one string, e.g. TD-7K3QX9" },
+              offerCode: { type: "STRING", description: "A published offer code, only if check_offer said it applies" },
+            },
             required: ["orderReference"],
           },
         },
@@ -461,9 +488,42 @@ export async function handleToolCall(
     };
   }
 
+  if (name === "check_offer") {
+    const code = String(args.code ?? "");
+    const [now] = await db.select({ customerId: s.conversations.customerId }).from(s.conversations).where(eq(s.conversations.id, ctx.conversationId)).limit(1);
+    const check = await checkOffer(ctx.brandId, now?.customerId ?? null, code);
+    return {
+      response: check.valid ? { applies: true, offer: check.says } : { applies: false, reason: check.reason },
+      outcome: { name, summary: `Offer ${code.slice(0, 20)} ${check.valid ? "applies" : "does not apply"}`, allowed: check.valid, detail: check.valid ? check.says : check.reason },
+    };
+  }
+
+  if (name === "send_verification_code") {
+    const via = args.via === "sms" || args.via === "email" ? args.via : "any";
+    const r = await sendVerificationCode(ctx.conversationId, via);
+    return {
+      response: r.sent ? { ...r, instruction: "Tell the caller where the code went (as given) and ask them to read it out." } : r,
+      outcome: { name, summary: r.sent ? `Verification code sent to ${r.to}` : "No verification code sent", allowed: r.sent, detail: r.sent ? r.to : r.reason },
+    };
+  }
+
+  if (name === "verify_code") {
+    const r = await verifyCode(ctx.conversationId, String(args.code ?? ""));
+    return {
+      response: r.verified ? { verified: true, note: "They have proven who they are." } : r,
+      outcome: { name, summary: r.verified ? "Caller verified with a code" : "Code not accepted", allowed: r.verified, detail: r.verified ? undefined : r.reason },
+    };
+  }
+
   if (name === "request_payment") {
     const orderReference = String(args.orderReference ?? "");
-    const result = await requestPaymentForAssistant({ brandId: ctx.brandId, conversationId: ctx.conversationId, orderReference, agentName: ctx.config.agentName });
+    const result = await requestPaymentForAssistant({
+      brandId: ctx.brandId,
+      conversationId: ctx.conversationId,
+      orderReference,
+      agentName: ctx.config.agentName,
+      offerCode: typeof args.offerCode === "string" ? args.offerCode : null,
+    });
     return {
       response: result.made
         ? {
@@ -472,12 +532,18 @@ export async function handleToolCall(
               "Tell the caller the amount, and that the payment link has been sent to their phone by text. " +
               "Do not read the link out.",
           }
-        : { ...result.response, instruction: "Tell the caller plainly why, and offer that the team will follow up." },
+        : "awaitingApproval" in result.response && result.response.awaitingApproval
+          ? { ...result.response, instruction: "Tell the caller the team confirms each payment link, and it will be texted to them as soon as they have. Do not say an amount." }
+          : { ...result.response, instruction: "Tell the caller plainly why, and offer that the team will follow up." },
       outcome: {
         name,
-        summary: result.made ? `Payment link ${result.response.amount} for ${orderReference}` : `No payment link for ${orderReference}`,
-        allowed: result.made,
-        detail: result.made ? result.response.reference : result.response.reason,
+        summary: result.made
+          ? `Payment link ${result.response.amount} for ${orderReference}`
+          : "awaitingApproval" in result
+            ? `Payment link for ${orderReference} sent to the team to approve`
+            : `No payment link for ${orderReference}`,
+        allowed: result.made || "awaitingApproval" in result,
+        detail: result.made ? result.response.reference : "reason" in result.response ? result.response.reason : undefined,
       },
     };
   }
@@ -1142,6 +1208,9 @@ const TOOL_NAMES = [
   "look_up_record",
   "request_payment",
   "email_details",
+  "check_offer",
+  "send_verification_code",
+  "verify_code",
 ];
 
 export function narratedATool(said: string): string | null {

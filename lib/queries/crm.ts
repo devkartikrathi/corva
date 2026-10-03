@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-o
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
-import { LEAD_STAGES, OPEN_STAGES, industryFor } from "@/lib/business/industries";
+import { LEAD_STAGES, OPEN_STAGES, industryFor, normaliseStage } from "@/lib/business/industries";
 
 /**
  * Reads for the CRM screens: leads, follow-ups, and who on the team can own
@@ -76,7 +76,7 @@ export type LeadRow = Awaited<ReturnType<typeof listLeads>>[number];
 export function pipeline(leads: LeadRow[], industryKey: string) {
   const industry = industryFor(industryKey);
   return LEAD_STAGES.map((stage) => {
-    const inStage = leads.filter((l) => l.stage === stage);
+    const inStage = leads.filter((l) => normaliseStage(l.stage) === stage);
     return {
       stage,
       label: industry.stages[stage],

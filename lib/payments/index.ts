@@ -1,6 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { isVerified } from "@/lib/crm/identity";
+import { paymentPolicyFor, requestApproval } from "./approvals";
+import { checkOffer, recordOfferUse, type AppliedOffer } from "./offers";
 import { refreshProfile } from "@/lib/crm/profile";
 import * as s from "@/lib/db/schema";
 import { customerForCaller, isUnnamed } from "@/lib/crm/capture";
@@ -120,6 +123,8 @@ export async function askForPayment(input: {
   byAi: boolean;
   /** Have the business's provider also send the link by SMS / email. */
   notify?: boolean;
+  /** A published offer, already checked (lib/payments/offers.ts): applied by Corva, or by the business's system. */
+  offer?: AppliedOffer | null;
 }): Promise<CustomerPayment> {
   if (input.byAi && input.amountPaise != null) throw new PaymentError("The assistant cannot name an amount; ask for an order's payment instead.");
   if (!input.orderReference && input.amountPaise == null) throw new PaymentError("Give an order reference or an amount.");
@@ -137,6 +142,7 @@ export async function askForPayment(input: {
         description: input.description ?? null,
         requestedByName: input.requestedByName,
         byAi: input.byAi,
+        offer: input.offer ?? null,
       });
     } catch (e) {
       if (e instanceof CollectionError) throw new PaymentError(e.message);
@@ -159,6 +165,17 @@ export async function askForPayment(input: {
     conversationId: input.conversationId ?? undefined,
     requestedBy: input.requestedByName,
     notify: input.notify !== false,
+    // A published offer Corva has checked for this customer; the business's system applies it.
+    offer: input.offer
+      ? {
+          code: input.offer.code,
+          title: input.offer.title,
+          kind: input.offer.kind,
+          value: input.offer.kind === "percent" ? input.offer.value : input.offer.value / 100,
+          maxDiscountRupees: input.offer.maxDiscountPaise != null ? input.offer.maxDiscountPaise / 100 : undefined,
+          minOrderRupees: input.offer.minOrderPaise != null ? input.offer.minOrderPaise / 100 : undefined,
+        }
+      : undefined,
   });
 
   const t = Math.floor(Date.now() / 1000);
@@ -186,6 +203,20 @@ export async function askForPayment(input: {
   const brand = { id: input.brandId } as Brand;
   const { payment } = await recordPayment(brand, reply!, { conversationId: input.conversationId ?? null, customerId: customer?.id ?? null, byAi: input.byAi, requestedByName: input.requestedByName });
   return payment;
+}
+
+async function convertLead(p: CustomerPayment) {
+  const open = sql`${s.leads.stage} in ('new','contacted','qualified','proposal')`;
+  const [lead] = p.conversationId
+    ? await db.select({ id: s.leads.id }).from(s.leads).where(and(eq(s.leads.conversationId, p.conversationId), open)).limit(1)
+    : [];
+  const [fallback] =
+    !lead && p.customerId
+      ? await db.select({ id: s.leads.id }).from(s.leads).where(and(eq(s.leads.customerId, p.customerId), open)).orderBy(desc(s.leads.createdAt)).limit(1)
+      : [];
+  const id = lead?.id ?? fallback?.id;
+  if (!id) return;
+  await db.update(s.leads).set({ stage: "won", stageChangedAt: new Date(), updatedAt: new Date() }).where(eq(s.leads.id, id));
 }
 
 /** The customer a reported payment belongs to, if it can be told. */
@@ -317,6 +348,9 @@ export async function recordPayment(
  * Best-effort: the payment is recorded whatever happens here.
  */
 async function announcePaid(p: CustomerPayment) {
+  // Paid is converted: the lead this payment was for (its conversation's, else
+  // the customer's open one) moves to Converted.
+  await convertLead(p).catch((e) => console.error("[payments] lead", (e as Error).message));
   // What they have paid is part of who they are to the business.
   if (p.customerId) await refreshProfile(p.customerId).catch((e) => console.error("[payments] profile", (e as Error).message));
   if (!p.conversationId) return;
@@ -383,18 +417,71 @@ export async function paymentsContext(customerId: string | null) {
  * the assistant quotes what comes back. A refusal ("no bill on this order
  * yet") comes back as words it can repeat, not as an error.
  */
-export async function requestPaymentForAssistant(opts: { brandId: string; conversationId: string; orderReference: string; agentName: string }) {
-  const [conversation] = await db.select({ customerId: s.conversations.customerId }).from(s.conversations).where(eq(s.conversations.id, opts.conversationId)).limit(1);
+export async function requestPaymentForAssistant(opts: { brandId: string; conversationId: string; orderReference: string; agentName: string; offerCode?: string | null }) {
+  const [conversation] = await db
+    .select({ customerId: s.conversations.customerId, identifiedBy: s.conversations.identifiedBy })
+    .from(s.conversations)
+    .where(eq(s.conversations.id, opts.conversationId))
+    .limit(1);
+  const orderReference = opts.orderReference.trim().slice(0, 60);
+  const policy = await paymentPolicyFor(opts.brandId);
+
+  // Who they are, proven, before any money is asked for.
+  if (policy.verifyFirst && !isVerified(conversation?.identifiedBy)) {
+    return {
+      made: false as const,
+      response: {
+        made: false,
+        needsVerification: true,
+        reason: "First the customer must prove who they are: call send_verification_code, then verify_code with the code they type, then ask for the payment again.",
+      },
+    };
+  }
+
+  // A discount only ever comes from a published offer, checked here.
+  let offer: AppliedOffer | null = null;
+  if (opts.offerCode?.trim()) {
+    const check = await checkOffer(opts.brandId, conversation?.customerId ?? null, opts.offerCode);
+    if (!check.valid) return { made: false as const, response: { made: false, reason: check.reason } };
+    offer = check.offer;
+  }
+
+  // A person approves the link before it exists.
+  if (policy.approvalRequired) {
+    const approval = await requestApproval({
+      brandId: opts.brandId,
+      conversationId: opts.conversationId,
+      customerId: conversation?.customerId ?? null,
+      orderReference,
+      offer,
+      identifiedBy: conversation?.identifiedBy ?? null,
+      requestedByName: `${opts.agentName} (AI)`,
+    });
+    return {
+      made: false as const,
+      awaitingApproval: approval.id,
+      response: {
+        made: false,
+        awaitingApproval: true,
+        say:
+          "The team checks each payment link before it is sent. Tell the customer the link will reach them here (and by SMS or email) " +
+          "as soon as the team has confirmed it. Do not state an amount.",
+      },
+    };
+  }
+
   try {
     const p = await askForPayment({
       brandId: opts.brandId,
       conversationId: opts.conversationId,
       customerId: conversation?.customerId ?? null,
-      orderReference: opts.orderReference.trim().slice(0, 60),
+      orderReference,
       requestedByName: `${opts.agentName} (AI)`,
       byAi: true,
       notify: true,
+      offer,
     });
+    if (offer) await recordOfferUse(opts.brandId, offer.code, p.customerId ?? conversation?.customerId ?? null, orderReference);
     return {
       made: true as const,
       payment: p,
@@ -404,6 +491,7 @@ export async function requestPaymentForAssistant(opts: { brandId: string; conver
         link: p.url,
         reference: p.reference,
         forWhat: p.description,
+        ...(offer ? { offer: `${offer.code} was sent with the request; the amount above is what the business's system charged.` } : {}),
         note: "The business has also sent the link to the customer's phone by SMS where it has their number.",
       },
     };

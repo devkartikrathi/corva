@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { discountFor, type AppliedOffer } from "./offers";
 import * as s from "@/lib/db/schema";
 import { APP_URL } from "@/lib/email";
 import { referenceKey } from "@/lib/integrations/records";
@@ -119,6 +120,8 @@ export async function collectForBusiness(input: {
   description: string | null;
   requestedByName: string;
   byAi: boolean;
+  /** A published offer, already checked for this customer: taken off here, in code. */
+  offer?: AppliedOffer | null;
 }) {
   const settings = await collectionFor(input.brandId);
   if (!settings) throw new CollectionError("This business has not set up payments yet.");
@@ -137,13 +140,21 @@ export async function collectForBusiness(input: {
     customerId ??= owed.customerId;
     orderReference = owed.reference ?? orderReference;
   }
+  let offerNote = "";
+  if (input.offer) {
+    const off = discountFor(input.offer, amountPaise);
+    if (off > 0) {
+      amountPaise -= off;
+      offerNote = ` (${input.offer.code}: ${formatRupees(off, { decimals: "auto" })} off)`;
+    }
+  }
   if (!Number.isInteger(amountPaise) || amountPaise < MIN_PAISE || amountPaise > MAX_PAISE) {
     throw new CollectionError(`The amount must be between ${formatRupees(MIN_PAISE)} and ${formatRupees(MAX_PAISE)}.`);
   }
 
   const [customer] = customerId ? await db.select().from(s.customers).where(eq(s.customers.id, customerId)).limit(1) : [];
   const reference = `CP-${Array.from(randomBytes(8), (b) => "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"[b % 32]).join("")}`;
-  const description = `${brand?.name ?? "Payment"} — ${input.description?.trim() || (orderReference ? `order ${orderReference}` : "payment")}`.slice(0, 500);
+  const description = `${brand?.name ?? "Payment"} — ${input.description?.trim() || (orderReference ? `order ${orderReference}` : "payment")}${offerNote}`.slice(0, 500);
   const expiresAt = new Date(Date.now() + LINK_LIFETIME_MS);
   const feePaise = Math.round((amountPaise * settings.feeBasisPoints) / 10_000);
 

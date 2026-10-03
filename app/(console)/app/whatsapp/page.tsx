@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { ConnectWhatsApp, CopyValue, DisconnectWhatsApp } from "@/components/WhatsApp";
+import { ConnectWhatsApp, CopyValue, DisconnectWhatsApp, OpeningTemplate } from "@/components/WhatsApp";
 import { Kicker, ScreenHeader, ScreenRefusal, SectionTitle } from "@/components/ui";
-import { connectWhatsAppNumber, disconnectWhatsAppNumber } from "@/lib/actions/whatsapp";
+import { connectWhatsAppNumber, disconnectWhatsAppNumber, saveWhatsAppOpeningTemplate } from "@/lib/actions/whatsapp";
 import { can } from "@/lib/auth/permissions";
 import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { sealingReady } from "@/lib/data/crypto";
@@ -82,6 +82,18 @@ export default async function WhatsAppPage() {
       {number.lastError && (
         <div role="alert" style={{ padding: "10px 24px", fontSize: 12, fontWeight: 700, color: "var(--color-accent-700)", borderBottom: "1px solid var(--color-neutral-300)" }}>
           The last reply could not be sent: {number.lastError}
+        </div>
+      )}
+
+      {canManage && (
+        <div style={{ padding: "16px 24px", borderBottom: "1px solid var(--color-neutral-300)", display: "grid", gap: 8, maxWidth: 820 }}>
+          <SectionTitle size={16}>Writing to a customer first</SectionTitle>
+          <p style={{ ...step, margin: 0 }}>
+            The assistant only ever answers people who wrote to you. Someone on the team can write first from a
+            customer&rsquo;s page — freely within 24 hours of their last message; after that, WhatsApp only allows a
+            template Meta has approved (WhatsApp Manager → Message templates, category Utility). Give its name here.
+          </p>
+          <OpeningTemplate current={number.openingTemplate ?? null} onSave={saveWhatsAppOpeningTemplate} />
         </div>
       )}
 
