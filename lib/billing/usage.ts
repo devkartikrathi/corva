@@ -83,7 +83,8 @@ export async function accountState(orgId: string): Promise<AccountState> {
     db
       .select({
         brands: sql<number>`(select count(*)::int from ${s.brands} b where b.org_id = ${orgId})`,
-        members: sql<number>`(select count(*)::int from ${s.memberships} m where m.org_id = ${orgId} and m.status in ('active', 'invited'))`,
+        // Test accounts (View as) are not seats.
+        members: sql<number>`(select count(*)::int from ${s.memberships} m where m.org_id = ${orgId} and m.status in ('active', 'invited') and coalesce(m.clerk_user_id, '') not like 'test:%')`,
       })
       .from(sql`(select 1) as one`),
   ]);

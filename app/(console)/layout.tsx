@@ -3,7 +3,9 @@ import { demoEnabled } from "@/lib/auth/demo";
 import { can } from "@/lib/auth/permissions";
 import { setAvailability } from "@/lib/actions/handoffs";
 import { acceptHandoff, declineHandoff } from "@/lib/actions/handoffs";
-import { switchBrand, switchProfile } from "@/lib/actions/session";
+import { createTestAccounts, switchBrand, switchProfile, viewAs } from "@/lib/actions/session";
+import { testAccounts } from "@/lib/auth/view-as";
+import { HeaderControls } from "@/components/HeaderControls";
 import { conversationStats } from "@/lib/queries/conversations";
 import { switchableProfiles } from "@/lib/queries/workspace";
 import { visibleNavGroups } from "@/lib/nav";
@@ -20,11 +22,14 @@ export const metadata = {
 export default async function ConsoleLayout({ children }: { children: React.ReactNode }) {
   // Every /app route passes through here, so this is the gate. Pages call the
   // same memoised context again for the brand they need.
-  const { session, brand, brands, isDemo } = await getConsoleContext();
-  const [stats, profiles, account] = await Promise.all([
+  const { session, brand, brands, isDemo, viewingAs } = await getConsoleContext();
+  // An owner (or an owner already looking through a test account) may switch roles.
+  const canViewAs = !isDemo && (viewingAs !== null || session.role === "owner");
+  const [stats, profiles, account, tests] = await Promise.all([
     conversationStats(brand.id),
     demoEnabled() ? switchableProfiles(session.orgId) : Promise.resolve([]),
     accountState(session.orgId),
+    canViewAs ? testAccounts(session.orgId) : Promise.resolve([]),
   ]);
 
   // Said on every screen, because an assistant that has stopped answering is
@@ -62,25 +67,52 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
         brand={{ id: brand.id, name: brand.name, initials: brand.initials, isLive: brand.isLive }}
         brands={brands.map((b) => ({ id: b.id, name: b.name, initials: b.initials, isLive: b.isLive }))}
         orgName={session.orgName}
-        userName={session.name}
-        userRole={`${session.role[0].toUpperCase()}${session.role.slice(1)}`}
-        membershipId={session.membershipId}
-        availability={session.availability}
-        profiles={profiles}
-        canSwitchProfile={demoEnabled() && profiles.length > 1}
-        canTakeCalls={takesCalls}
         counts={{ live: stats.live, waiting: stats.waiting }}
         groups={visibleNavGroups(session.actor)}
         onSwitchBrand={switchBrand}
-        onSwitchProfile={switchProfile}
-        onSetAvailability={setAvailability}
       />
       <main className="cv-main" style={{ overflow: "auto", position: "relative" }}>
         {/* Between a tablet and this width the main pane scrolls sideways
             rather than reflowing; on a phone the floor is lifted and each
             screen stacks — see "Small screens" in globals.css. */}
         <div className="cv-main-inner" style={{ minWidth: 1180 }}>
-          <TopBar live={stats.live} waiting={stats.waiting} signedIn={!isDemo} />
+          <TopBar
+            live={stats.live}
+            waiting={stats.waiting}
+            signedIn={!isDemo}
+            controls={
+              <HeaderControls
+                me={{ id: session.membershipId, name: session.name, role: session.role }}
+                availability={session.availability}
+                canTakeCalls={takesCalls}
+                onSetAvailability={setAvailability}
+                viewAs={
+                  canViewAs
+                    ? { realName: viewingAs?.realName ?? session.name, viewing: viewingAs !== null, accounts: tests, onViewAs: viewAs, onCreate: createTestAccounts }
+                    : null
+                }
+                demo={demoEnabled() ? { profiles, onSwitch: switchProfile } : null}
+              />
+            }
+          />
+          {viewingAs && (
+            <div className="m-pad" style={{ padding: "7px 24px", fontSize: 12, background: "var(--color-text)", color: "var(--color-bg)", display: "flex", gap: 10, alignItems: "center" }}>
+              <span>
+                You are looking at the console as <b>{session.name}</b> ({session.role}). Everything here is what that role sees and may do.
+              </span>
+              <form
+                action={async () => {
+                  "use server";
+                  await viewAs(null);
+                }}
+                style={{ marginLeft: "auto" }}
+              >
+                <button type="submit" style={{ fontSize: 11.5, fontWeight: 700, textDecoration: "underline", color: "var(--color-bg)" }}>
+                  Back to {viewingAs.realName}
+                </button>
+              </form>
+            </div>
+          )}
           {planNotice && (
             <a
               href="/app/billing"

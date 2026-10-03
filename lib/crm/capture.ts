@@ -107,7 +107,8 @@ export async function pickOwner(brandId: string, customerId: string | null) {
     if (c?.id) return { membershipId: c.id, name: c.name };
   }
 
-  const candidates = await candidatesFor(brand.orgId, brandId);
+  // Real people only: a test account must never be handed a customer's lead.
+  const candidates = (await candidatesFor(brand.orgId, brandId)).filter((c) => !c.isTest);
   if (candidates.length === 0) return null;
 
   const load = await db

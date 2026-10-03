@@ -6,6 +6,7 @@ import { BRAND_COOKIE, resolveBrand } from "./brand";
 import type { brands } from "@/lib/db/schema";
 import { demoEnabled, getDemoTenantSession } from "./demo";
 import { getTenantSession, getVisibleBrands, type TenantSession } from "./session";
+import { viewAsSession } from "./view-as";
 
 /**
  * The request context for each console: who is asking, and what they may see.
@@ -29,11 +30,18 @@ export type ConsoleContext = {
   brand: Brand;
   /** True when no one actually signed in. Surfaced in the UI, not hidden. */
   isDemo: boolean;
+  /**
+   * Set when an owner is looking at the console as one of their test
+   * accounts: who they really are. `session` is then the test account.
+   */
+  viewingAs: { realName: string; realMembershipId: string } | null;
 };
 
 export const getConsoleContext = cache(async (): Promise<ConsoleContext> => {
   const real = await getTenantSession();
-  const session = real ?? (await getDemoTenantSession());
+  // An owner looking through a test account's eyes — see ./view-as.ts.
+  const viewing = real ? await viewAsSession(real) : null;
+  const session = viewing ?? real ?? (await getDemoTenantSession());
 
   if (!session) {
     if (demoEnabled()) redirect("/no-workspace");
@@ -51,5 +59,6 @@ export const getConsoleContext = cache(async (): Promise<ConsoleContext> => {
     brands: visible,
     brand: resolveBrand(visible, selected),
     isDemo: !real,
+    viewingAs: viewing && real ? { realName: real.name, realMembershipId: real.membershipId } : null,
   };
 });

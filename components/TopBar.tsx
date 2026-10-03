@@ -1,10 +1,11 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { AccountMenu } from "./AccountMenu";
 import { MobileNav } from "./MobileNav";
 import { LiveDot } from "./ui";
 
 /** The sticky 52px strip above every screen. */
-export function TopBar({ live, waiting, signedIn = false }: { live: number; waiting: number; signedIn?: boolean }) {
+export function TopBar({ live, waiting, signedIn = false, controls }: { live: number; waiting: number; signedIn?: boolean; controls?: ReactNode }) {
   return (
     <div
       className="cv-topbar"
@@ -102,6 +103,12 @@ export function TopBar({ live, waiting, signedIn = false }: { live: number; wait
             <path d="M7 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Zm4 9.5 5 5" stroke="currentColor" strokeWidth="2" fill="none" />
           </svg>
         </Link>
+        {controls && (
+          <>
+            <span className="m-hide" style={{ height: 20, width: 1, background: "var(--color-neutral-300)" }} />
+            {controls}
+          </>
+        )}
         <span className="m-hide" style={{ height: 20, width: 1, background: "var(--color-neutral-300)" }} />
         <span className="m-hide" style={{ fontSize: 11.5, fontWeight: 600 }}>
           {new Date().toLocaleString("en-GB", {

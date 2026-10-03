@@ -7,6 +7,9 @@ import { getConsoleContext } from "@/lib/auth/context";
 import { BRAND_COOKIE } from "@/lib/auth/brand";
 import { demoEnabled } from "@/lib/auth/demo";
 import { PROFILE_COOKIE } from "@/lib/auth/profile";
+import { getTenantSession } from "@/lib/auth/session";
+import { TEST_IDENTITY_PREFIX, TEST_ROLES, VIEW_AS_COOKIE, testAccounts } from "@/lib/auth/view-as";
+import { audit } from "./audit";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 
@@ -83,4 +86,58 @@ export async function switchProfile(membershipId: string) {
   });
 
   revalidatePath("/app", "layout");
+}
+
+/**
+ * Look at the console as one of this business's test accounts, or as
+ * yourself again (`null`). Owners only — checked against who is really
+ * signed in, never against whoever is being viewed as. See lib/auth/view-as.ts.
+ */
+export async function viewAs(membershipId: string | null) {
+  const real = await getTenantSession();
+  if (!real || real.role !== "owner") throw new Error("Only an owner can view the console as another role.");
+  const jar = await cookies();
+  if (!membershipId || membershipId === real.membershipId) {
+    jar.delete(VIEW_AS_COOKIE);
+    revalidatePath("/app", "layout");
+    return;
+  }
+  const accounts = await testAccounts(real.orgId);
+  const target = accounts.find((a) => a.id === membershipId);
+  if (!target) throw new Error("That is not one of this business's test accounts.");
+  jar.set(VIEW_AS_COOKIE, target.id, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 60 * 60 * 8 });
+  await audit({ orgId: real.orgId, actorId: real.membershipId, actorName: real.name, action: "view_as.started", target: `${target.name} (${target.role})` });
+  revalidatePath("/app", "layout");
+}
+
+/**
+ * One test account per role — Admin, Manager, Agent, Analyst — for viewing
+ * the console as each. Made once; already-made ones are left alone. Their
+ * identity (`test:…`) can never be claimed by a sign-in, and they are not
+ * counted as seats.
+ */
+export async function createTestAccounts() {
+  const real = await getTenantSession();
+  if (!real || real.role !== "owner") throw new Error("Only an owner can create test accounts.");
+  const existing = new Set((await testAccounts(real.orgId)).map((a) => a.role));
+  const made: string[] = [];
+  for (const role of TEST_ROLES) {
+    if (existing.has(role)) continue;
+    const label = `${role[0].toUpperCase()}${role.slice(1)}`;
+    await db.insert(s.memberships).values({
+      orgId: real.orgId,
+      clerkUserId: `${TEST_IDENTITY_PREFIX}${real.orgId}:${role}`,
+      email: `test-${role}@${real.orgSlug}.corva.test`,
+      name: `Test ${label}`,
+      role,
+      status: "active",
+      allBrands: true,
+      availability: "offline",
+      invitedByName: real.name,
+    });
+    made.push(label);
+  }
+  if (made.length) await audit({ orgId: real.orgId, actorId: real.membershipId, actorName: real.name, action: "test_accounts.created", target: made.join(", ") });
+  revalidatePath("/app", "layout");
+  return made;
 }

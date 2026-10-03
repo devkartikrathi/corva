@@ -32,6 +32,8 @@ export type Candidate = {
   availability: "available" | "busy" | "offline";
   /** Handoffs already on their plate, waiting or accepted. */
   openHandoffs: number;
+  /** A test account an owner made to see the console as a role (lib/auth/view-as.ts). */
+  isTest: boolean;
 };
 
 export type Routing = {
@@ -92,7 +94,10 @@ export async function candidatesFor(orgId: string, brandId: string): Promise<Can
       rating: r.membership.rating,
       availability: r.membership.availability,
       openHandoffs: r.openHandoffs,
-    }));
+      isTest: Boolean(r.membership.clerkUserId?.startsWith("test:")),
+    }))
+    // A test account is rung only when someone has made it Available on purpose.
+    .filter((c) => !c.isTest || c.availability === "available");
 }
 
 /** Free first, then best rated, then whoever is carrying least. */
