@@ -9,6 +9,7 @@ import * as s from "@/lib/db/schema";
 import { formatRupees } from "@/lib/money";
 import { PaymentError, askForPayment, paymentJson, removePaymentEndpoint, savePaymentEndpoint } from "@/lib/payments";
 import { deliverHumanReply } from "@/lib/whatsapp/cloud";
+import { sendSms } from "@/lib/sms";
 import { audit } from "./audit";
 
 /** Where this business makes payment links. Returns the signing secret, shown once. */
@@ -38,7 +39,7 @@ export async function disconnectPaymentEndpoint() {
  */
 export async function requestConversationPayment(
   conversationId: string,
-  input: { amountRupees?: string; orderReference?: string; description?: string; send: boolean },
+  input: { amountRupees?: string; orderReference?: string; description?: string; send: boolean; sms?: boolean },
 ) {
   const { session, brand } = await getConsoleContext();
   assertCan(session.actor, "calls.handle", { brandId: brand.id });
@@ -78,6 +79,22 @@ export async function requestConversationPayment(
     await db.insert(s.turns).values({ conversationId, ordinal: (last?.ordinal ?? -1) + 1, speaker: "human", authorName: session.name, body: text });
   }
 
+  // By SMS as well, when asked and the business sends SMS (a template; see lib/sms).
+  let smsNote: string | null = null;
+  if (input.sms && payment.url) {
+    const [customer] = conversation.customerId ? await db.select().from(s.customers).where(eq(s.customers.id, conversation.customerId)).limit(1) : [];
+    const sent = await sendSms({
+      brandId: brand.id,
+      purpose: "payment_link",
+      to: customer?.phone,
+      vars: [customer?.name?.split(" ")[0] ?? "Customer", formatRupees(payment.amountPaise, { decimals: "auto" }).replace("₹", "Rs "), payment.description ?? "your order", payment.url, brand.name],
+      customerId: conversation.customerId,
+      conversationId,
+      sentByName: session.name,
+    });
+    smsNote = sent.sent ? "Sent by SMS." : `Not sent by SMS: ${sent.reason}.`;
+  }
+
   await audit({
     orgId: session.orgId,
     brandId: brand.id,
@@ -88,5 +105,5 @@ export async function requestConversationPayment(
     meta: { amountPaise: payment.amountPaise, conversationId },
   });
   revalidatePath("/app/conversations");
-  return paymentJson(payment);
+  return { ...paymentJson(payment), smsNote };
 }

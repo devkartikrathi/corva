@@ -1411,6 +1411,78 @@ export const webhooks = pgTable(
   (t) => [index("webhooks_brand_idx").on(t.brandId)],
 );
 
+/* ─── SMS ──────────────────────────────────────────────────────────────── */
+
+/**
+ * How a business sends SMS: its provider, sender id and (sealed) credentials.
+ *
+ * In India every SMS must come from a DLT-registered sender and match an
+ * approved template, so the assistant never writes free-form SMS — it fills
+ * a template (`sms_templates`). See docs/TELEPHONY.md, Part 2.
+ */
+export const smsSettings = pgTable("sms_settings", {
+  brandId: uuid("brand_id")
+    .primaryKey()
+    .references(() => brands.id, { onDelete: "cascade" }),
+  /** "msg91" | "twilio" | "log" (sends nothing; for testing). */
+  provider: text("provider").notNull().default("log"),
+  enabled: boolean("enabled").notNull().default(false),
+  /** DLT header ("TMBLDY") or, for Twilio, the sending number / messaging service. */
+  senderId: text("sender_id"),
+  /** The business's DLT principal entity id. */
+  dltEntityId: text("dlt_entity_id"),
+  /** Provider credentials as JSON, sealed (lib/data/crypto.ts). Never sent back to the browser. */
+  credentials: text("credentials"),
+  updatedByName: text("updated_by_name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** One approved message per purpose: its words with `{#var#}` slots, and its DLT ids. */
+export const smsTemplates = pgTable(
+  "sms_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    /** "payment_link" | "booking_confirmed" | "callback_arranged" | "missed_call" | "order_update" */
+    purpose: text("purpose").notNull(),
+    /** Exactly as approved on DLT, with `{#var#}` for each variable. */
+    body: text("body").notNull(),
+    dltTemplateId: text("dlt_template_id"),
+    /** The provider's own id for it, where it has one (MSG91 Flow template id). */
+    providerTemplateId: text("provider_template_id"),
+    enabled: boolean("enabled").notNull().default(true),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("sms_templates_brand_purpose_idx").on(t.brandId, t.purpose)],
+);
+
+/** Every SMS sent, or tried: what, to whom, why, and what the provider said. */
+export const smsMessages = pgTable(
+  "sms_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    to: text("to").notNull(),
+    purpose: text("purpose").notNull(),
+    body: text("body").notNull(),
+    provider: text("provider").notNull(),
+    /** "sent" | "failed" | "delivered" | "logged" (the log provider) */
+    status: text("status").notNull(),
+    providerMessageId: text("provider_message_id"),
+    error: text("error"),
+    sentByName: text("sent_by_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("sms_messages_brand_idx").on(t.brandId, t.createdAt), index("sms_messages_customer_idx").on(t.customerId)],
+);
+
 /* ─── Collecting payments from customers ───────────────────────────────── */
 
 /**

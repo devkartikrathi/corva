@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 
-type Made = { reference: string; amountRupees: number; url: string | null; qrUrl: string | null; status: string };
+type Made = { reference: string; amountRupees: number; url: string | null; qrUrl: string | null; status: string; smsNote?: string | null };
 
 /**
  * Ask the customer in this conversation to pay. An amount, or an order
@@ -19,13 +19,14 @@ export function RequestPayment({
   canSend: boolean;
   onRequest: (
     conversationId: string,
-    input: { amountRupees?: string; orderReference?: string; description?: string; send: boolean },
+    input: { amountRupees?: string; orderReference?: string; description?: string; send: boolean; sms?: boolean },
   ) => Promise<Made>;
 }) {
   const [amount, setAmount] = useState("");
   const [order, setOrder] = useState("");
   const [description, setDescription] = useState("");
   const [send, setSend] = useState(canSend);
+  const [sms, setSms] = useState(false);
   const [made, setMade] = useState<Made | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -44,6 +45,10 @@ export function RequestPayment({
           <input type="checkbox" checked={send} onChange={(e) => setSend(e.target.checked)} />
           {canSend ? "Send it to the customer here" : "Post it in the transcript"}
         </label>
+        <label style={{ display: "flex", gap: 5, alignItems: "center" }}>
+          <input type="checkbox" checked={sms} onChange={(e) => setSms(e.target.checked)} />
+          Also by SMS
+        </label>
         <span style={{ flex: 1 }} />
         <button
           type="button"
@@ -53,7 +58,7 @@ export function RequestPayment({
             setError(null);
             start(async () => {
               try {
-                setMade(await onRequest(conversationId, { amountRupees: amount, orderReference: order, description, send }));
+                setMade(await onRequest(conversationId, { amountRupees: amount, orderReference: order, description, send, sms }));
                 setAmount("");
                 setOrder("");
                 setDescription("");
@@ -86,6 +91,7 @@ export function RequestPayment({
               </a>
             </>
           )}
+          {made.smsNote && <div style={{ marginTop: 4, fontSize: 11.5, color: "var(--color-neutral-700)" }}>{made.smsNote}</div>}
         </div>
       )}
     </div>

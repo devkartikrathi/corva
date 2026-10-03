@@ -29,7 +29,8 @@ expect to be asked. "Built" means in the product today.
 
 ## Next — what stands between a pilot and a paying business
 
-1. **Real phone numbers.** A telephony provider (Exotel, Plivo or Twilio) bridged to the voice
+1. **Real phone numbers** (planned in `docs/TELEPHONY.md`: WhatsApp calling on the business's own
+   number, a provider number with call forwarding; SMS sending is built). A telephony provider (Exotel, Plivo or Twilio) bridged to the voice
    route, so the number on a business's signboard reaches the assistant, and a taken-over call
    can ring a team member's phone. Today voice is the website's call button only.
 2. **Email that reaches customers.** A verified sending domain per business (or a shared Corva

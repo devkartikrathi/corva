@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { candidatesFor } from "@/lib/agent/routing";
 import { isUnnamed, scheduleFollowUp } from "./capture";
+import { sendSms } from "@/lib/sms";
 
 /**
  * When the customer asks for a person and no person can come.
@@ -61,6 +62,18 @@ export async function arrangeCallback(opts: {
     createdByAi: true,
     assigneeMembershipId: handoff?.routedToMembershipId ?? null,
   });
+  // In writing too, where the business sends SMS: the promise is then on the
+  // customer's phone, not only in what they heard.
+  const [brand] = await db.select({ name: s.brands.name }).from(s.brands).where(eq(s.brands.id, opts.brandId)).limit(1);
+  await sendSms({
+    brandId: opts.brandId,
+    purpose: "callback_arranged",
+    to: row?.customer?.phone,
+    vars: [result.assigneeName?.split(" ")[0] ?? "Our team", opts.reason, brand?.name ?? ""],
+    customerId: row?.conversation.customerId ?? null,
+    conversationId: opts.conversationId,
+    sentByName: opts.agentName,
+  }).catch((e) => console.error("[sms] callback", (e as Error).message));
   return {
     assigneeName: result.assigneeName,
     when: result.dueAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit" }),

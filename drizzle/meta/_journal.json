@@ -176,6 +176,13 @@
       "when": 1791021742467,
       "tag": "0024_corva_collections",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791022258273,
+      "tag": "0025_sms",
+      "breakpoints": true
     }
   ]
 }

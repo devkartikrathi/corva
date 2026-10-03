@@ -7,6 +7,9 @@ import { PaymentEndpoint } from "@/components/PaymentEndpoint";
 import { paymentEndpointFor } from "@/lib/payments";
 import { collectionFor, owedToBusiness } from "@/lib/payments/hosted";
 import { formatRupees } from "@/lib/money";
+import { SmsSettings } from "@/components/SmsSettings";
+import { SMS_PURPOSES, recentSms, smsSettingsFor, smsTemplatesFor } from "@/lib/sms";
+import { saveSmsSetup, saveSmsTemplateAction, sendTestSms } from "@/lib/actions/sms";
 import { connectPaymentEndpoint, disconnectPaymentEndpoint } from "@/lib/actions/payments";
 import { WEBHOOK_EVENTS } from "@/lib/integrations/webhooks";
 import { and, desc, eq, isNull } from "drizzle-orm";
@@ -87,10 +90,13 @@ export default async function SetupPage() {
     .where(and(eq(s.apiKeys.brandId, currentBrand.id), isNull(s.apiKeys.revokedAt)))
     .orderBy(desc(s.apiKeys.createdAt));
   const hooks = await db.select().from(s.webhooks).where(eq(s.webhooks.brandId, currentBrand.id)).orderBy(desc(s.webhooks.createdAt));
-  const [paymentEndpoint, collection, owed] = await Promise.all([
+  const [paymentEndpoint, collection, owed, sms, smsTemplates, smsLog] = await Promise.all([
     paymentEndpointFor(currentBrand.id),
     collectionFor(currentBrand.id),
     owedToBusiness(currentBrand.id),
+    smsSettingsFor(currentBrand.id),
+    smsTemplatesFor(currentBrand.id),
+    recentSms(currentBrand.id, 8),
   ]);
   const { brands, brand, channels, hours, afterHours, privacy, audit: fullAudit, org } = setup;
   // The audit log comes with the Growth plan (and the pilot, which shows everything).
@@ -368,6 +374,41 @@ export default async function SetupPage() {
               }
               onConnect={connectPaymentEndpoint}
               onDisconnect={disconnectPaymentEndpoint}
+            />
+          </div>
+
+          <div id="sms" style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
+            <div style={{ marginBottom: 6 }}>
+              <SectionTitle size={16}>SMS</SectionTitle>
+            </div>
+            <p style={{ margin: "0 0 12px", fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.5 }}>
+              Texts to customers — a payment link, a callback arranged, a booking confirmed — from your own SMS account.
+              In India every SMS must come from a DLT-registered sender and match an approved template, so add each message
+              here exactly as it was approved, with {"{#var#}"} where a value goes. Conversations happen on WhatsApp; SMS
+              is for notices. Start in test mode to see what would be sent.
+            </p>
+            <SmsSettings
+              current={{
+                provider: sms?.provider ?? "log",
+                enabled: sms?.enabled ?? false,
+                senderId: sms?.senderId ?? "",
+                dltEntityId: sms?.dltEntityId ?? "",
+                hasCredentials: Boolean(sms?.credentials),
+              }}
+              purposes={SMS_PURPOSES}
+              templates={smsTemplates.map((t) => ({ purpose: t.purpose, body: t.body, dltTemplateId: t.dltTemplateId ?? "", providerTemplateId: t.providerTemplateId ?? "", enabled: t.enabled }))}
+              messages={smsLog.map((m) => ({
+                id: m.id,
+                to: m.to,
+                purpose: m.purpose,
+                body: m.body,
+                status: m.status,
+                error: m.error,
+                at: m.createdAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }),
+              }))}
+              onSave={saveSmsSetup}
+              onSaveTemplate={saveSmsTemplateAction}
+              onTest={sendTestSms}
             />
           </div>
 
