@@ -134,7 +134,7 @@ export default async function AnalyticsPage({
 
       {/* KPI strip */}
       <div
-        style={{
+        className="cv-tiles" style={{
           display: "grid",
           gridTemplateColumns: "repeat(7, 1fr)",
           borderBottom: "2px solid var(--color-divider)",
@@ -166,8 +166,8 @@ export default async function AnalyticsPage({
         ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px" }}>
-        <div style={{ borderRight: "2px solid var(--color-divider)" }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 340px" }}>
+        <div className="m-noborder-x" style={{ borderRight: "2px solid var(--color-divider)" }}>
           {/* Containment */}
           <div style={{ padding: "18px 24px", borderBottom: "2px solid var(--color-divider)" }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
@@ -216,7 +216,8 @@ export default async function AnalyticsPage({
                 Ranked by the value of fixing it
               </span>
             </div>
-            <table
+            <div className="m-scroll">
+            <table className="cv-table"
               style={{ width: "100%", borderCollapse: "collapse", marginTop: 14, fontSize: 12.5 }}
             >
               <thead>
@@ -255,11 +256,12 @@ export default async function AnalyticsPage({
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
 
         {/* Right rail */}
-        <div>
+        <div className="m-rail">
           <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
             <Kicker>AI quality review</Kicker>
             <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 9 }}>

@@ -17,7 +17,7 @@ export default async function AdminPaymentsPage() {
       {rows.length === 0 && <p style={{ color: "var(--color-neutral-700)" }}>None yet.</p>}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {rows.map(({ p, org, slug }) => (
-          <div key={p.id} style={{ display: "grid", gridTemplateColumns: "150px 1fr 90px 110px 100px 1fr", gap: 10, paddingBottom: 8, borderBottom: "1px solid var(--color-neutral-300)" }}>
+          <div key={p.id} className="m-cols-2 m-gap-s" style={{ display: "grid", gridTemplateColumns: "150px 1fr 90px 110px 100px 1fr", gap: 10, paddingBottom: 8, borderBottom: "1px solid var(--color-neutral-300)" }}>
             <span>{p.createdAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span>
             {slug ? (
               <Link href={`/admin/businesses/${slug}`} style={{ fontWeight: 700, color: "var(--color-text)" }}>

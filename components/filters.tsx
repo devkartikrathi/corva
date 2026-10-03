@@ -27,7 +27,7 @@ export function TabStrip({
 }) {
   return (
     <div
-      style={{
+      className="m-strip" style={{
         padding: "0 24px",
         display: "flex",
         borderBottom: "2px solid var(--color-divider)",
@@ -117,7 +117,7 @@ export function Chip({
   return (
     <Link
       href={to}
-      className={on ? undefined : "hov-border"}
+      className={on ? "cv-chip" : "cv-chip hov-border"}
       style={{
         fontSize: 11.5,
         fontWeight: 600,
@@ -189,7 +189,7 @@ export function SearchBox({
   return (
     <form
       action={ctx.pathname}
-      style={{
+      className="m-full" style={{
         display: "flex",
         alignItems: "center",
         gap: 6,
@@ -312,7 +312,7 @@ export function Pager({
 
   return (
     <div
-      style={{
+      className="m-wrap" style={{
         display: "flex",
         alignItems: "center",
         gap: 10,

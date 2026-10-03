@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { AccountMenu } from "./AccountMenu";
+import { MobileNav } from "./MobileNav";
 import { LiveDot } from "./ui";
 
 /** The sticky 52px strip above every screen. */
 export function TopBar({ live, waiting, signedIn = false }: { live: number; waiting: number; signedIn?: boolean }) {
   return (
     <div
+      className="cv-topbar"
       style={{
         position: "sticky",
         top: 0,
@@ -19,12 +21,14 @@ export function TopBar({ live, waiting, signedIn = false }: { live: number; wait
         padding: "0 24px",
       }}
     >
+      <MobileNav />
       <Link
         href="/app/live"
         className="hov-ink"
         style={{
           display: "flex",
           alignItems: "center",
+          whiteSpace: "nowrap",
           gap: 8,
           fontSize: 11,
           fontWeight: 600,
@@ -34,12 +38,13 @@ export function TopBar({ live, waiting, signedIn = false }: { live: number; wait
         }}
       >
         <LiveDot />
-        {live} call{live === 1 ? "" : "s"} live
+        {live} <span className="m-hide">call{live === 1 ? "" : "s"}</span> live
       </Link>
-      <span style={{ height: 20, width: 1, background: "var(--color-neutral-300)" }} />
+      <span className="m-hide" style={{ height: 20, width: 1, background: "var(--color-neutral-300)" }} />
       {/* A GET form, so a search is a URL you can share and go back from. */}
       <form
         action="/app/search"
+        className="m-hide"
         style={{
           flex: 1,
           maxWidth: 420,
@@ -84,11 +89,21 @@ export function TopBar({ live, waiting, signedIn = false }: { live: number; wait
       </form>
 
       <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-        <Link href="/app/handoffs" className="hov-ink" style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>
-          Waiting for a person <b style={{ color: "var(--color-accent-700)" }}>{waiting}</b>
+        <Link
+          href="/app/handoffs"
+          className="hov-ink"
+          style={{ fontSize: 11.5, color: "var(--color-neutral-700)", whiteSpace: "nowrap" }}
+        >
+          Waiting<span className="m-hide"> for a person</span> <b style={{ color: "var(--color-accent-700)" }}>{waiting}</b>
         </Link>
-        <span style={{ height: 20, width: 1, background: "var(--color-neutral-300)" }} />
-        <span style={{ fontSize: 11.5, fontWeight: 600 }}>
+        {/* The search box is a screen of its own on a phone. */}
+        <Link href="/app/search" aria-label="Search" className="m-only cv-iconbtn">
+          <svg width="17" height="17" viewBox="0 0 17 17" aria-hidden="true">
+            <path d="M7 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Zm4 9.5 5 5" stroke="currentColor" strokeWidth="2" fill="none" />
+          </svg>
+        </Link>
+        <span className="m-hide" style={{ height: 20, width: 1, background: "var(--color-neutral-300)" }} />
+        <span className="m-hide" style={{ fontSize: 11.5, fontWeight: 600 }}>
           {new Date().toLocaleString("en-GB", {
             weekday: "short",
             day: "numeric",
@@ -99,7 +114,7 @@ export function TopBar({ live, waiting, signedIn = false }: { live: number; wait
         </span>
         {signedIn && (
           <>
-            <span style={{ height: 20, width: 1, background: "var(--color-neutral-300)" }} />
+            <span className="m-hide" style={{ height: 20, width: 1, background: "var(--color-neutral-300)" }} />
             <AccountMenu />
           </>
         )}

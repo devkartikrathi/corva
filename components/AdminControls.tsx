@@ -90,8 +90,8 @@ export function RemoveBusiness({ slug, name, onRemove }: { slug: string; name: s
   const { error, pending, run } = useAction();
   return (
     <div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={`Type "${name}"`} style={{ ...input, width: 260 }} aria-label="Confirm the business name" />
+      <div className="m-wrap" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={`Type "${name}"`} className="m-full" style={{ ...input, width: 260 }} aria-label="Confirm the business name" />
         <button
           type="button"
           disabled={pending || typed.trim().toLowerCase() !== name.trim().toLowerCase()}
@@ -178,7 +178,7 @@ export function AddBusinessForm({ industries, onAdd }: { industries: { key: stri
         What the assistant should know
         <textarea name="about" rows={5} style={{ ...input, resize: "vertical", lineHeight: 1.5 }} />
       </label>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+      <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
         <label style={label}>
           Assistant&rsquo;s name
           <input name="agentName" placeholder="Asha" style={input} />

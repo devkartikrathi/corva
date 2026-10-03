@@ -90,7 +90,7 @@ export function DocumentEditor({
   };
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 24, padding: "20px 24px" }}>
+    <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 24, padding: "20px 24px" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <label style={{ display: "block" }}>
           <span
@@ -112,7 +112,7 @@ export function DocumentEditor({
           />
         </label>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <label>
             <span
               style={{

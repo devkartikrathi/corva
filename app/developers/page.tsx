@@ -90,7 +90,8 @@ function EndpointBlock({ e }: { e: Endpoint }) {
       </div>
       <P>{e.description}</P>
       {fields && (
-        <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 14, fontSize: 13.5 }}>
+        <div className="m-scroll">
+        <table className="cv-table" style={{ width: "100%", borderCollapse: "collapse", marginTop: 14, fontSize: 13.5 }}>
           <tbody>
             {Object.entries(fields).map(([name, f]) => (
               <tr key={name} style={{ borderBottom: "1px solid var(--color-neutral-300)", verticalAlign: "top" }}>
@@ -104,6 +105,7 @@ function EndpointBlock({ e }: { e: Endpoint }) {
             ))}
           </tbody>
         </table>
+        </div>
       )}
       <Code>{curlFor(e)}</Code>
       <Code>{JSON.stringify(e.response, null, 2)}</Code>
@@ -126,9 +128,9 @@ const H3 = ({ children }: { children: ReactNode }) => (
 
 export default function DevelopersPage() {
   return (
-    <main style={{ background: "var(--color-bg)", minHeight: "100vh", paddingBottom: 80 }}>
+    <main className="dev" style={{ background: "var(--color-bg)", minHeight: "100vh", paddingBottom: 80 }}>
       <header style={{ borderBottom: "2px solid var(--color-divider)" }}>
-        <div style={{ ...SHELL, height: 64, display: "flex", alignItems: "center", gap: 18 }}>
+        <div className="lp-shell m-gap" style={{ ...SHELL, height: 64, display: "flex", alignItems: "center", gap: 18 }}>
           <Link href="/" style={{ fontWeight: 800, fontSize: 18, letterSpacing: "-0.02em", color: "var(--color-text)" }}>
             CORVA
           </Link>
@@ -141,7 +143,7 @@ export default function DevelopersPage() {
         </div>
       </header>
 
-      <div style={SHELL}>
+      <div className="lp-shell" style={SHELL}>
         <h1 style={{ margin: "44px 0 0", fontWeight: 800, fontSize: 44, lineHeight: 1.02, letterSpacing: "-0.03em", maxWidth: "20ch" }}>
           Put a business&rsquo;s AI assistant on its website — and its work in your systems.
         </h1>
@@ -153,7 +155,7 @@ export default function DevelopersPage() {
           into that.
         </P>
 
-        <div style={{ marginTop: 24, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+        <div className="m-stack" style={{ marginTop: 24, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
           {[
             {
               title: "Corva’s assistant on your site",
@@ -283,7 +285,8 @@ await corva("chat/confirm", { sessionId, proposalId: turn.proposal.id, approved:
           Every request carries <C>Authorization: Bearer ck_…</C>. A key belongs to one business; revoking it in Settings
           stops it at once. Requests and responses are JSON (a streamed chat reply is <C>text/event-stream</C>).
         </P>
-        <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 14, fontSize: 14 }}>
+        <div className="m-scroll">
+        <table className="cv-table" style={{ width: "100%", borderCollapse: "collapse", marginTop: 14, fontSize: 14 }}>
           <tbody>
             {[
               ["200", "Done. The body is the result."],
@@ -304,6 +307,7 @@ await corva("chat/confirm", { sessionId, proposalId: turn.proposal.id, approved:
             ))}
           </tbody>
         </table>
+        </div>
         <P>
           Timeouts: a chat reply usually starts within two to four seconds and can take longer when the model is busy —
           allow 30 seconds, or stream. Phone numbers are accepted in any common Indian format and returned as{" "}
@@ -380,7 +384,8 @@ await corva("chat/confirm", { sessionId, proposalId: turn.proposal.id, approved:
           new lead into your own CRM or order system, post it to a team channel, or start a job. The business adds a URL
           in Corva → <b>Settings → Webhooks</b>, chooses the events, and is shown a signing secret (<C>whsec_…</C>) once.
         </P>
-        <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 14, fontSize: 14 }}>
+        <div className="m-scroll">
+        <table className="cv-table" style={{ width: "100%", borderCollapse: "collapse", marginTop: 14, fontSize: 14 }}>
           <tbody>
             {WEBHOOK_EVENTS.map((e) => (
               <tr key={e.type} style={{ borderBottom: "1px solid var(--color-neutral-300)", verticalAlign: "top" }}>
@@ -390,6 +395,7 @@ await corva("chat/confirm", { sessionId, proposalId: turn.proposal.id, approved:
             ))}
           </tbody>
         </table>
+        </div>
         <P>
           Each delivery is one <C>POST</C> with a JSON body and two headers: <C>Corva-Event</C> (the type) and{" "}
           <C>Corva-Signature</C>. Answer <C>2xx</C> within six seconds. A <C>5xx</C> or no answer is retried once; treat

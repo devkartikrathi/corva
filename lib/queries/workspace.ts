@@ -334,16 +334,19 @@ export async function getTeam(orgId: string) {
 
   return {
     people: people.map((p) => {
+      // What the person said in the sidebar, in the sidebar's words. Guessing
+      // it from `lastActiveAt` read every change as a call, because setting
+      // availability is itself activity.
       const active =
         p.status === "invited"
           ? "Invited"
           : p.status === "suspended"
             ? "Suspended"
-            : p.lastActiveAt && Date.now() - p.lastActiveAt.getTime() < 5 * 60_000
-              ? "On call"
-              : p.lastActiveAt && Date.now() - p.lastActiveAt.getTime() > 30 * 60_000
-                ? "Away"
-                : "Active";
+            : p.availability === "available"
+              ? "Available"
+              : p.availability === "busy"
+                ? "On a call"
+                : "Offline";
       return {
         id: p.id,
         membershipId: p.id,
@@ -361,8 +364,8 @@ export async function getTeam(orgId: string) {
         statusKey: p.status,
         invitedByName: p.invitedByName,
         active: p.lastActiveAt ? relative(p.lastActiveAt) : "—",
-        tagBg: active === "On call" ? ACCENT_200 : active === "Invited" ? ACCENT_200 : N_200,
-        tagFg: active === "On call" ? ACCENT_800 : active === "Invited" ? ACCENT_800 : N_800,
+        tagBg: active === "Available" ? ACCENT_200 : active === "Invited" ? ACCENT_200 : N_200,
+        tagFg: active === "Available" ? ACCENT_800 : active === "Invited" ? ACCENT_800 : N_800,
       };
     }),
     brands: brandRows.map((b) => ({ id: b.id, name: b.name })),

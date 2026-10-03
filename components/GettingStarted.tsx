@@ -46,7 +46,7 @@ export async function GettingStarted({ orgId, brandId, agentName }: { orgId: str
           {remaining === 0 ? "All set — waiting for your first real customer." : `${remaining} to go`}
         </span>
       </div>
-      <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+      <div className="m-stack" style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
         {steps.map((step) => (
           <Link
             key={step.title}

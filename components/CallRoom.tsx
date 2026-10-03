@@ -299,7 +299,7 @@ export function CallRoom({
 
   return (
     <div
-      style={{
+      className="m-stack m-gap" style={{
         background: "var(--color-text)",
         color: "var(--color-bg)",
         padding: "16px 24px",
@@ -386,7 +386,7 @@ export function CallRoom({
             onPointerUp={end}
             onPointerLeave={end}
             onPointerCancel={end}
-            style={{
+            className="m-full" style={{
               userSelect: "none",
               minWidth: 190,
               padding: "13px 18px",
