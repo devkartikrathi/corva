@@ -9,6 +9,7 @@ import { assertCan, can } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { audit } from "./audit";
+import { CATALOG_SOURCE, syncCatalog } from "@/lib/catalog";
 
 /**
  * Knowledge base actions.
@@ -29,6 +30,13 @@ async function scoped(documentId: string, brandId: string) {
     .limit(1);
   if (!row) throw new Error("No such document in this brand.");
   return row;
+}
+
+/** The document written from Products & services changes only from there. */
+function assertNotCatalog(doc: { sourceSystem: string | null }) {
+  if (doc.sourceSystem === CATALOG_SOURCE) {
+    throw new Error("This document is written from Products & services. Change the list there instead.");
+  }
 }
 
 export async function createDocument(input: {
@@ -98,6 +106,7 @@ export async function updateDocument(
   if (!decision.allowed && decision.grant !== "draft") throw new Error(decision.reason);
 
   const existing = await scoped(documentId, brand.id);
+  assertNotCatalog(existing);
   if (existing.status === "published" && !decision.allowed) {
     throw new Error("You can draft documents, but publishing a change needs a Manager.");
   }
@@ -150,6 +159,7 @@ export async function setDocumentStatus(documentId: string, status: "draft" | "p
   assertCan(session.actor, "documents.publish", { brandId: brand.id });
 
   const doc = await scoped(documentId, brand.id);
+  assertNotCatalog(doc);
   await db.update(s.documents).set({ status, updatedAt: new Date(), updatedByName: session.name }).where(eq(s.documents.id, documentId));
 
   if (status === "published") {
@@ -212,7 +222,12 @@ export async function reindexBrand() {
     .where(and(eq(s.documents.brandId, brand.id), eq(s.documents.status, "published")));
 
   let chunks = 0;
-  for (const doc of docs) chunks += await reindex(doc.id, brand.id, doc.body);
+  for (const doc of docs) {
+    // The catalog's chunks are cut per item, not per paragraph; it rebuilds itself.
+    if (doc.sourceSystem === CATALOG_SOURCE) continue;
+    chunks += await reindex(doc.id, brand.id, doc.body);
+  }
+  if (docs.some((d) => d.sourceSystem === CATALOG_SOURCE)) await syncCatalog(brand.id, brand.name, session.name);
 
   await audit({
     orgId: session.orgId,

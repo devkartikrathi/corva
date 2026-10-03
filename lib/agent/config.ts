@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { intakeFieldsFor, type IntakeField } from "@/lib/business/intake";
 import { lookupsFor, type Lookup } from "@/lib/data/sources";
+import { catalogOutline, loadCatalog } from "@/lib/catalog";
 
 /**
  * The published configuration a brand's agent runs under.
@@ -56,6 +57,12 @@ export type AgentConfig = {
   fields: IntakeField[];
   /** What it may look up in the business's own database, if one is connected. */
   lookups: Lookup[];
+  /**
+   * What the business sells, as an outline (Products & services), or null
+   * when it has not listed anything. A business setting like `fields`: the
+   * current list, so a price changed this morning is the price quoted now.
+   */
+  catalog: string | null;
 };
 
 /** The live version for a brand, or a specific one for replay. */
@@ -76,7 +83,7 @@ export async function loadAgentConfig(
 
   if (!row) return null;
 
-  const [authority, triggers, never, fields, lookups] = await Promise.all([
+  const [authority, triggers, never, fields, lookups, catalog] = await Promise.all([
     db.select().from(s.authorityLimits).where(eq(s.authorityLimits.agentVersionId, row.version.id)),
     db
       .select()
@@ -90,6 +97,7 @@ export async function loadAgentConfig(
     db.select().from(s.neverRules).where(eq(s.neverRules.agentVersionId, row.version.id)),
     intakeFieldsFor(row.brand.id, row.brand.industry),
     lookupsFor(row.brand.id, true),
+    loadCatalog(row.brand.id),
   ]);
 
   return {
@@ -117,5 +125,6 @@ export async function loadAgentConfig(
     neverRules: never.map((n) => n.description),
     fields,
     lookups,
+    catalog: catalogOutline(catalog),
   };
 }

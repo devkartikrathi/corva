@@ -17,6 +17,7 @@ nothing below is particular to it.
    | --- | --- |
    | Talk to the assistant as a customer would | **Try it** — chat or call; free, kept out of the numbers |
    | Check what it knows | **Knowledge** — correct or add to what it read |
+   | List what it sells | **Products & services** — groups, items, prices; the assistant quotes them |
    | Choose what it collects | **Details to collect** |
    | Invite the team | **People & roles** — leads and follow-ups are given to people here |
    | Put it on the website | **Settings → Website & API keys**, and hand the key to their developer |

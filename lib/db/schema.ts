@@ -10,6 +10,7 @@
  * read tenant content through a time-boxed `supportGrants` row.
  */
 import {
+  type AnyPgColumn,
   boolean,
   date,
   index,
@@ -481,6 +482,67 @@ export const knowledgeGaps = pgTable(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("knowledge_gaps_brand_intent_idx").on(t.brandId, t.intent)],
+);
+
+/* ─── Products & services ──────────────────────────────────────────────── */
+
+/**
+ * A group in a business's catalog: "Dry cleaning", and inside it "Men's wear".
+ *
+ * Groups nest to any depth through `parentId`, because no two businesses cut
+ * their offer the same way — a laundromat goes service › garment type › item,
+ * a clinic goes department › treatment, a shop goes aisle › brand › product.
+ * Deleting a group deletes everything under it.
+ */
+export const catalogCategories = pgTable(
+  "catalog_categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    parentId: uuid("parent_id").references((): AnyPgColumn => catalogCategories.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Anything true of the whole group: turnaround, conditions, what is included. */
+    description: text("description"),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("catalog_categories_brand_idx").on(t.brandId, t.parentId, t.position)],
+);
+
+/**
+ * One thing a business sells: a service it performs or a product it hands over.
+ *
+ * Deliberately few columns. A price, the unit it is quoted in, and a free-text
+ * description that carries everything else — turnaround, sizes, what is and
+ * is not included — in the business's own words, which is what the AI quotes.
+ */
+export const catalogItems = pgTable(
+  "catalog_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    /** Null for an item that sits at the top level, outside any group. */
+    categoryId: uuid("category_id").references(() => catalogCategories.id, { onDelete: "cascade" }),
+    /** "service" | "product" */
+    kind: text("kind").notNull().default("service"),
+    name: text("name").notNull(),
+    /** Null means the price is not fixed: the AI says it is quoted, never guesses. */
+    pricePaise: integer("price_paise"),
+    /** What the price is for: "per kg", "per piece", "onwards". Free text. */
+    priceUnit: text("price_unit"),
+    description: text("description"),
+    /** Off for something not offered right now; the AI says so rather than selling it. */
+    available: boolean("available").notNull().default(true),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("catalog_items_brand_idx").on(t.brandId, t.categoryId, t.position)],
 );
 
 /* ─── Agent configuration ──────────────────────────────────────────────── */

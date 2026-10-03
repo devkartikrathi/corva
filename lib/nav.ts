@@ -63,6 +63,8 @@ export const navGroups: { label: string; items: NavItem[] }[] = [
     label: "AI assistant",
     items: [
       { href: "/app/try", label: "Try it", capability: "calls.handle" },
+      // What the business sells, with prices — the list the AI quotes from.
+      { href: "/app/catalog", label: "Products & services", capability: "documents.publish" },
       { href: "/app/knowledge", label: "Knowledge", capability: "documents.publish" },
       { href: "/app/tuning", label: "Behaviour & limits", capability: "agent.edit" },
       { href: "/app/details", label: "Details to collect", capability: "agent.edit" },

@@ -84,6 +84,7 @@ npm run voice                  # the voice bridge, for calls (ws://localhost:878
 | | `/app/follow-ups` | Callbacks and promises — overdue, today, upcoming, done |
 | | `/app/customers` | Customers and each one's record: leads, follow-ups, conversations, website visits |
 | AI assistant | `/app/try` | **Try it** — chat to or ring your own assistant as a customer; free, and kept out of the numbers |
+| | `/app/catalog` | **Products & services** — groups (nested to any depth) and items with price, unit and description; the AI quotes from it |
 | | `/app/knowledge` | What the AI may answer from; gaps it found |
 | | `/app/tuning` | Persona, tone, what it may do alone, when it hands over — drafted, then published |
 | | `/app/details` | **Details to collect** — the fields the AI asks every customer for |

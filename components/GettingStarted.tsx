@@ -15,6 +15,7 @@ export async function GettingStarted({ orgId, brandId, agentName }: { orgId: str
     .select({
       tried: sql<boolean>`exists (select 1 from ${s.conversations} c where c.brand_id = ${brandId})`,
       documents: sql<number>`(select count(*)::int from ${s.documents} d where d.brand_id = ${brandId} and d.status = 'published')`,
+      catalog: sql<boolean>`exists (select 1 from ${s.catalogItems} i where i.brand_id = ${brandId})`,
       team: sql<number>`(select count(*)::int from ${s.memberships} m where m.org_id = ${orgId} and m.status in ('active', 'invited'))`,
       keys: sql<boolean>`exists (select 1 from ${s.apiKeys} k where k.brand_id = ${brandId} and k.revoked_at is null)`,
       real: sql<boolean>`exists (select 1 from ${s.conversations} c where c.brand_id = ${brandId} and c.is_test = false)`,
@@ -28,6 +29,7 @@ export async function GettingStarted({ orgId, brandId, agentName }: { orgId: str
   const steps = [
     { done: row.tried, title: `Talk to ${agentName}`, body: "Chat or call it as a customer would and see what it says.", href: "/app/try", cta: "Try it" },
     { done: row.documents > 0, title: "Check what it knows", body: "Read what it learned from your website; correct or add to it.", href: "/app/knowledge", cta: "Knowledge" },
+    { done: row.catalog, title: "List what you sell", body: "Your products and services, with prices, for it to quote.", href: "/app/catalog", cta: "Products & services" },
     { done: false, optional: true, title: "Choose what it collects", body: "The details it asks every customer for — your list.", href: "/app/details", cta: "Details" },
     { done: row.team > 1, title: "Invite your team", body: "Leads and follow-ups are given to the people here.", href: "/app/team", cta: "People" },
     { done: row.keys, title: "Put it on your website", body: "Make an API key and give it to your developer with the docs.", href: "/app/setup", cta: "API key" },

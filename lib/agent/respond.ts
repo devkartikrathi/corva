@@ -140,7 +140,17 @@ ${describeNeverRules(config)}
 ## What you know about this customer
 ${context}
 ${config.lookups.length ? `\n## The business's own records\n${lookupInstructions(config.lookups)}\n` : ""}
-## The only sources you may answer from
+${config.catalog ? `## What ${config.brandName} offers
+${config.catalog}
+
+This list is a source: quote its prices and units exactly as written. If an
+item is marked not available, say so rather than offering it. Where it says
+"Price on request", give a figure only if the sources below state one;
+otherwise offer to have the team confirm it. Something not on the list is not something ${config.brandName} offers,
+unless the sources below say otherwise. If this list and another source
+disagree on a price, this list is the current one.
+
+` : ""}## The only sources you may answer from
 ${sources || "(nothing matched — say you do not have that to hand and offer a callback from the team)"}
 
 ## ${detailsInstructions(config.fields, known, webChat ? "record_details" : "save_caller_details")}
@@ -166,8 +176,8 @@ ${LOOK_UP_INSTRUCTIONS}
   so plainly and offer a callback (${callbackTool}). Do not guess, and
   do not soften a refusal into a maybe.
 - Cite naturally in your own words; do not print bracket numbers.
-- Never state a date, price or fee that is not in the sources or the customer
-  context above.
+- Never state a date, price or fee that is not in the sources, the list of
+  what ${config.brandName} offers, or the customer context above.
 - Be brief. One or two short paragraphs.`;
 }
 

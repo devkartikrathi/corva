@@ -13,6 +13,7 @@ import {
   updateDocument,
 } from "@/lib/actions/knowledge";
 import { getKnowledge } from "@/lib/queries/workspace";
+import { CATALOG_SOURCE } from "@/lib/catalog";
 
 /**
  * One document.
@@ -41,6 +42,8 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
   const { document: doc, revisions, chunks, citationCount } = record;
   const kb = await getKnowledge(brand.id);
   const decision = can(session.actor, "documents.publish", { brandId: brand.id });
+  // Written from Products & services: edited there, and only read here.
+  const managed = doc.sourceSystem === CATALOG_SOURCE;
   const indexed = chunks.filter((c) => c.embedding !== null).length;
 
   return (
@@ -54,7 +57,15 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
             : "Not published, so the agent cannot see it. Nothing here affects a live call yet."
         }
       >
-        {decision.allowed && doc.status !== "published" && (
+        {managed && (
+          <Link
+            href="/app/catalog"
+            style={{ fontSize: 12, fontWeight: 800, padding: "9px 14px", background: "var(--color-accent)", color: "var(--color-bg)" }}
+          >
+            Edit in Products &amp; services
+          </Link>
+        )}
+        {!managed && decision.allowed && doc.status !== "published" && (
           <ActionButton
             variant="primary"
             pendingLabel="Publishing…"
@@ -66,7 +77,7 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
             Publish
           </ActionButton>
         )}
-        {decision.allowed && doc.status === "published" && (
+        {!managed && decision.allowed && doc.status === "published" && (
           <ActionButton
             variant="outline"
             pendingLabel="Withdrawing…"
@@ -82,20 +93,48 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
         <LinkAction href="/app/knowledge">← All documents</LinkAction>
       </ScreenHeader>
 
-      <DocumentEditor
-        documentId={doc.id}
-        initial={{
-          title: doc.title,
-          collection: doc.collection,
-          kind: doc.kind,
-          body: doc.body,
-          status: doc.status,
-        }}
-        collections={kb.collections.map((c) => c.name)}
-        canPublish={decision.allowed}
-        onSave={updateDocument}
-        onCreate={createDocument}
-      />
+      {managed ? (
+        <div style={{ padding: "18px 24px" }}>
+          <p style={{ margin: 0, fontSize: 12.5, color: "var(--color-neutral-800)", maxWidth: "70ch", lineHeight: 1.5 }}>
+            Written from{" "}
+            <Link href="/app/catalog" style={{ fontWeight: 700, color: "var(--color-accent-700)" }}>
+              Products &amp; services
+            </Link>{" "}
+            and rewritten every time that list changes, so it is read-only here. Each item and each group is its own
+            chunk, so a question about one item finds that item.
+          </p>
+          <pre
+            style={{
+              marginTop: 12,
+              padding: "12px 14px",
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-neutral-400)",
+              fontSize: 12,
+              lineHeight: 1.55,
+              whiteSpace: "pre-wrap",
+              fontFamily: "inherit",
+              maxWidth: 900,
+            }}
+          >
+            {doc.body}
+          </pre>
+        </div>
+      ) : (
+        <DocumentEditor
+          documentId={doc.id}
+          initial={{
+            title: doc.title,
+            collection: doc.collection,
+            kind: doc.kind,
+            body: doc.body,
+            status: doc.status,
+          }}
+          collections={kb.collections.map((c) => c.name)}
+          canPublish={decision.allowed}
+          onSave={updateDocument}
+          onCreate={createDocument}
+        />
+      )}
 
       <div style={{ borderTop: "2px solid var(--color-divider)", padding: "18px 24px" }}>
         <Kicker>History · {revisions.length} revision{revisions.length === 1 ? "" : "s"}</Kicker>
@@ -125,7 +164,7 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
                   Current
                 </Tag>
               ) : (
-                decision.allowed && (
+                decision.allowed && !managed && (
                   <ActionButton
                     variant="hairline"
                     pendingLabel="Restoring…"

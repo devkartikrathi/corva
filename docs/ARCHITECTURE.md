@@ -46,8 +46,28 @@ Nothing a client sends chooses the brand.
 5. **Persist** the reply with its citations, bill the conversation, update the one-line summary.
 
 The system prompt is assembled per turn from the brand's persona, the authority and never
-rules, what is known about the customer, the retrieved sources, the **Details to collect**
-(with what is still missing), and — in a web chat — the booking instructions.
+rules, what is known about the customer, the retrieved sources, an outline of the business's
+**Products & services**, the **Details to collect** (with what is still missing), and — in a
+web chat — the booking instructions.
+
+## Products & services
+
+`lib/catalog/index.ts`. Two tables: `catalog_categories` (groups, nested to any depth through
+`parent_id`) and `catalog_items` (kind service/product, name, `price_paise` — null means "on
+request" — a free-text `price_unit` such as "per kg", a description, and an `available` switch).
+Nothing about them is industry-specific: a laundromat's *Dry cleaning › Men's wear › Shirt*
+and a clinic's *Dermatology › Consultation* are the same rows.
+
+The assistant reaches the catalog two ways, and no channel has its own path:
+
+- **In the prompt.** `loadAgentConfig` puts `catalogOutline()` on `config.catalog`, so chat,
+  voice and the Try-it preview all carry it. It degrades to fit (descriptions, then prices,
+  then group names only) rather than being cut off.
+- **In retrieval.** Every edit rewrites one published knowledge document (`source_system =
+  'corva:catalog'`, titled *Products & services*) with one chunk per item, one per group and
+  an overview, so answers are found and cited like any other document. Unchanged chunks keep
+  their embeddings, and the chunk swap is one transaction behind a per-document lock. The
+  document is read-only on the Knowledge screen; the rows are the truth.
 
 ### Tools
 
