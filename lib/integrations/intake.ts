@@ -6,6 +6,7 @@ import { OPEN_STAGES, industryFor } from "@/lib/business/industries";
 import { cleanDetails, intakeFieldsFor } from "@/lib/business/intake";
 import { isUnnamed, pickOwner, scheduleFollowUp } from "@/lib/crm/capture";
 import { customerForHandle, handle, keepHandle, recordMatch, type IdentifiedBy } from "@/lib/crm/identity";
+import { endConversation, endEarlierChats } from "@/lib/conversations/ending";
 import { APP_URL, layout, sendEmail } from "@/lib/email";
 import { ApiError } from "./api";
 import { emit, leadPayload } from "./webhooks";
@@ -659,6 +660,8 @@ export async function agentChat(brand: Brand, input: AgentChatInput) {
   if (conversation.status === "resolved" || conversation.status === "abandoned") {
     throw new ApiError(409, "This conversation has ended. Start a new sessionId.");
   }
+  // A browser starting a new chat has left the one before it: that one is over.
+  if (!started && visitor) await endEarlierChats(visitor.id, conversation.id).catch((e) => console.error("[chat] ending earlier", (e as Error).message));
 
   // A person has taken over: record what the customer said, and let them reply.
   if (conversation.handledBy) {
@@ -880,6 +883,32 @@ export async function agentChatConfirm(brand: Brand, input: AgentChatConfirmInpu
 }
 
 /** Any new replies from a person on the console, for a site polling a held chat. */
+/**
+ * POST /api/v1/chat/end — the customer closed the chat window, reloaded, or
+ * started a new chat. The conversation is ended now rather than when it is
+ * found quiet. Ending one that is already over does nothing.
+ */
+export async function agentChatEnd(brand: Brand, input: { sessionId?: unknown }) {
+  const session = clip(input.sessionId, 80);
+  if (!session) throw new ApiError(400, "A sessionId is required.");
+  const [conversation] = await db
+    .select({ id: s.conversations.id })
+    .from(s.conversations)
+    .where(and(eq(s.conversations.brandId, brand.id), eq(s.conversations.externalRef, `agent:${session}`)))
+    .limit(1);
+  if (!conversation) return { ended: false };
+  const ended = await endConversation(conversation.id, { classify: false });
+  if (ended) {
+    try {
+      const { after } = await import("next/server");
+      after(() => import("@/lib/pipelines/classify").then(({ classifyAndStore }) => classifyAndStore(conversation.id)).catch(() => undefined));
+    } catch {
+      // Outside a request: the nightly job reads it.
+    }
+  }
+  return { ended };
+}
+
 export async function agentChatUpdates(brand: Brand, sessionId: string, afterOrdinal: number) {
   const [conversation] = await db
     .select()

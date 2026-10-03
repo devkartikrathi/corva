@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { embedPending } from "@/lib/knowledge";
 import { refreshBrandProfiles } from "@/lib/crm/profile";
+import { classifyEnded } from "@/lib/conversations/ending";
 import { reapStaleCalls } from "@/lib/pipelines/rollup";
 import { sweepRateLimits } from "@/lib/rate-limit";
 
@@ -35,6 +36,9 @@ export async function GET(req: Request) {
     reapStaleCalls(),
     db.delete(s.whatsappSeen).where(lt(s.whatsappSeen.at, new Date(Date.now() - 7 * 86_400_000))),
   ]).catch((e) => console.error("[cron] sweep", (e as Error).message));
+
+  // Conversations that ended without being read: summary, intent, outcome.
+  await classifyEnded(30).catch((e) => console.error("[cron] classify", (e as Error).message));
 
   // Every customer's profile and priority, from what changed today.
   let profiles = 0;

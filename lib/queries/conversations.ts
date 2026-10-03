@@ -8,6 +8,8 @@ import { latestScores } from "./scoring";
 import { fallbackSummary } from "@/lib/agent/summary";
 import { conversationIsTheirs } from "./scoping";
 import { stillLive } from "./live-data";
+import { after } from "next/server";
+import { classifyEnded, endQuietConversations } from "@/lib/conversations/ending";
 
 /**
  * Read models for the three conversation screens: the live console, the
@@ -680,6 +682,15 @@ export async function getConversation(brandId: string, conversationId: string) {
 
 /** The counts the archive's filter bar prints. */
 export async function conversationStats(brandId: string) {
+  // Every console page asks for these, so quiet conversations are ended here
+  // (at most once a minute) rather than once a day: nothing shows as live
+  // that nobody is in. Reading them is left for after the page is sent.
+  await endQuietConversations({ classify: 0 }).catch((e) => console.error("[ending]", (e as Error).message));
+  try {
+    after(() => classifyEnded(3).catch(() => undefined));
+  } catch {
+    // Not inside a request (a script): the nightly job reads them.
+  }
   const rows = await db
     .select({
       status: s.conversations.status,

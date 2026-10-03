@@ -340,38 +340,12 @@ export async function backfillCosts(limit = 2000): Promise<{ priced: number }> {
 }
 
 /**
- * Close calls that stopped happening.
- *
- * A conversation is only live while someone is on it. Nothing guaranteed that
- * before: a bridge that crashed, a browser that closed without a clean
- * disconnect, or a seeded fixture would leave a row marked `live` for ever —
- * and the live console shows the newest live conversation, so one stale row
- * hides every real call placed afterwards.
- *
- * Staleness is measured from the last turn rather than from the start, because
- * a long call with someone still talking is not stale.
+ * Close conversations that stopped happening — now the shared sweep in
+ * lib/conversations/ending.ts, which also runs on console page loads. Kept
+ * under this name for the nightly job.
  */
-const CALL_IDLE_MINUTES = 15;
-const CHAT_IDLE_MINUTES = 60;
-
 export async function reapStaleCalls(): Promise<{ closed: number }> {
-  // The moment it last moved: its newest turn, or its start if nobody spoke.
-  const lastMoved = sql`coalesce(
-    (select max(created_at) from ${s.turns} where conversation_id = ${s.conversations.id}),
-    ${s.conversations.startedAt}
-  )`;
-  const rows = await db
-    .update(s.conversations)
-    // Ended when it went quiet, not when this job happened to run.
-    .set({ status: "abandoned", endedAt: lastMoved })
-    .where(
-      and(
-        eq(s.conversations.status, "live"),
-        // A call that has gone quiet is over. Someone typing may step away and
-        // come back, so a chat is given longer.
-        sql`${lastMoved} < now() - (case when ${s.conversations.channel} = 'phone' then ${CALL_IDLE_MINUTES} else ${CHAT_IDLE_MINUTES} end || ' minutes')::interval`,
-      ),
-    )
-    .returning({ id: s.conversations.id });
-  return { closed: rows.length };
+  const { endQuietConversations } = await import("@/lib/conversations/ending");
+  const { ended } = await endQuietConversations({ force: true, classify: 20 });
+  return { closed: ended };
 }
