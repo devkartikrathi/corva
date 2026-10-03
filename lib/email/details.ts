@@ -5,6 +5,7 @@ import { layout, sendEmail } from "@/lib/email";
 import { recordsByReference } from "@/lib/integrations/records";
 import { formatRupees } from "@/lib/money";
 import { emailInboxFor, inboxAddress } from "./inbound";
+import { noteReference } from "@/lib/crm/identity";
 
 /**
  * Some things are only for the person whose order it is.
@@ -64,6 +65,7 @@ function line(key: string, value: unknown): string | null {
 export async function emailOrderDetails(opts: { brandId: string; conversationId: string; reference: string; agentName: string }) {
   const [record] = await recordsByReference(opts.brandId, opts.reference);
   if (!record) return { sent: false, reason: "No order has that reference. Ask the customer to check it." };
+  await noteReference(opts.conversationId, record.customerId, record.ref);
   const [customer] = await db.select().from(s.customers).where(eq(s.customers.id, record.customerId)).limit(1);
   if (!customer?.email) {
     return { sent: false, reason: "There is no email address on file for this order, so the details cannot be sent. Offer a callback from the team instead." };

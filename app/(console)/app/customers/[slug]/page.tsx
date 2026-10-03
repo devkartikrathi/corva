@@ -13,7 +13,9 @@ import { formatRupees } from "@/lib/money";
 import { config } from "@/lib/config";
 import { CustomerNotes } from "@/components/CustomerNotes";
 import { ConsentPanel } from "@/components/ConsentPanel";
-import { addCustomerNote, deleteCustomerNote, setConsent } from "@/lib/actions/customers";
+import { addCustomerNote, confirmHandle, deleteCustomerNote, dismissMatch, mergeByHandle, mergeCustomer, setConsent } from "@/lib/actions/customers";
+import { ConfirmHandle, MatchCard, MergeIn } from "@/components/CustomerIdentity";
+import { channelLabel } from "@/lib/crm/profile";
 
 import { OwnerPicker } from "@/components/OwnerPicker";
 import { StartConversation } from "@/components/StartConversation";
@@ -78,7 +80,21 @@ export default async function Customer360Page({
     consents,
     notes,
     learned,
+    handles,
+    matches,
+    profile,
   } = record;
+  const canMerge = session.actor.role !== "agent";
+  const handleSource: Record<string, string> = {
+    call: "they called from it",
+    whatsapp: "WhatsApp",
+    email: "they wrote from it",
+    chat: "said in a chat",
+    voice: "said on a call",
+    business: "from the business's system",
+    team: "added by the team",
+    earlier: "on file",
+  };
 
   const liveCall = conversations.find((c) => c.status === "live" || c.status === "waiting_human");
   // Owners are the people who can actually hold an account, so the picker is
@@ -438,7 +454,7 @@ export default async function Customer360Page({
               const ev = {
                 date: c.startedAt.toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
                 time: c.startedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
-                channel: c.channel.replace("_", " "),
+                channel: channelLabel(c.channel, c.externalRef),
                 chColor: c.handledBy ? "var(--color-neutral-700)" : "var(--color-accent-700)",
                 title: c.intent ?? "Conversation",
                 outcome: (c.outcome ?? c.status).replace(/_/g, " "),
@@ -604,6 +620,93 @@ export default async function Customer360Page({
 
         {/* Right rail */}
         <div className="m-rail">
+          {profile && (
+            <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
+              <Kicker>Profile</Kicker>
+              <div style={{ marginTop: 10, fontSize: 12.5, lineHeight: 1.5 }}>
+                <b style={{ fontSize: 14 }}>{profile.segment.label}</b>
+                <div style={{ color: "var(--color-neutral-800)" }}>{profile.segment.why}</div>
+              </div>
+              <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 12px", fontSize: 12 }}>
+                {[
+                  [industry.key === "education" ? "Enrolments" : industry.key === "clinic" ? "Visits" : "Orders", String(profile.orders.count)],
+                  ["Value", profile.valuePaise ? formatRupees(profile.valuePaise) : "—"],
+                  ["Usual gap", profile.orders.usualGapDays != null ? `${profile.orders.usualGapDays} days` : "—"],
+                  ["Last order", profile.orders.daysSinceLast != null ? `${profile.orders.daysSinceLast} days ago` : "—"],
+                  ["Average order", profile.orders.avgPaise ? formatRupees(profile.orders.avgPaise) : "—"],
+                  ["Trend", profile.orders.trend ?? "—"],
+                  ["Contacts (90 days)", String(profile.contacts.d90)],
+                  ["Mostly by", profile.contacts.preferred ?? "—"],
+                ]
+                  // A customer with no orders yet has only contact figures worth showing.
+                  .filter(([, v]) => v !== "—")
+                  .map(([k, v]) => (
+                  <div key={k}>
+                    <div style={{ fontSize: 10.5, color: "var(--color-neutral-700)" }}>{k}</div>
+                    <b>{v}</b>
+                  </div>
+                ))}
+              </div>
+              {Object.keys(profile.contacts.byChannel).length > 1 && (
+                <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--color-neutral-800)" }}>
+                  {Object.entries(profile.contacts.byChannel)
+                    .map(([ch, n]) => `${n} ${ch}`)
+                    .join(" · ")}
+                </div>
+              )}
+              {(profile.issues.escalations90d > 0 || profile.stay.kind === "short_stay") && (
+                <div style={{ marginTop: 8, fontSize: 11.5, color: "var(--color-accent-700)" }}>
+                  {profile.issues.escalations90d > 0 && `${profile.issues.escalations90d} needed a person in 90 days. `}
+                  {profile.stay.kind === "short_stay" && `Short stay: “${profile.stay.evidence}”.`}
+                </div>
+              )}
+            </div>
+          )}
+
+          {matches.length > 0 && (
+            <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)", background: "var(--color-surface)" }}>
+              <Kicker color="var(--color-accent-700)">Possibly the same person</Kicker>
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                {matches.map(({ match, other }) => (
+                  <MatchCard
+                    key={match.id}
+                    customerId={customer.id}
+                    matchId={match.id}
+                    other={{ id: other.id, name: other.name, phone: other.phone, email: other.email, segment: other.segment }}
+                    reasons={match.reasons}
+                    canMerge={canMerge}
+                    onMerge={mergeCustomer}
+                    onDismiss={dismissMatch}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
+            <Kicker>How we know them</Kicker>
+            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
+              {handles.length === 0 && <span style={{ color: "var(--color-neutral-700)" }}>No number or email yet.</span>}
+              {handles.map((h) => (
+                <div key={h.id} style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                  <b style={{ wordBreak: "break-all" }}>{h.display}</b>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: h.verified ? "var(--color-text)" : "var(--color-accent-700)" }}>
+                    {h.verified ? "✓ verified" : "stated"}
+                  </span>
+                  <span style={{ fontSize: 10.5, color: "var(--color-neutral-700)" }}>{handleSource[h.source] ?? h.source}</span>
+                  {!h.verified && canMerge && <ConfirmHandle identityId={h.id} onConfirm={confirmHandle} />}
+                </div>
+              ))}
+            </div>
+            {canMerge && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 11, color: "var(--color-neutral-700)", marginBottom: 5 }}>
+                  Same person on another record? Merge it in:
+                </div>
+                <MergeIn customerId={customer.id} onMerge={mergeByHandle} />
+              </div>
+            )}
+          </div>
           {website && (
             <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--color-divider)" }}>
               <Kicker>On the website</Kicker>

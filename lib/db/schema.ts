@@ -306,6 +306,13 @@ export const customers = pgTable(
     /** When their contract next renews. Feeds the "renewal window" rules. */
     renewsAt: timestamp("renews_at", { withTimezone: true }),
     ltvPaise: integer("ltv_paise").notNull().default(0),
+    /**
+     * What the record says about them, computed — never typed in: orders,
+     * value, the usual gap between orders, channels, issues, where they stay.
+     * See lib/crm/profile.ts and docs/CUSTOMER-PROFILES.md.
+     */
+    profile: jsonb("profile").$type<Record<string, unknown>>().notNull().default({}),
+    profileAt: timestamp("profile_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -314,6 +321,91 @@ export const customers = pgTable(
     index("customers_phone_idx").on(t.phone),
     uniqueIndex("customers_brand_ref_idx").on(t.brandId, t.externalRef),
   ],
+);
+
+/**
+ * Every handle a customer has been seen with: a phone number, an email
+ * address, a browser. The same handle is the same customer on any channel.
+ *
+ * `verified` says whether we know the handle is theirs — they called or
+ * wrote from it, the business's own system said so, or a person on the team
+ * confirmed it — or only that someone said it was. See lib/crm/identity.ts.
+ */
+export const customerIdentities = pgTable(
+  "customer_identities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** "phone" | "email" | "browser". */
+    kind: text("kind").notNull(),
+    /** Normalised: phone digits with country code, email lowercased, the browser's visitor id. */
+    value: text("value").notNull(),
+    /** As it is shown: "+91 83840 07473". */
+    display: text("display").notNull(),
+    verified: boolean("verified").notNull().default(false),
+    /** Where it was learned: "call", "whatsapp", "email", "chat", "voice", "business", "team", "earlier". */
+    source: text("source").notNull(),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("customer_identities_handle_idx").on(t.brandId, t.kind, t.value),
+    index("customer_identities_customer_idx").on(t.customerId),
+  ],
+);
+
+/**
+ * "Possibly the same person": two customers a conversation connected — one
+ * gave the other's number, or asked about the other's order. Never merged on
+ * a claim; the team merges or dismisses. `customerId` < `otherId`.
+ */
+export const customerMatches = pgTable(
+  "customer_matches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    otherId: uuid("other_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    /** In words, for the card: "Gave the number +91 83840 07473, which is on this record". */
+    reasons: jsonb("reasons").$type<string[]>().notNull().default([]),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    /** "open" | "dismissed". A merged pair is gone with the customer it removed. */
+    status: text("status").notNull().default("open"),
+    decidedBy: text("decided_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("customer_matches_pair_idx").on(t.brandId, t.customerId, t.otherId)],
+);
+
+/** A merge, with a copy of the record that went — so it can be explained, and undone by hand. */
+export const customerMerges = pgTable(
+  "customer_merges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    intoId: uuid("into_id").references(() => customers.id, { onDelete: "set null" }),
+    fromId: uuid("from_id").notNull(),
+    fromRecord: jsonb("from_record").notNull(),
+    reason: text("reason").notNull(),
+    by: text("by").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("customer_merges_into_idx").on(t.intoId)],
 );
 
 /** One of the eleven scoring dimensions. Seeded, extendable per brand. */
@@ -617,6 +709,14 @@ export const conversations = pgTable(
       .notNull()
       .references(() => brands.id, { onDelete: "cascade" }),
     customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    /** The website browser it came from, so learning who they are tells the browser too. */
+    visitorId: uuid("visitor_id").references(() => visitors.id, { onDelete: "set null" }),
+    /**
+     * How we know who it is with: "caller_id", "whatsapp", "email", "business"
+     * and "team" are verified; "browser" and "stated" are what someone said.
+     * The assistant reads out what is on record only to a verified identity.
+     */
+    identifiedBy: text("identified_by"),
     channel: channelEnum("channel").notNull(),
     intent: text("intent"),
     status: conversationStatusEnum("status").notNull().default("live"),

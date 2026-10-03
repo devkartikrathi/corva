@@ -3,6 +3,7 @@ import { lt } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { embedPending } from "@/lib/knowledge";
+import { refreshBrandProfiles } from "@/lib/crm/profile";
 import { reapStaleCalls } from "@/lib/pipelines/rollup";
 import { sweepRateLimits } from "@/lib/rate-limit";
 
@@ -13,7 +14,8 @@ import { sweepRateLimits } from "@/lib/rate-limit";
  * it is sent (lib/email/inbound.ts), so there is no inbox to poll. What is
  * left is tidying — closing conversations nobody is in any more, dropping
  * counters and receipts nobody will read again — and finishing any knowledge
- * still waiting for its vectors. The caller must present CRON_SECRET, which
+ * still waiting for its vectors, and every customer's profile and priority
+ * (lib/crm/profile.ts). The caller must present CRON_SECRET, which
  * Vercel sends for its own cron jobs.
  */
 
@@ -34,9 +36,19 @@ export async function GET(req: Request) {
     db.delete(s.whatsappSeen).where(lt(s.whatsappSeen.at, new Date(Date.now() - 7 * 86_400_000))),
   ]).catch((e) => console.error("[cron] sweep", (e as Error).message));
 
+  // Every customer's profile and priority, from what changed today.
+  let profiles = 0;
+  for (const { id } of await db.select({ id: s.brands.id }).from(s.brands)) {
+    if (Date.now() - started > 150_000) break;
+    profiles += await refreshBrandProfiles(id).catch((e) => {
+      console.error("[cron] profiles", (e as Error).message);
+      return 0;
+    });
+  }
+
   const embeddings = await embedPending({ until: started + 280_000 }).catch((e) => {
     console.error("[cron] embeddings", (e as Error).message);
     return null;
   });
-  return Response.json({ ok: true, embeddings });
+  return Response.json({ ok: true, profiles, embeddings });
 }

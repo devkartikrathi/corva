@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getConsoleContext } from "@/lib/auth/context";
 import { assertCan } from "@/lib/auth/permissions";
@@ -9,6 +9,7 @@ import * as s from "@/lib/db/schema";
 import { listCustomers, type CustomerFilters } from "@/lib/queries/customers";
 import { intOf, listOf, type Params } from "@/lib/params";
 import { audit } from "./audit";
+import { customerForMerge, mergeCustomers } from "@/lib/crm/identity";
 
 /**
  * Customer actions.
@@ -203,4 +204,70 @@ export async function exportCustomersCsv(query: Params): Promise<string> {
         .join(","),
     ),
   ].join("\n");
+}
+
+/* ─── One customer, every channel (lib/crm/identity.ts) ────────────────── */
+
+/** Merging joins two people's records: a manager's, an admin's or an owner's call, not an agent's. */
+async function canMerge() {
+  const ctx = await getConsoleContext();
+  assertCan(ctx.session.actor, "customers.read", { brandId: ctx.brand.id });
+  if (ctx.session.actor.role === "agent") throw new Error("Merging customers needs a manager, admin or owner.");
+  return ctx;
+}
+
+/** Fold `fromId` into `intoId`: everything moves, `fromId` goes. */
+export async function mergeCustomer(intoId: string, fromId: string) {
+  const { session, brand } = await canMerge();
+  const [into, from] = await Promise.all([scoped(intoId, brand.id), scoped(fromId, brand.id)]);
+  await mergeCustomers(brand.id, from.id, into.id, { reason: `Merged by ${session.name}`, by: session.name, claimed: false });
+  await audit({
+    orgId: session.orgId,
+    brandId: brand.id,
+    actorId: session.membershipId,
+    actorName: session.name,
+    action: "customer.merged",
+    target: into.id,
+    meta: { from: from.id, fromName: from.name, fromPhone: from.phone, fromEmail: from.email },
+  });
+  revalidatePath(`/app/customers/${into.id}`);
+  revalidatePath("/app/customers");
+}
+
+/** Merge in the other record a number or email belongs to. */
+export async function mergeByHandle(intoId: string, numberOrEmail: string) {
+  const { brand } = await canMerge();
+  await scoped(intoId, brand.id);
+  const other = await customerForMerge(brand.id, numberOrEmail, intoId);
+  if (!other) throw new Error("No other customer has that number or email.");
+  await mergeCustomer(intoId, other.id);
+  return { merged: other.name };
+}
+
+/** "Not the same person": the match stops being suggested. */
+export async function dismissMatch(matchId: string) {
+  const { session, brand } = await canMerge();
+  await db
+    .update(s.customerMatches)
+    .set({ status: "dismissed", decidedBy: session.name, decidedAt: new Date() })
+    .where(and(eq(s.customerMatches.id, matchId), eq(s.customerMatches.brandId, brand.id)));
+  revalidatePath("/app/customers");
+}
+
+/**
+ * Confirm a number or email someone only said: it is theirs. It becomes the
+ * one on file if there is none, so details and callbacks can go to it.
+ */
+export async function confirmHandle(identityId: string) {
+  const { session, brand } = await canMerge();
+  const [row] = await db
+    .update(s.customerIdentities)
+    .set({ verified: true })
+    .where(and(eq(s.customerIdentities.id, identityId), eq(s.customerIdentities.brandId, brand.id)))
+    .returning();
+  if (!row) throw new Error("No such number or email.");
+  const column = row.kind === "phone" ? "phone" : "email";
+  await db.execute(sql`UPDATE customers SET ${sql.raw(column)} = coalesce(${sql.raw(column)}, ${row.display}) WHERE id = ${row.customerId}`);
+  await audit({ orgId: session.orgId, brandId: brand.id, actorId: session.membershipId, actorName: session.name, action: "customer.handle_confirmed", target: row.customerId, meta: { kind: row.kind } });
+  revalidatePath(`/app/customers/${row.customerId}`);
 }

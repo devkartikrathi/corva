@@ -1,7 +1,9 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
-import { customerForCaller, isUnnamed } from "@/lib/crm/capture";
+import { isUnnamed } from "@/lib/crm/capture";
+import { refreshProfile } from "@/lib/crm/profile";
+import { customerForHandle, handle, keepHandle, noteReference, recordMatch } from "@/lib/crm/identity";
 import { ApiError } from "./api";
 
 /**
@@ -77,18 +79,23 @@ async function customerFor(brand: Brand, input: RecordInput) {
       .limit(1);
     if (row) return row.customer;
   }
-  const phone = clip(c.phone, 30);
-  if (phone) {
-    let customer = (await customerForCaller(brand.id, phone))!;
+  // The business's own system knows its customers: what it says is verified.
+  const phone = handle("phone", clip(c.phone, 30));
+  const email = handle("email", clip(c.email, 160));
+  const first = phone ?? email;
+  if (first) {
     const name = clip(c.name, 120);
-    const email = clip(c.email, 160);
-    const updates: Partial<typeof s.customers.$inferInsert> = {};
-    if (name && isUnnamed(customer.name)) updates.name = name;
-    if (email && !customer.email) updates.email = email;
-    if (Object.keys(updates).length) [customer] = await db.update(s.customers).set(updates).where(eq(s.customers.id, customer.id)).returning();
+    let { customer } = await customerForHandle(brand.id, first, { name, verified: true, source: "business" });
+    const second = phone && email ? email : null;
+    if (second) {
+      const kept = await keepHandle(customer.id, brand.id, second, { verified: true, source: "business" });
+      if (kept.belongsTo) await recordMatch(brand.id, customer.id, kept.belongsTo, `${brand.name}'s system lists ${second.value} on this customer's order`);
+      else if (!customer.email) [customer] = await db.update(s.customers).set({ email: second.value }).where(eq(s.customers.id, customer.id)).returning();
+    }
+    if (name && isUnnamed(customer.name)) [customer] = await db.update(s.customers).set({ name }).where(eq(s.customers.id, customer.id)).returning();
     return customer;
   }
-  throw new ApiError(400, "A record needs a customer: send customer.id, leadId or customer.phone.");
+  throw new ApiError(400, "A record needs a customer: send customer.id, leadId, customer.phone or customer.email.");
 }
 
 /**
@@ -137,6 +144,8 @@ export async function upsertRecord(brand: Brand, input: RecordInput) {
         .insert(s.customerRecords)
         .values({ ...values, ...(occurredAt ? { occurredAt } : {}) })
         .returning();
+  // An order moved: the customer's rhythm and value may have too.
+  await refreshProfile(customer.id).catch((e) => console.error("[records] profile", (e as Error).message));
   return { record: recordJson(row), created: !existing };
 }
 
@@ -167,8 +176,9 @@ export async function listRecords(brand: Brand, params: URLSearchParams) {
  * The record's own words and nothing about whose it is: a reference is all
  * the caller has shown, so no name, phone number or address goes back.
  */
-export async function lookUpForAssistant(brandId: string, reference: string, opts: { canCheckDatabase?: boolean } = {}) {
+export async function lookUpForAssistant(brandId: string, reference: string, opts: { canCheckDatabase?: boolean; conversationId?: string } = {}) {
   const [record] = await recordsByReference(brandId, reference);
+  if (record && opts.conversationId) await noteReference(opts.conversationId, record.customerId, record.ref);
   if (!record) {
     return {
       found: false as const,

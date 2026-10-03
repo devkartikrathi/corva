@@ -1,6 +1,7 @@
 import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { isVerified } from "@/lib/crm/identity";
 import * as s from "@/lib/db/schema";
 import { industryFor } from "./industries";
 import { formatPhone, isPlausiblePhone } from "./phone";
@@ -238,7 +239,7 @@ export async function captureDetails(
 /** Everything known for this conversation: its details, with the customer record filling gaps. */
 export async function knownDetails(conversationId: string, fields: IntakeField[]): Promise<Record<string, string>> {
   const [row] = await db
-    .select({ captured: s.conversations.captured, customer: s.customers })
+    .select({ captured: s.conversations.captured, identifiedBy: s.conversations.identifiedBy, customer: s.customers })
     .from(s.conversations)
     .leftJoin(s.customers, eq(s.customers.id, s.conversations.customerId))
     .where(eq(s.conversations.id, conversationId))
@@ -250,9 +251,13 @@ export async function knownDetails(conversationId: string, fields: IntakeField[]
     // Named after their number means the name is not known.
     if (c.name && !/^\+?[\d\s()-]{7,}$/.test(c.name.trim()) && !/^(new|unknown) caller/i.test(c.name)) known.name = c.name;
     if (c.phone) known.phone = c.phone;
-    if (c.email) known.email = c.email;
-    const address = fields.find((f) => f.kind === "address");
-    if (address && c.location) known[address.key] = c.location;
+    // Their email and address on file only to someone we know is them: a
+    // stated identity is asked again rather than shown someone's address.
+    if (isVerified(row.identifiedBy)) {
+      if (c.email) known.email = c.email;
+      const address = fields.find((f) => f.kind === "address");
+      if (address && c.location) known[address.key] = c.location;
+    }
   }
   return { ...known, ...(row.captured ?? {}) };
 }

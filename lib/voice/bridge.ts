@@ -590,6 +590,7 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
             isTest: grant.isTest ?? false,
             // A call started from a business's own website, not dialled.
             fromWebsite: !grant.dialed,
+            visitorId: grant.visitorId ?? null,
           });
           if (grant.visitorId) defer(noteVoiceVisit(grant.brandId, grant.visitorId, opened.customer?.id ?? null));
         } else {
@@ -614,7 +615,10 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
         // loses: the socket opens during the await, the handler is attached
         // too late, setup is never sent, and the session hangs until the
         // client gives up.
-        const { text: caller } = await customerContext(opened.customer?.id ?? null);
+        const { text: caller } = await customerContext(opened.customer?.id ?? null, {
+          conversationId: opened.conversation.id,
+          identifiedBy: opened.conversation.identifiedBy,
+        });
         const known = await knownDetails(opened.conversation.id, opened.config.fields);
 
         liveModel = resolveLiveModel(msg.liveModel);

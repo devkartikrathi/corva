@@ -3,7 +3,21 @@ import { candidatesFor } from "@/lib/agent/routing";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { OPEN_STAGES } from "@/lib/business/industries";
-import { formatPhone, isPlausiblePhone, phoneDigits } from "@/lib/business/phone";
+import { phoneDigits } from "@/lib/business/phone";
+import {
+  attachConversation,
+  createCustomer,
+  customerByHandle,
+  customerForHandle,
+  handle,
+  isStandIn,
+  isVerified,
+  keepHandle,
+  linkVisitor,
+  mergeCustomers,
+  recordMatch,
+  type HandleSource,
+} from "./identity";
 import { emit, followUpPayload } from "@/lib/integrations/webhooks";
 
 /**
@@ -29,60 +43,18 @@ export const isUnnamed = (name: string) => PHONE_ONLY.test(name.trim()) || /^(ne
  *
  * Found by phone number within the business, or created — every caller becomes
  * a contact, named after their number until the agent learns their name.
+ * `how` says whether the number is proven (a real call's caller id, WhatsApp,
+ * the business's own system) or only what someone typed. See lib/crm/identity.ts.
  */
-export async function customerForCaller(brandId: string, callerPhone: string | null | undefined) {
-  if (!callerPhone?.trim()) return null;
-  const known = await customerByPhone(brandId, callerPhone);
-  if (known) return known;
-
-  const [created] = await db
-    .insert(s.customers)
-    .values({
-      brandId,
-      name: formatPhone(callerPhone),
-      phone: formatPhone(callerPhone),
-      segment: "New caller",
-      customerSince: new Date(),
-    })
-    .returning();
-  return created;
-}
-
-/** The business's customer with this number, if there is one. */
-async function customerByPhone(brandId: string, phone: string) {
-  const digits = phoneDigits(phone);
-  const [known] = await db
-    .select()
-    .from(s.customers)
-    .where(
-      and(
-        eq(s.customers.brandId, brandId),
-        sql`regexp_replace(coalesce(${s.customers.phone}, ''), '\\D', '', 'g') in (${digits}, ${digits.slice(2)})`,
-      ),
-    )
-    .limit(1);
-  return known ?? null;
-}
-
-/**
- * Fold a nameless-number stand-in into the customer it turned out to be.
- *
- * A website caller starts as a record with only the name they gave; when the
- * number they then give belongs to someone already on file, everything the
- * call wrote for the stand-in moves to them, and the stand-in is removed so
- * the customer list does not fill with half-records of the same person.
- */
-async function mergeStandIn(standInId: string, intoId: string, conversationId: string) {
-  await db.update(s.leads).set({ customerId: intoId }).where(eq(s.leads.customerId, standInId));
-  await db.update(s.followUps).set({ customerId: intoId }).where(eq(s.followUps.customerId, standInId));
-  await db.update(s.visitors).set({ customerId: intoId }).where(eq(s.visitors.customerId, standInId));
-  await db.update(s.conversations).set({ customerId: intoId }).where(eq(s.conversations.customerId, standInId));
-  try {
-    await db.delete(s.customers).where(eq(s.customers.id, standInId));
-  } catch (e) {
-    // Something else still points at it (a score, say). Harmless to keep.
-    console.warn(`kept stand-in customer ${standInId} from ${conversationId}:`, (e as Error).message);
-  }
+export async function customerForCaller(
+  brandId: string,
+  callerPhone: string | null | undefined,
+  how: { verified: boolean; source: HandleSource; conversationId?: string | null; name?: string | null } = { verified: false, source: "earlier" },
+) {
+  const h = handle("phone", callerPhone);
+  if (!h) return null;
+  const { customer } = await customerForHandle(brandId, h, { ...how, segment: "New caller" });
+  return customer;
 }
 
 /**
@@ -158,7 +130,6 @@ export async function identifyCustomer(opts: {
   email?: string;
 }) {
   const name = opts.name?.trim();
-  const email = opts.email?.trim().toLowerCase();
 
   // Who the conversation is about *now*. An earlier call in this same
   // conversation may have created or switched the customer, and the id the
@@ -166,7 +137,7 @@ export async function identifyCustomer(opts: {
   // trusting it made a new customer and a new lead every time the agent
   // saved details on a website call that started anonymous.
   const [conversation] = await db
-    .select({ customerId: s.conversations.customerId })
+    .select({ customerId: s.conversations.customerId, identifiedBy: s.conversations.identifiedBy, channel: s.conversations.channel })
     .from(s.conversations)
     .where(eq(s.conversations.id, opts.conversationId))
     .limit(1);
@@ -174,48 +145,81 @@ export async function identifyCustomer(opts: {
   let customer = currentId
     ? (await db.select().from(s.customers).where(eq(s.customers.id, currentId)).limit(1))[0]
     : undefined;
-  const repoint = async (to: string) =>
-    db.update(s.conversations).set({ customerId: to }).where(eq(s.conversations.id, opts.conversationId));
+  const source: HandleSource =
+    conversation?.channel === "whatsapp" ? "whatsapp" : conversation?.channel === "email" ? "email" : conversation?.channel === "phone" ? "voice" : "chat";
+  const verifiedHere = isVerified(conversation?.identifiedBy);
 
-  // A phone number the person gave decides who they are.
-  if (opts.phone && isPlausiblePhone(opts.phone) && (!customer?.phone || phoneDigits(customer.phone) !== phoneDigits(opts.phone))) {
-    const known = await customerByPhone(opts.brandId, opts.phone);
-    if (known && known.id !== customer?.id) {
-      // Someone already on record. What this conversation wrote down for the
-      // nameless stand-in it started as is theirs, and the stand-in goes.
-      if (customer && !customer.phone) await mergeStandIn(customer.id, known.id, opts.conversationId);
-      customer = known;
-      await repoint(known.id);
-    } else if (!known && customer && !customer.phone) {
-      // The same person we have been talking to — now with their number.
-      [customer] = await db
-        .update(s.customers)
-        .set({ phone: formatPhone(opts.phone) })
-        .where(eq(s.customers.id, customer.id))
-        .returning();
-    } else if (!known) {
-      // A different number from the one on record: a shared browser, or a
-      // family member ringing from someone else's line, is a different
-      // person with their own record.
-      customer = (await customerForCaller(opts.brandId, opts.phone))!;
-      await repoint(customer.id);
+  // What the person said about themselves. A phone number first: it decides who someone is.
+  for (const h of [handle("phone", opts.phone), handle("email", opts.email)]) {
+    if (!h) continue;
+    const found = await customerByHandle(opts.brandId, h);
+
+    if (found && found.customer.id === customer?.id) continue;
+
+    if (found && !customer) {
+      // An anonymous conversation learns who it is with.
+      customer = found.customer;
+      await attachConversation(opts.conversationId, customer.id, "stated");
+      continue;
+    }
+
+    if (found && customer) {
+      if (await isStandIn(customer, opts.conversationId)) {
+        // The record this conversation made a moment ago is the customer it turned
+        // out to be: everything moves across, and the stand-in goes.
+        await mergeCustomers(opts.brandId, customer.id, found.customer.id, {
+          reason: `Gave ${h.display}, already on this customer, in a conversation`,
+          by: "Corva",
+          claimed: true,
+        });
+        customer = found.customer;
+        await attachConversation(opts.conversationId, customer.id, "stated");
+      } else if (h.kind === "phone" && !verifiedHere) {
+        // Someone known only by what was said here — a shared browser, a family
+        // member on another's line — gave a number that is someone else's.
+        // The number decides: this conversation is with them.
+        await recordMatch(opts.brandId, customer.id, found.customer.id, `Gave the number ${h.display} in a conversation that started as the other record`, opts.conversationId);
+        customer = found.customer;
+        await attachConversation(opts.conversationId, customer.id, "stated");
+      } else {
+        // Two real customers. A claim never merges them; the team decides.
+        await recordMatch(opts.brandId, customer.id, found.customer.id, `Gave ${h.display}, which is on the other record`, opts.conversationId);
+      }
+      continue;
+    }
+
+    if (!customer) {
+      customer = await createCustomer(opts.brandId, { name, [h.kind]: h, segment: "New caller", verified: false, source, conversationId: opts.conversationId });
+      await attachConversation(opts.conversationId, customer.id, "stated");
+      continue;
+    }
+
+    // A handle nobody has: theirs now — unless it is a second number on a
+    // record that already has one and nothing here proves who is speaking.
+    if (h.kind === "phone" && customer.phone && phoneDigits(customer.phone) !== h.value && !verifiedHere && !(await isStandIn(customer, opts.conversationId))) {
+      customer = await createCustomer(opts.brandId, { name, phone: h, segment: "New caller", verified: false, source, conversationId: opts.conversationId });
+      await attachConversation(opts.conversationId, customer.id, "stated");
+      continue;
+    }
+    // The address on file only from someone we know is them, or on a record made here.
+    const trusted = verifiedHere || (await isStandIn(customer, opts.conversationId));
+    await keepHandle(customer.id, opts.brandId, h, { verified: false, source, conversationId: opts.conversationId });
+    const column = h.kind === "phone" ? "phone" : "email";
+    if (trusted && !customer[column]) {
+      [customer] = await db.update(s.customers).set({ [column]: h.display }).where(eq(s.customers.id, customer.id)).returning();
     }
   }
+
   if (customer) {
-    const updates: Partial<typeof s.customers.$inferInsert> = {};
     // Only ever fill in a name we did not have. Someone saying a different
     // name must not rename a customer we already know.
-    if (name && isUnnamed(customer.name)) updates.name = name;
-    if (email && !customer.email) updates.email = email;
-    if (Object.keys(updates).length) {
-      [customer] = await db.update(s.customers).set(updates).where(eq(s.customers.id, customer.id)).returning();
+    if (name && isUnnamed(customer.name)) {
+      [customer] = await db.update(s.customers).set({ name }).where(eq(s.customers.id, customer.id)).returning();
     }
+    await linkVisitor(opts.conversationId);
   } else if (name) {
-    [customer] = await db
-      .insert(s.customers)
-      .values({ brandId: opts.brandId, name, email: email ?? null, segment: "New caller", customerSince: new Date() })
-      .returning();
-    await repoint(customer.id);
+    customer = await createCustomer(opts.brandId, { name, segment: "New caller", verified: false, source, conversationId: opts.conversationId });
+    await attachConversation(opts.conversationId, customer.id, "stated");
   }
 
   return customer ?? null;

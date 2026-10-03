@@ -8,6 +8,7 @@ import { languageModel, thinkingOptions } from "@/lib/agent/model";
 import { CHAT_MODEL_ID } from "@/lib/agent/models";
 import { layout, sendEmail } from "@/lib/email";
 import { accountState, blocked } from "@/lib/billing/usage";
+import { customerForHandle, handle, type IdentifiedBy } from "@/lib/crm/identity";
 
 /**
  * Customer email, by forwarding.
@@ -209,11 +210,16 @@ async function addTurn(conversationId: string, speaker: "customer" | "human", au
   await db.insert(s.turns).values({ conversationId, ordinal: (last?.ordinal ?? -1) + 1, speaker, authorName: author, body, createdAt: at });
 }
 
+/**
+ * The customer who wrote. They wrote from this address, so a record made from
+ * it is verified; an address someone only *said* was theirs, elsewhere, stays
+ * a stated identity (lib/crm/identity.ts).
+ */
 async function customerByEmail(brandId: string, address: string, name: string) {
-  const [known] = await db.select().from(s.customers).where(and(eq(s.customers.brandId, brandId), sql`lower(${s.customers.email}) = ${address}`)).limit(1);
-  if (known) return known;
-  const [made] = await db.insert(s.customers).values({ brandId, name: name || address.split("@")[0], email: address, segment: "Email" }).returning();
-  return made;
+  const h = handle("email", address);
+  if (!h) throw new Error(`Not an email address: ${address}`);
+  const { customer, verified } = await customerForHandle(brandId, h, { name: name || null, segment: "Email", verified: true, source: "email" });
+  return { customer, identifiedBy: (verified ? "email" : "stated") as IdentifiedBy };
 }
 
 const baseSubject = (subject: string) => subject.replace(/^\s*((re|fw|fwd|aw)\s*:\s*)+/i, "").trim().toLowerCase();
@@ -344,7 +350,7 @@ async function sortReceived(emailId: string, email: Received, inbox: Inbox, bran
     return { outcome: "not-a-customer", brandId: inbox.brandId };
   }
 
-  const customer = await customerByEmail(inbox.brandId, from.address, from.name || verdict.name);
+  const { customer, identifiedBy } = await customerByEmail(inbox.brandId, from.address, from.name || verdict.name);
   const [conversation] = await db
     .insert(s.conversations)
     .values({
@@ -356,6 +362,7 @@ async function sortReceived(emailId: string, email: Received, inbox: Inbox, bran
       status: "resolved",
       startedAt: at,
       externalRef: `email:${emailId}`,
+      identifiedBy,
       summary: verdict.summary.slice(0, 400),
     })
     .returning();
@@ -391,17 +398,19 @@ async function sendThreadEmail(conversationId: string, brand: { id: string; name
     .where(and(eq(s.conversations.id, conversationId), eq(s.conversations.brandId, brand.id), eq(s.conversations.channel, "email")))
     .limit(1);
   if (!thread) throw new Error("No such email thread.");
-  const to = thread.customer?.email;
-  if (!to) throw new Error("This customer has no email address on record.");
 
   const inbox = await inboxFor(brand.id, brand.slug);
   const replyTo = inboxAddress(inbox) ?? undefined;
   const [last] = await db
-    .select({ messageId: s.emailMessages.messageId })
+    .select({ messageId: s.emailMessages.messageId, address: s.emailMessages.address })
     .from(s.emailMessages)
     .where(and(eq(s.emailMessages.conversationId, conversationId), eq(s.emailMessages.direction, "in")))
     .orderBy(desc(s.emailMessages.createdAt))
     .limit(1);
+  // Back to whoever wrote, from the address they wrote from — not whichever address
+  // happens to be on the customer's record, which may be someone else's claim.
+  const to = last?.address ?? thread.customer?.email;
+  if (!to) throw new Error("This customer has no email address on record.");
   const topic = thread.c.intent ?? "your message";
   const messageId = `corva-${randomBytes(12).toString("hex")}@${inboundDomain() ?? "corva"}`;
   const first = thread.customer?.name && !/@/.test(thread.customer.name) ? thread.customer.name.split(" ")[0] : null;

@@ -8,6 +8,7 @@ import { arrangeCallback } from "@/lib/crm/callback";
 import { requestPaymentForAssistant } from "@/lib/payments";
 import { EMAIL_DETAILS_INSTRUCTIONS, emailOrderDetails } from "@/lib/email/details";
 import { identifyFromTranscript } from "@/lib/crm/identify";
+import type { IdentifiedBy } from "@/lib/crm/identity";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { runningSentiment, scoreUtterance } from "@/lib/pipelines/sentiment";
@@ -510,7 +511,7 @@ export async function handleToolCall(
 
   if (name === "look_up_record") {
     const reference = String(args.reference ?? "");
-    const result = await lookUpForAssistant(ctx.brandId, reference, { canCheckDatabase: ctx.config.lookups.length > 0 });
+    const result = await lookUpForAssistant(ctx.brandId, reference, { canCheckDatabase: ctx.config.lookups.length > 0, conversationId: ctx.conversationId });
     return {
       response: result,
       outcome: {
@@ -976,6 +977,8 @@ export async function openVoiceConversation(opts: {
   isTest?: boolean;
   /** Started from the business's own website rather than dialled. */
   fromWebsite?: boolean;
+  /** The website's id for the browser, so a returning visitor is known before they say a word. */
+  visitorId?: string | null;
 }) {
   let brand: typeof s.brands.$inferSelect | undefined;
   if (opts.brandId) {
@@ -992,7 +995,24 @@ export async function openVoiceConversation(opts: {
   const config = await loadAgentConfig(brand.id);
   if (!config) throw new Error(`${brand.name} has no AI assistant set up, so nobody answers.`);
 
-  let customer = await customerForCaller(brand.id, opts.callerPhone);
+  // A dialled call's number is its caller id; a website passes on what the visitor typed.
+  let customer = await customerForCaller(brand.id, opts.callerPhone, {
+    verified: !opts.fromWebsite,
+    source: opts.fromWebsite ? "voice" : "call",
+  });
+  let identifiedBy: IdentifiedBy | null = customer ? (opts.fromWebsite ? "stated" : "caller_id") : null;
+  const [visitor] = opts.visitorId
+    ? await db
+        .select({ id: s.visitors.id, customerId: s.visitors.customerId })
+        .from(s.visitors)
+        .where(and(eq(s.visitors.brandId, brand.id), eq(s.visitors.externalId, opts.visitorId)))
+        .limit(1)
+    : [];
+  if (!customer && visitor?.customerId) {
+    // A browser that was identified before: the same person, most likely.
+    [customer] = await db.select().from(s.customers).where(eq(s.customers.id, visitor.customerId)).limit(1);
+    identifiedBy = customer ? "browser" : null;
+  }
   const callerName = opts.callerName?.trim();
   if (customer && callerName && callerName.length > 1 && isUnnamed(customer.name)) {
     [customer] = await db.update(s.customers).set({ name: callerName }).where(eq(s.customers.id, customer.id)).returning();
@@ -1003,6 +1023,8 @@ export async function openVoiceConversation(opts: {
     .values({
       brandId: brand.id,
       customerId: customer?.id ?? null,
+      identifiedBy,
+      visitorId: visitor?.id ?? null,
       // A voice call either way — the console shows it as a call. One made from
       // the business's website carries a `web-voice:` reference to say so.
       channel: "phone",

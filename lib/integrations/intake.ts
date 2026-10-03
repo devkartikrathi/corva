@@ -4,7 +4,8 @@ import * as s from "@/lib/db/schema";
 import { formatPhone, isPlausiblePhone } from "@/lib/business/phone";
 import { OPEN_STAGES, industryFor } from "@/lib/business/industries";
 import { cleanDetails, intakeFieldsFor } from "@/lib/business/intake";
-import { customerForCaller, isUnnamed, pickOwner, scheduleFollowUp } from "@/lib/crm/capture";
+import { isUnnamed, pickOwner, scheduleFollowUp } from "@/lib/crm/capture";
+import { customerForHandle, handle, keepHandle, recordMatch, type IdentifiedBy } from "@/lib/crm/identity";
 import { APP_URL, layout, sendEmail } from "@/lib/email";
 import { ApiError } from "./api";
 import { emit, leadPayload } from "./webhooks";
@@ -167,7 +168,13 @@ async function findVisitor(brandId: string, externalId: string) {
   return v ?? null;
 }
 
-async function conversationFor(brand: Brand, externalRef: string, customerId: string | null, channel: "web_chat" | "whatsapp" = "web_chat") {
+async function conversationFor(
+  brand: Brand,
+  externalRef: string,
+  customerId: string | null,
+  channel: "web_chat" | "whatsapp" = "web_chat",
+  who: { identifiedBy?: IdentifiedBy | null; visitorId?: string | null } = {},
+) {
   const [existing] = await db
     .select()
     .from(s.conversations)
@@ -175,7 +182,12 @@ async function conversationFor(brand: Brand, externalRef: string, customerId: st
     .limit(1);
   if (existing) {
     if (customerId && !existing.customerId) {
-      await db.update(s.conversations).set({ customerId }).where(eq(s.conversations.id, existing.id));
+      await db
+        .update(s.conversations)
+        .set({ customerId, identifiedBy: who.identifiedBy ?? "stated", ...(who.visitorId && !existing.visitorId ? { visitorId: who.visitorId } : {}) })
+        .where(eq(s.conversations.id, existing.id));
+    } else if (who.visitorId && !existing.visitorId) {
+      await db.update(s.conversations).set({ visitorId: who.visitorId }).where(eq(s.conversations.id, existing.id));
     }
     return existing;
   }
@@ -189,6 +201,8 @@ async function conversationFor(brand: Brand, externalRef: string, customerId: st
     .values({
       brandId: brand.id,
       customerId,
+      identifiedBy: customerId ? (who.identifiedBy ?? "stated") : null,
+      visitorId: who.visitorId ?? null,
       channel,
       status: "live",
       externalRef,
@@ -305,11 +319,18 @@ export async function intakeLead(
     }
   }
 
-  // The person.
-  let customer = (await customerForCaller(brand.id, input.phone))!;
+  // The person: what they typed into the form, so a stated identity (lib/crm/identity.ts).
+  const found = await customerForHandle(brand.id, handle("phone", input.phone)!, { name, verified: false, source: "chat" });
+  let customer = found.customer;
   const updates: Partial<typeof s.customers.$inferInsert> = {};
   if (isUnnamed(customer.name) || customer.segment === "New caller") updates.name = name;
-  if (email && !customer.email) updates.email = email;
+  const emailHandle = handle("email", email);
+  if (emailHandle) {
+    const kept = await keepHandle(customer.id, brand.id, emailHandle, { verified: false, source: "chat" });
+    if (kept.belongsTo) await recordMatch(brand.id, customer.id, kept.belongsTo, `Gave ${emailHandle.value} on the website form, which is on the other record`);
+    // On file only on a record this form made: never someone else's address on a customer we already had.
+    else if (found.created && !customer.email) updates.email = emailHandle.value;
+  }
   if (input.address && !customer.location) updates.location = clip(input.address, 200);
   if (Object.keys(updates).length) {
     [customer] = await db.update(s.customers).set(updates).where(eq(s.customers.id, customer.id)).returning();
@@ -339,7 +360,7 @@ export async function intakeLead(
   if (from) {
     await db
       .update(s.conversations)
-      .set({ customerId: customer.id })
+      .set({ customerId: customer.id, identifiedBy: "stated" })
       .where(and(eq(s.conversations.id, from.conversationId), sql`${s.conversations.customerId} is null`));
   }
   const fromChat = Boolean(from || input.sessionId);
@@ -582,25 +603,40 @@ export async function agentChat(brand: Brand, input: AgentChatInput) {
   ]);
   if (!turns) throw new ApiError(429, "You're sending messages too quickly. Please wait a moment.");
 
-  // Who it is, if the site knows.
+  // Who it is: WhatsApp's sender is proven; a number a site passes on is what
+  // the visitor told it; a browser that was identified before is that person.
   let customerId: string | null = null;
-  const phone = input.customer?.phone;
-  if (phone && isPlausiblePhone(phone)) {
-    let customer = (await customerForCaller(brand.id, phone))!;
+  let identifiedBy: IdentifiedBy | null = null;
+  const whatsapp = input.channel === "whatsapp";
+  const phone = handle("phone", input.customer?.phone);
+  if (phone) {
     const name = input.customer?.name?.trim();
-    const email = input.customer?.email?.trim().toLowerCase();
-    const updates: Partial<typeof s.customers.$inferInsert> = {};
-    if (name && name.length > 1 && isUnnamed(customer.name)) updates.name = name.slice(0, 120);
-    if (email && EMAIL.test(email) && !customer.email) updates.email = email;
-    if (Object.keys(updates).length) {
-      [customer] = await db.update(s.customers).set(updates).where(eq(s.customers.id, customer.id)).returning();
+    const found = await customerForHandle(brand.id, phone, {
+      name: name && name.length > 1 ? name.slice(0, 120) : null,
+      verified: whatsapp,
+      source: whatsapp ? "whatsapp" : "chat",
+    });
+    let customer = found.customer;
+    if (name && name.length > 1 && isUnnamed(customer.name)) {
+      [customer] = await db.update(s.customers).set({ name: name.slice(0, 120) }).where(eq(s.customers.id, customer.id)).returning();
+    }
+    const email = handle("email", input.customer?.email);
+    if (email) {
+      const kept = await keepHandle(customer.id, brand.id, email, { verified: false, source: whatsapp ? "whatsapp" : "chat" });
+      if (!kept.belongsTo && !customer.email && (found.created || found.verified)) {
+        await db.update(s.customers).set({ email: email.value }).where(eq(s.customers.id, customer.id));
+      }
     }
     customerId = customer.id;
+    identifiedBy = whatsapp && found.verified ? "whatsapp" : "stated";
   }
 
   const visitorId = clip(input.visitorId, 80);
   let visitor = visitorId ? await findVisitor(brand.id, visitorId) : null;
-  if (!customerId && visitor?.customerId) customerId = visitor.customerId;
+  if (!customerId && visitor?.customerId) {
+    customerId = visitor.customerId;
+    identifiedBy = "browser";
+  }
 
   // A new chat needs the plan to have room for it. One already under way is
   // never cut off: the check is on starting, not on each message.
@@ -613,12 +649,12 @@ export async function agentChat(brand: Brand, input: AgentChatInput) {
     if (blocked(await accountState(brand.orgId), "chat")) throw new ApiError(402, UNAVAILABLE);
   }
 
-  const conversation = await conversationFor(brand, `agent:${session}`, customerId, input.channel);
-  if (conversation.status === "resolved" || conversation.status === "abandoned") {
-    throw new ApiError(409, "This conversation has ended. Start a new sessionId.");
-  }
   if (visitorId && !visitor) {
     visitor = await upsertVisitor(brand.id, visitorId, { consent: "necessary", customerId: customerId ?? undefined });
+  }
+  const conversation = await conversationFor(brand, `agent:${session}`, customerId, input.channel, { identifiedBy, visitorId: visitor?.id ?? null });
+  if (conversation.status === "resolved" || conversation.status === "abandoned") {
+    throw new ApiError(409, "This conversation has ended. Start a new sessionId.");
   }
 
   // A person has taken over: record what the customer said, and let them reply.

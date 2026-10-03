@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { getConsoleContext } from "@/lib/auth/context";
 import { assertCan, can } from "@/lib/auth/permissions";
 import { db } from "@/lib/db";
+import { customerForHandle, handle } from "@/lib/crm/identity";
 import * as s from "@/lib/db/schema";
 import { LEAD_STAGES, type LeadStage } from "@/lib/business/industries";
 import { formatPhone, isPlausiblePhone } from "@/lib/business/phone";
@@ -156,28 +157,12 @@ export async function createLead(input: {
   // One person, one record: a phone number already on file is that customer.
   let customerId: string | null = null;
   if (phone) {
-    const formatted = formatPhone(phone);
-    const [known] = await db
-      .select({ id: s.customers.id })
-      .from(s.customers)
-      .where(and(eq(s.customers.brandId, ctx.brand.id), eq(s.customers.phone, formatted)))
-      .limit(1);
-    customerId =
-      known?.id ??
-      (
-        await db
-          .insert(s.customers)
-          .values({
-            brandId: ctx.brand.id,
-            name,
-            phone: formatted,
-            segment: "New lead",
-            ownerMembershipId: member.id,
-            owner: member.name,
-            customerSince: new Date(),
-          })
-          .returning({ id: s.customers.id })
-      )[0].id;
+    // Someone on the team typed it: a verified handle (lib/crm/identity.ts).
+    const found = await customerForHandle(ctx.brand.id, handle("phone", phone)!, { name, segment: "New lead", verified: true, source: "team" });
+    customerId = found.customer.id;
+    if (found.created) {
+      await db.update(s.customers).set({ ownerMembershipId: member.id, owner: member.name }).where(eq(s.customers.id, customerId));
+    }
   }
 
   const [lead] = await db

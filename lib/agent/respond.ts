@@ -1,10 +1,9 @@
 import { streamText, tool, type ToolSet } from "ai";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { checkAuthority, describeAuthority } from "./authority";
-import { formatRupees } from "@/lib/money";
 import { loadAgentConfig, type AgentConfig } from "./config";
 import {
   checkTriggers,
@@ -29,6 +28,8 @@ import { captureDetails, detailsInstructions, detailsSchema, knownDetails, leadQ
 import { anyoneFree, arrangeCallback, settleUnanswered } from "@/lib/crm/callback";
 import { paymentsContext, requestPaymentForAssistant } from "@/lib/payments";
 import { EMAIL_DETAILS_INSTRUCTIONS, emailOrderDetails } from "@/lib/email/details";
+import { isVerified } from "@/lib/crm/identity";
+import { channelLabel, freshProfile, profileLine } from "@/lib/crm/profile";
 
 /**
  * One turn of the agent.
@@ -216,7 +217,11 @@ the customer plainly and offer that the team will follow up.
 
 /** Everything the agent is allowed to know about who it is talking to. */
 /** Exported so the voice bridge gives its agent the same record the text path has. */
-export async function customerContext(customerId: string | null): Promise<{ text: string; priority: number | null }> {
+export async function customerContext(
+  customerId: string | null,
+  /** The conversation being answered, and how we know who it is with (lib/crm/identity.ts). */
+  here: { conversationId?: string; identifiedBy?: string | null } = {},
+): Promise<{ text: string; priority: number | null }> {
   if (!customerId) return { text: "Unidentified caller.", priority: null };
 
   const [row] = await db
@@ -237,20 +242,48 @@ export async function customerContext(customerId: string | null): Promise<{ text
       priority: null,
     };
   }
+  // Proven (they called or wrote from a handle on the record) or only said.
+  // On a stated identity what is on the record stays on the record.
+  const verified = isVerified(here.identifiedBy);
+  const profile = await freshProfile(c.id).catch(() => null);
   const lines = [
     `Name: ${c.name}`,
     c.phone && `Phone: ${c.phone} (already on record — do not ask for it)`,
     c.email && `Email: ${c.email}`,
     c.tier && `Tier: ${c.tier}`,
-    c.segment && `Segment: ${c.segment}`,
-    `Lifetime value: ${formatRupees(c.ltvPaise)}`,
-    c.location && `Location: ${c.location}`,
+    profile ? `Who they are to the business: ${profileLine(profile)}` : c.segment && `Segment: ${c.segment}`,
+    verified && c.location && `Location: ${c.location}`,
     row.score && `Priority: ${Math.round(row.score.blended)} of 100`,
-  ].filter(Boolean);
-  // What they have been asked to pay, and whether they have — so "has my
-  // payment gone through?" has an answer.
-  const payments = await paymentsContext(c.id);
-  if (payments) lines.push(`Payments:\n${payments}`);
+  ].filter(Boolean) as string[];
+
+  // The same person on other channels: what they came about lately.
+  const earlier = await db
+    .select({ channel: s.conversations.channel, externalRef: s.conversations.externalRef, startedAt: s.conversations.startedAt, summary: s.conversations.summary, intent: s.conversations.intent })
+    .from(s.conversations)
+    .where(and(eq(s.conversations.customerId, c.id), here.conversationId ? sql`${s.conversations.id} <> ${here.conversationId}` : sql`true`))
+    .orderBy(desc(s.conversations.startedAt))
+    .limit(3);
+  const told = earlier.filter((e) => e.summary || e.intent);
+  if (told.length) {
+    lines.push(
+      `Earlier contact:\n${told
+        .map((e) => `- ${e.startedAt.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" })}, ${channelLabel(e.channel, e.externalRef)}: ${(e.summary || e.intent)!.slice(0, 160)}`)
+        .join("\n")}`,
+    );
+  }
+
+  if (verified) {
+    // What they have been asked to pay, and whether they have — so "has my
+    // payment gone through?" has an answer.
+    const payments = await paymentsContext(c.id);
+    if (payments) lines.push(`Payments:\n${payments}`);
+  } else {
+    lines.push(
+      "Identity: they told us who they are in this conversation (or this browser did before); it is not proven. " +
+        "Greet them by name and use what they tell you, but do not read out anything from their record they have not said themselves " +
+        "— addresses, past orders, payments, earlier conversations. Details go by email to the address on file.",
+    );
+  }
 
   return { text: lines.join("\n"), priority: row.score ? Math.round(row.score.blended) : null };
 }
@@ -384,7 +417,7 @@ export async function* respondStream(opts: {
     ...history.filter((t) => t.speaker === "customer").map((t) => t.body),
     message,
   ];
-  const { text: context, priority } = await customerContext(conversation.customerId);
+  const { text: context, priority } = await customerContext(conversation.customerId, { conversationId, identifiedBy: conversation.identifiedBy });
   const known = await knownDetails(conversationId, config.fields);
 
   // The running figure, weighted towards what was just said — a call that has
@@ -528,7 +561,7 @@ export async function* respondStream(opts: {
             reference: z.string().describe("The reference exactly as the customer gave it, e.g. TD-7K3QX9"),
           }),
           execute: async ({ reference }) => {
-            const result = await lookUpForAssistant(conversation.brandId, reference, { canCheckDatabase: config.lookups.length > 0 });
+            const result = await lookUpForAssistant(conversation.brandId, reference, { canCheckDatabase: config.lookups.length > 0, conversationId });
             actionsTaken.push({ label: result.found ? `Looked up ${result.reference}: ${result.status}`.slice(0, 200) : `Looked up ${reference.slice(0, 40)}: nothing found`, allowed: true });
             return result;
           },

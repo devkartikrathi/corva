@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { refreshProfile } from "@/lib/crm/profile";
 import * as s from "@/lib/db/schema";
 import { customerForCaller, isUnnamed } from "@/lib/crm/capture";
 import { ApiError } from "@/lib/integrations/api";
@@ -194,7 +195,7 @@ async function customerFor(brandId: string, c: { id?: unknown; phone?: unknown; 
     if (row) return row.id;
   }
   const phone = clip(c?.phone, 30);
-  if (phone) return (await customerForCaller(brandId, phone))?.id ?? null;
+  if (phone) return (await customerForCaller(brandId, phone, { verified: true, source: "business" }))?.id ?? null;
   return null;
 }
 
@@ -316,6 +317,8 @@ export async function recordPayment(
  * Best-effort: the payment is recorded whatever happens here.
  */
 async function announcePaid(p: CustomerPayment) {
+  // What they have paid is part of who they are to the business.
+  if (p.customerId) await refreshProfile(p.customerId).catch((e) => console.error("[payments] profile", (e as Error).message));
   if (!p.conversationId) return;
   try {
     const [conversation] = await db.select().from(s.conversations).where(eq(s.conversations.id, p.conversationId)).limit(1);

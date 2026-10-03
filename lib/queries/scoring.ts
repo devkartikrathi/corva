@@ -152,8 +152,8 @@ export function computeScore(
   };
 }
 
-/** Recompute and persist scores for every customer of a brand. */
-export async function rescoreBrand(brandId: string): Promise<number> {
+/** Recompute and persist scores for every customer of a brand (or just `only`). */
+export async function rescoreBrand(brandId: string, only?: string[]): Promise<number> {
   const [axes, weightRows, ruleRows, customers] = await Promise.all([
     db.select().from(s.scoringAxes),
     db.select().from(s.brandAxisWeights).where(eq(s.brandAxisWeights.brandId, brandId)),
@@ -161,7 +161,10 @@ export async function rescoreBrand(brandId: string): Promise<number> {
       .select()
       .from(s.priorityRules)
       .where(and(eq(s.priorityRules.brandId, brandId), eq(s.priorityRules.enabled, true))),
-    db.select().from(s.customers).where(eq(s.customers.brandId, brandId)),
+    db
+      .select()
+      .from(s.customers)
+      .where(and(eq(s.customers.brandId, brandId), ...(only?.length ? [inArray(s.customers.id, only)] : []))),
   ]);
 
   if (customers.length === 0) return 0;
@@ -187,7 +190,13 @@ export async function rescoreBrand(brandId: string): Promise<number> {
     // Rehearsals are excluded here above all: they feed service_failures_90d
     // and contacts_30d, so a test call could otherwise push a real customer up
     // the priority queue and change who a person rings tomorrow.
-    .where(and(eq(s.conversations.brandId, brandId), eq(s.conversations.isTest, false)));
+    .where(
+      and(
+        eq(s.conversations.brandId, brandId),
+        eq(s.conversations.isTest, false),
+        ...(only?.length ? [inArray(s.conversations.customerId, only)] : []),
+      ),
+    );
 
   const historyByCustomer = new Map<string, typeof convRows>();
   for (const row of convRows) {

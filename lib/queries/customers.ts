@@ -1,5 +1,7 @@
 import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { handlesOf, matchesFor } from "@/lib/crm/identity";
+import { freshProfile } from "@/lib/crm/profile";
 import * as s from "@/lib/db/schema";
 import { formatRupees } from "@/lib/money";
 import { config } from "@/lib/config";
@@ -306,6 +308,8 @@ export async function getCustomer(
     )
     .limit(1);
   if (!customer) return null;
+  // Brought up to date first, so the score and signals below are the fresh ones.
+  const profile = await freshProfile(customerId, 10 * 60_000).catch(() => null);
 
   const [scoreRows, signals, conversations, records, consents, notes] = await Promise.all([
     db
@@ -337,6 +341,10 @@ export async function getCustomer(
       .where(eq(s.customerNotes.customerId, customerId))
       .orderBy(desc(s.customerNotes.pinned), desc(s.customerNotes.createdAt)),
   ]);
+
+  // One person across channels: every number and address they are known by,
+  // records that may be the same person, and what the record says about them.
+  const [handles, matches] = await Promise.all([handlesOf(customerId), matchesFor(brandId, customerId)]);
 
   const scoreRow = scoreRows[0] ?? null;
 
@@ -394,5 +402,8 @@ export async function getCustomer(
     consents,
     notes,
     learned,
+    handles,
+    matches,
+    profile,
   };
 }

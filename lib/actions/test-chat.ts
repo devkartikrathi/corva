@@ -62,7 +62,7 @@ export async function startTestChat(input: { brandId: string; callerPhone: strin
   const config = await loadAgentConfig(input.brandId);
   if (!config) throw new Error("That business has no AI assistant set up.");
 
-  const customer = await customerForCaller(input.brandId, input.callerPhone);
+  const customer = await customerForCaller(input.brandId, input.callerPhone, { verified: false, source: "chat" });
   const [conversation] = await db
     .insert(s.conversations)
     .values({
