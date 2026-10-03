@@ -9,7 +9,7 @@ import * as s from "@/lib/db/schema";
 import { listCustomers, type CustomerFilters } from "@/lib/queries/customers";
 import { intOf, listOf, type Params } from "@/lib/params";
 import { audit } from "./audit";
-import { customerForMerge, mergeCustomers } from "@/lib/crm/identity";
+import { customerForMerge, mergeCustomers, removeHandle, undoMerge } from "@/lib/crm/identity";
 
 /**
  * Customer actions.
@@ -270,4 +270,22 @@ export async function confirmHandle(identityId: string) {
   await db.execute(sql`UPDATE customers SET ${sql.raw(column)} = coalesce(${sql.raw(column)}, ${row.display}) WHERE id = ${row.customerId}`);
   await audit({ orgId: session.orgId, brandId: brand.id, actorId: session.membershipId, actorName: session.name, action: "customer.handle_confirmed", target: row.customerId, meta: { kind: row.kind } });
   revalidatePath(`/app/customers/${row.customerId}`);
+}
+
+/** Take a number or email off a customer — one added by mistake. */
+export async function removeCustomerHandle(identityId: string) {
+  const { session, brand } = await canMerge();
+  const removed = await removeHandle(brand.id, identityId);
+  await audit({ orgId: session.orgId, brandId: brand.id, actorId: session.membershipId, actorName: session.name, action: "customer.handle_removed", target: removed.customerId, meta: { kind: removed.kind, value: removed.display } });
+  revalidatePath(`/app/customers/${removed.customerId}`);
+}
+
+/** Undo a merge: the folded-in record comes back with what was its. */
+export async function undoCustomerMerge(mergeId: string) {
+  const { session, brand } = await canMerge();
+  const result = await undoMerge(brand.id, mergeId, session.name);
+  await audit({ orgId: session.orgId, brandId: brand.id, actorId: session.membershipId, actorName: session.name, action: "customer.merge_undone", target: result.restored, meta: { mergeId, exact: result.exact, ...result.moved } });
+  revalidatePath("/app/customers");
+  revalidatePath(`/app/customers/${result.restored}`);
+  return result;
 }

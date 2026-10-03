@@ -390,6 +390,22 @@ export const customerMatches = pgTable(
   (t) => [uniqueIndex("customer_matches_pair_idx").on(t.brandId, t.customerId, t.otherId)],
 );
 
+export type MergeMoved = {
+  conversations: string[];
+  leads: string[];
+  followUps: string[];
+  records: string[];
+  payments: string[];
+  sms: string[];
+  notes: string[];
+  visitors: string[];
+  scores: string[];
+  consents: string[];
+  identities: { id: string; verified: boolean }[];
+  /** Fields `into` took from `from`: field → `into`'s value before. */
+  filled: Record<string, unknown>;
+};
+
 /** A merge, with a copy of the record that went — so it can be explained, and undone by hand. */
 export const customerMerges = pgTable(
   "customer_merges",
@@ -404,6 +420,15 @@ export const customerMerges = pgTable(
     reason: text("reason").notNull(),
     by: text("by").notNull(),
     at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Exactly what moved, so the merge can be undone: row ids per table, the
+     * consent kinds, each handle with whether it was verified, and the fields
+     * `into` took from `from` with what they were before. Null on merges made
+     * before undo existed — those are undone by tracing the handles.
+     */
+    moved: jsonb("moved").$type<MergeMoved>(),
+    undoneAt: timestamp("undone_at", { withTimezone: true }),
+    undoneBy: text("undone_by"),
   },
   (t) => [index("customer_merges_into_idx").on(t.intoId)],
 );

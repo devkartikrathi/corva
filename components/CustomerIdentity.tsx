@@ -162,3 +162,129 @@ export function ConfirmHandle({ identityId, onConfirm }: { identityId: string; o
     </button>
   );
 }
+
+/** Take a number or email off this customer, after a second click to be sure. */
+export function RemoveHandle({ identityId, display, onRemove }: { identityId: string; display: string; onRemove: (identityId: string) => Promise<void> }) {
+  const [sure, setSure] = useState(false);
+  const [state, setState] = useState<"idle" | "done" | "error">("idle");
+  const [pending, start] = useTransition();
+  if (state === "done") return <span style={{ fontSize: 10.5, fontWeight: 700 }}>Removed</span>;
+  if (!sure)
+    return (
+      <button type="button" title={`Take ${display} off this customer`} style={{ ...small, padding: "1px 6px", fontSize: 10.5 }} onClick={() => setSure(true)}>
+        Remove
+      </button>
+    );
+  return (
+    <span style={{ display: "inline-flex", gap: 5, alignItems: "center", fontSize: 10.5 }}>
+      Not theirs?
+      <button
+        type="button"
+        disabled={pending}
+        style={{ ...primary, padding: "2px 7px", fontSize: 10.5 }}
+        onClick={() =>
+          start(async () => {
+            try {
+              await onRemove(identityId);
+              setState("done");
+            } catch {
+              setState("error");
+            }
+          })
+        }
+      >
+        {state === "error" ? "Try again" : pending ? "…" : "Yes, remove"}
+      </button>
+      <button type="button" style={{ ...small, padding: "1px 6px", fontSize: 10.5 }} onClick={() => setSure(false)}>
+        Keep
+      </button>
+    </span>
+  );
+}
+
+/** A record merged into this one, with Undo. */
+export function MergedRecord({
+  mergeId,
+  name,
+  details,
+  when,
+  by,
+  exact,
+  onUndo,
+}: {
+  mergeId: string;
+  name: string;
+  details: string;
+  when: string;
+  by: string;
+  exact: boolean;
+  onUndo: (mergeId: string) => Promise<{ restored: string; moved: { conversations: number; leads: number; handles: number } }>;
+}) {
+  const [sure, setSure] = useState(false);
+  const [done, setDone] = useState<{ id: string; text: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  if (done)
+    return (
+      <div style={{ fontSize: 12 }}>
+        {done.text}{" "}
+        <Link href={`/app/customers/${done.id}`} style={{ fontWeight: 700, color: "var(--color-accent-700)" }}>
+          Open {name} →
+        </Link>
+      </div>
+    );
+  return (
+    <div style={{ fontSize: 12, display: "grid", gap: 4 }}>
+      <div>
+        <b>{name}</b>
+        <span style={{ color: "var(--color-neutral-700)" }}>
+          {details ? ` · ${details}` : ""} · merged {when} by {by}
+        </span>
+      </div>
+      {!sure ? (
+        <button type="button" style={{ ...small, justifySelf: "start" }} onClick={() => setSure(true)}>
+          Undo merge
+        </button>
+      ) : (
+        <div style={{ display: "grid", gap: 6 }}>
+          <span style={{ fontSize: 11.5, lineHeight: 1.45 }}>
+            {exact
+              ? `${name} comes back as a separate customer with everything that was theirs, and the two are marked as different people.`
+              : `This merge was made before undo was added, so Corva will move back what it can trace to ${name}'s number and email (their conversations, leads and follow-ups). Check both records afterwards.`}
+          </span>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              type="button"
+              disabled={pending}
+              style={primary}
+              onClick={() =>
+                start(async () => {
+                  setError(null);
+                  try {
+                    const r = await onUndo(mergeId);
+                    setDone({
+                      id: r.restored,
+                      text: `${name} is separate again — ${r.moved.conversations} conversation${r.moved.conversations === 1 ? "" : "s"}, ${r.moved.leads} lead${r.moved.leads === 1 ? "" : "s"} and ${r.moved.handles} number${r.moved.handles === 1 ? "" : "s"}/email${r.moved.handles === 1 ? "" : "s"} moved back.`,
+                    });
+                  } catch (e) {
+                    setError(errorText(e));
+                  }
+                })
+              }
+            >
+              {pending ? "Undoing…" : "Yes, separate them"}
+            </button>
+            <button type="button" style={small} onClick={() => setSure(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {error && (
+        <span role="alert" style={{ fontSize: 11.5, color: "var(--color-accent-700)" }}>
+          {error}
+        </span>
+      )}
+    </div>
+  );
+}

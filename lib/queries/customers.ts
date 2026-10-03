@@ -1,6 +1,6 @@
 import { and, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { handlesOf, matchesFor } from "@/lib/crm/identity";
+import { handlesOf, matchesFor, mergesInto } from "@/lib/crm/identity";
 import { freshProfile } from "@/lib/crm/profile";
 import * as s from "@/lib/db/schema";
 import { formatRupees } from "@/lib/money";
@@ -344,7 +344,7 @@ export async function getCustomer(
 
   // One person across channels: every number and address they are known by,
   // records that may be the same person, and what the record says about them.
-  const [handles, matches] = await Promise.all([handlesOf(customerId), matchesFor(brandId, customerId)]);
+  const [handles, matches, merges] = await Promise.all([handlesOf(customerId), matchesFor(brandId, customerId), mergesInto(brandId, customerId)]);
 
   const scoreRow = scoreRows[0] ?? null;
 
@@ -404,6 +404,7 @@ export async function getCustomer(
     learned,
     handles,
     matches,
+    merges,
     profile,
   };
 }

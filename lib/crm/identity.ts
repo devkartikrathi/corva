@@ -291,6 +291,37 @@ export async function mergeCustomers(brandId: string, fromId: string, intoId: st
     ...(!opts.claimed && !into.phone && from.phone ? { phone: from.phone } : {}),
     ...(!opts.claimed && !into.email && from.email ? { email: from.email } : {}),
   };
+
+  // What is about to move, by id, so the merge can be undone exactly.
+  const idsOf = async (table: typeof s.conversations | typeof s.leads | typeof s.followUps | typeof s.customerRecords | typeof s.customerPayments | typeof s.smsMessages | typeof s.customerNotes | typeof s.visitors | typeof s.customerScores) =>
+    (await db.select({ id: table.id }).from(table).where(eq(table.customerId, fromId))).map((r) => r.id);
+  const [conversations, leads, followUps, records, payments, sms, notes, visitors, scores, consentRows, identityRows] = await Promise.all([
+    idsOf(s.conversations),
+    idsOf(s.leads),
+    idsOf(s.followUps),
+    idsOf(s.customerRecords),
+    idsOf(s.customerPayments),
+    idsOf(s.smsMessages),
+    idsOf(s.customerNotes),
+    idsOf(s.visitors),
+    idsOf(s.customerScores),
+    db.execute(sql`SELECT kind FROM customer_consents WHERE customer_id = ${fromId} AND kind NOT IN (SELECT kind FROM customer_consents WHERE customer_id = ${intoId})`),
+    db.select({ id: s.customerIdentities.id, verified: s.customerIdentities.verified }).from(s.customerIdentities).where(eq(s.customerIdentities.customerId, fromId)),
+  ]);
+  const moved: s.MergeMoved = {
+    conversations,
+    leads,
+    followUps,
+    records,
+    payments,
+    sms,
+    notes,
+    visitors,
+    scores,
+    consents: (consentRows.rows as { kind: string }[]).map((r) => r.kind),
+    identities: identityRows,
+    filled: Object.fromEntries(Object.keys(fill).map((k) => [k, (into as Record<string, unknown>)[k] ?? null])),
+  };
   await db.batch([
     // The external ref is unique per business: free it before `into` takes it.
     db.update(s.customers).set({ externalRef: null }).where(eq(s.customers.id, fromId)),
@@ -319,12 +350,211 @@ export async function mergeCustomers(brandId: string, fromId: string, intoId: st
         AND NOT EXISTS (SELECT 1 FROM customer_matches m WHERE m.brand_id = customer_matches.brand_id
           AND m.customer_id = least(${intoId}::uuid, customer_matches.customer_id) AND m.other_id = greatest(${intoId}::uuid, customer_matches.customer_id))`),
     ...(Object.keys(fill).length ? [db.update(s.customers).set(fill).where(eq(s.customers.id, intoId))] : []),
-    db.insert(s.customerMerges).values({ brandId, intoId, fromId, fromRecord: from, reason: opts.reason, by: opts.by }),
+    db.insert(s.customerMerges).values({ brandId, intoId, fromId, fromRecord: from, reason: opts.reason, by: opts.by, moved }),
     db.delete(s.customers).where(eq(s.customers.id, fromId)),
   ]);
   const { refreshProfile } = await import("./profile");
   await refreshProfile(intoId).catch((e) => console.error("[identity] profile after merge", (e as Error).message));
   return intoId;
+}
+
+/**
+ * Undo a merge: the record that was folded in comes back, with its own id,
+ * and everything that moved with it goes back to it — its conversations,
+ * leads, follow-ups, orders, payments, texts, notes, browsers, consents and
+ * numbers and emails (verified as they were). Whatever `into` took from it is
+ * put back as it was, where nobody has changed it since. The two are then
+ * marked "not the same person", so the match is not suggested again.
+ *
+ * Merges made before undo existed did not record what moved; for those, what
+ * can be traced to the record's number and email goes back.
+ */
+export async function undoMerge(brandId: string, mergeId: string, by: string) {
+  const [merge] = await db.select().from(s.customerMerges).where(and(eq(s.customerMerges.id, mergeId), eq(s.customerMerges.brandId, brandId))).limit(1);
+  if (!merge) throw new Error("No such merge.");
+  if (merge.undoneAt) throw new Error("This merge has already been undone.");
+  if (!merge.intoId) throw new Error("The customer it was merged into no longer exists.");
+  const [into] = await db.select().from(s.customers).where(eq(s.customers.id, merge.intoId)).limit(1);
+  if (!into) throw new Error("The customer it was merged into no longer exists.");
+  const [taken] = await db.select({ id: s.customers.id }).from(s.customers).where(eq(s.customers.id, merge.fromId)).limit(1);
+  if (taken) throw new Error("That record already exists again.");
+
+  const from = merge.fromRecord as Record<string, unknown>;
+  const date = (v: unknown) => (v ? new Date(String(v)) : null);
+  const exact = Boolean(merge.moved);
+  const moved = merge.moved ?? (await traceMoved(into.id, from));
+
+  // What `into` took from `from` goes back, unless someone has changed it since.
+  const revert: Record<string, unknown> = {};
+  for (const [field, before] of Object.entries(moved.filled)) {
+    const now = (into as Record<string, unknown>)[field];
+    const theirs = from[field];
+    const same = field === "customerSince" ? date(now)?.getTime() === date(theirs)?.getTime() : now === theirs;
+    if (same) revert[field] = field === "customerSince" ? date(before) : before;
+  }
+  // The external ref is unique per business: `from` gets it back only if `into` no longer holds it.
+  const intoRefAfter = "externalRef" in revert ? revert.externalRef : into.externalRef;
+  const fromRef = (from.externalRef as string | null) ?? null;
+
+  const [a, b] = merge.fromId < into.id ? [merge.fromId, into.id] : [into.id, merge.fromId];
+  const fromId = merge.fromId;
+  await db.batch([
+    db.update(s.customerMerges).set({ undoneAt: new Date(), undoneBy: by }).where(eq(s.customerMerges.id, mergeId)),
+    ...(Object.keys(revert).length ? [db.update(s.customers).set(revert).where(eq(s.customers.id, into.id))] : []),
+    db.insert(s.customers).values({
+      id: fromId,
+      brandId,
+      externalRef: fromRef && fromRef !== intoRefAfter ? fromRef : null,
+      name: String(from.name ?? "Unknown"),
+      email: (from.email as string | null) ?? null,
+      phone: (from.phone as string | null) ?? null,
+      location: (from.location as string | null) ?? null,
+      segment: (from.segment as string | null) ?? null,
+      tier: (from.tier as string | null) ?? null,
+      ownerMembershipId: (from.ownerMembershipId as string | null) ?? null,
+      owner: (from.owner as string | null) ?? null,
+      customerSince: date(from.customerSince),
+      renewsAt: date(from.renewsAt),
+      ltvPaise: Number(from.ltvPaise ?? 0),
+      createdAt: date(from.createdAt) ?? new Date(),
+    }),
+    db.update(s.conversations).set({ customerId: fromId }).where(and(eq(s.conversations.customerId, into.id), inArray(s.conversations.id, nonEmpty(moved.conversations)))),
+    db.update(s.leads).set({ customerId: fromId }).where(and(eq(s.leads.customerId, into.id), inArray(s.leads.id, nonEmpty(moved.leads)))),
+    db.update(s.followUps).set({ customerId: fromId }).where(and(eq(s.followUps.customerId, into.id), inArray(s.followUps.id, nonEmpty(moved.followUps)))),
+    db.update(s.customerRecords).set({ customerId: fromId }).where(and(eq(s.customerRecords.customerId, into.id), inArray(s.customerRecords.id, nonEmpty(moved.records)))),
+    db.update(s.customerPayments).set({ customerId: fromId }).where(and(eq(s.customerPayments.customerId, into.id), inArray(s.customerPayments.id, nonEmpty(moved.payments)))),
+    db.update(s.smsMessages).set({ customerId: fromId }).where(and(eq(s.smsMessages.customerId, into.id), inArray(s.smsMessages.id, nonEmpty(moved.sms)))),
+    db.update(s.customerNotes).set({ customerId: fromId }).where(and(eq(s.customerNotes.customerId, into.id), inArray(s.customerNotes.id, nonEmpty(moved.notes)))),
+    db.update(s.visitors).set({ customerId: fromId }).where(and(eq(s.visitors.customerId, into.id), inArray(s.visitors.id, nonEmpty(moved.visitors)))),
+    db.update(s.customerScores).set({ customerId: fromId }).where(and(eq(s.customerScores.customerId, into.id), inArray(s.customerScores.id, nonEmpty(moved.scores)))),
+    db.update(s.customerConsents).set({ customerId: fromId }).where(and(eq(s.customerConsents.customerId, into.id), inArray(s.customerConsents.kind, nonEmpty(moved.consents)))),
+    ...moved.identities.map((h) =>
+      db.update(s.customerIdentities).set({ customerId: fromId, verified: h.verified }).where(and(eq(s.customerIdentities.id, h.id), eq(s.customerIdentities.customerId, into.id))),
+    ),
+    // Two people after all: not suggested as one again.
+    db
+      .insert(s.customerMatches)
+      .values({ brandId, customerId: a, otherId: b, reasons: [`Merged by ${merge.by}, then separated by ${by}`], status: "dismissed", decidedBy: by, decidedAt: new Date() })
+      .onConflictDoUpdate({ target: [s.customerMatches.brandId, s.customerMatches.customerId, s.customerMatches.otherId], set: { status: "dismissed", decidedBy: by, decidedAt: new Date() } }),
+  ]);
+
+  // A number or email that went back must not stay on file on the other record.
+  for (const kind of ["phone", "email"] as const) {
+    const [current] = await db.select().from(s.customers).where(eq(s.customers.id, into.id)).limit(1);
+    const h = handle(kind, current?.[kind]);
+    if (!h) continue;
+    const [still] = await db
+      .select({ id: s.customerIdentities.id })
+      .from(s.customerIdentities)
+      .where(and(eq(s.customerIdentities.customerId, into.id), eq(s.customerIdentities.kind, kind), eq(s.customerIdentities.value, h.value)))
+      .limit(1);
+    if (!still) await db.update(s.customers).set({ [kind]: await otherOnFile(into.id, kind) }).where(eq(s.customers.id, into.id));
+  }
+
+  const { refreshProfile } = await import("./profile");
+  for (const id of [into.id, fromId]) await refreshProfile(id).catch(() => null);
+  return { restored: fromId, name: String(from.name ?? ""), exact, moved: { conversations: moved.conversations.length, leads: moved.leads.length, handles: moved.identities.length } };
+}
+
+/** `inArray` with nothing in it matches nothing. */
+const nonEmpty = (list: string[]) => (list.length ? list : ["00000000-0000-0000-0000-000000000000"]);
+
+/** Another of the customer's handles of this kind to keep on file, verified first. */
+async function otherOnFile(customerId: string, kind: HandleKind) {
+  const [next] = await db
+    .select({ display: s.customerIdentities.display })
+    .from(s.customerIdentities)
+    .where(and(eq(s.customerIdentities.customerId, customerId), eq(s.customerIdentities.kind, kind), eq(s.customerIdentities.verified, true)))
+    .orderBy(s.customerIdentities.firstSeenAt)
+    .limit(1);
+  return next?.display ?? null;
+}
+
+const uuidList = (ids: string[]) => sql.join(ids.map((x) => sql`${x}::uuid`), sql`, `);
+
+/**
+ * For a merge made before undo existed: what on `into` can be traced to the
+ * folded-in record's number and email — its handles, the conversations that
+ * used them (captured, written from, WhatsApp'd from, or where they were
+ * learned), the leads and follow-ups of those, and texts to its number.
+ */
+async function traceMoved(intoId: string, from: Record<string, unknown>): Promise<s.MergeMoved> {
+  const phone = handle("phone", from.phone as string | null);
+  const email = handle("email", from.email as string | null);
+  const values = [phone?.value, email?.value].filter((v): v is string => Boolean(v));
+  const identities = values.length
+    ? await db
+        .select({ id: s.customerIdentities.id, verified: s.customerIdentities.verified, conversationId: s.customerIdentities.conversationId })
+        .from(s.customerIdentities)
+        .where(and(eq(s.customerIdentities.customerId, intoId), inArray(s.customerIdentities.value, values)))
+    : [];
+  const digits = phone?.value ?? "-";
+  const short = phone ? digits.slice(-10) : "-";
+  const mail = email?.value ?? "-";
+  const learnedIn = identities.map((i) => i.conversationId).filter((x): x is string => Boolean(x));
+  const rowsOf = (r: { rows: unknown[] }) => r.rows.map((x) => (x as { id: string }).id);
+  const conversations = rowsOf(
+    await db.execute(sql`
+      SELECT id FROM conversations c WHERE c.customer_id = ${intoId} AND (
+        right(regexp_replace(coalesce(c.captured->>'phone', ''), '\\D', '', 'g'), 10) = ${short}
+        OR lower(coalesce(c.captured->>'email', '')) = ${mail}
+        OR coalesce(c.external_ref, '') LIKE ${`agent:wa-${digits}-%`}
+        OR c.id IN (SELECT conversation_id FROM email_messages WHERE address = ${mail} AND conversation_id IS NOT NULL)
+        ${learnedIn.length ? sql`OR c.id IN (${uuidList(learnedIn)})` : sql``}
+      )`),
+  );
+  const inConvs = conversations.length ? sql`conversation_id IN (${uuidList(conversations)})` : sql`false`;
+  const leads = rowsOf(
+    await db.execute(sql`SELECT id FROM leads WHERE customer_id = ${intoId} AND (
+      right(regexp_replace(coalesce(phone, ''), '\\D', '', 'g'), 10) = ${short} OR lower(coalesce(email, '')) = ${mail} OR ${inConvs})`),
+  );
+  const inLeads = leads.length ? sql`lead_id IN (${uuidList(leads)})` : sql`false`;
+  const followUps = rowsOf(await db.execute(sql`SELECT id FROM follow_ups WHERE customer_id = ${intoId} AND (${inConvs} OR ${inLeads})`));
+  const payments = rowsOf(await db.execute(sql`SELECT id FROM customer_payments WHERE customer_id = ${intoId} AND ${inConvs}`));
+  const sms = rowsOf(await db.execute(sql`SELECT id FROM sms_messages WHERE customer_id = ${intoId} AND right(regexp_replace("to", '\\D', '', 'g'), 10) = ${short}`));
+  return {
+    conversations,
+    leads,
+    followUps,
+    records: [],
+    payments,
+    sms,
+    notes: [],
+    visitors: [],
+    scores: [],
+    consents: [],
+    identities: identities.map((i) => ({ id: i.id, verified: i.verified })),
+    filled: {},
+  };
+}
+
+/**
+ * Take a number or email off a customer — added by mistake, or someone
+ * else's. If it was the one on file, another of theirs (verified) takes its
+ * place, or none. The conversations it brought stay where they are; the next
+ * time someone uses it, they are a new customer.
+ */
+export async function removeHandle(brandId: string, identityId: string) {
+  const [h] = await db.select().from(s.customerIdentities).where(and(eq(s.customerIdentities.id, identityId), eq(s.customerIdentities.brandId, brandId))).limit(1);
+  if (!h) throw new Error("No such number or email.");
+  await db.delete(s.customerIdentities).where(eq(s.customerIdentities.id, identityId));
+  const kind = h.kind as HandleKind;
+  const [c] = await db.select().from(s.customers).where(eq(s.customers.id, h.customerId)).limit(1);
+  if (c && handle(kind, c[kind])?.value === h.value) {
+    await db.update(s.customers).set({ [kind]: await otherOnFile(h.customerId, kind) }).where(eq(s.customers.id, h.customerId));
+  }
+  const { refreshProfile } = await import("./profile");
+  await refreshProfile(h.customerId).catch(() => null);
+  return h;
+}
+
+/** Records merged into this customer, newest first, for "undo". */
+export async function mergesInto(brandId: string, customerId: string) {
+  return db
+    .select()
+    .from(s.customerMerges)
+    .where(and(eq(s.customerMerges.brandId, brandId), eq(s.customerMerges.intoId, customerId)))
+    .orderBy(sql`${s.customerMerges.at} desc`);
 }
 
 /** Open "possibly the same person" matches for a customer, with the other record. */

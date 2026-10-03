@@ -13,8 +13,8 @@ import { formatRupees } from "@/lib/money";
 import { config } from "@/lib/config";
 import { CustomerNotes } from "@/components/CustomerNotes";
 import { ConsentPanel } from "@/components/ConsentPanel";
-import { addCustomerNote, confirmHandle, deleteCustomerNote, dismissMatch, mergeByHandle, mergeCustomer, setConsent } from "@/lib/actions/customers";
-import { ConfirmHandle, MatchCard, MergeIn } from "@/components/CustomerIdentity";
+import { addCustomerNote, confirmHandle, deleteCustomerNote, dismissMatch, mergeByHandle, mergeCustomer, removeCustomerHandle, setConsent, undoCustomerMerge } from "@/lib/actions/customers";
+import { ConfirmHandle, MatchCard, MergedRecord, MergeIn, RemoveHandle } from "@/components/CustomerIdentity";
 import { channelLabel } from "@/lib/crm/profile";
 
 import { OwnerPicker } from "@/components/OwnerPicker";
@@ -83,6 +83,7 @@ export default async function Customer360Page({
     learned,
     handles,
     matches,
+    merges,
     profile,
   } = record;
   const canMerge = session.actor.role !== "agent";
@@ -702,6 +703,7 @@ export default async function Customer360Page({
                   </span>
                   <span style={{ fontSize: 10.5, color: "var(--color-neutral-700)" }}>{handleSource[h.source] ?? h.source}</span>
                   {!h.verified && canMerge && <ConfirmHandle identityId={h.id} onConfirm={confirmHandle} />}
+                  {canMerge && <RemoveHandle identityId={h.id} display={h.display} onRemove={removeCustomerHandle} />}
                 </div>
               ))}
             </div>
@@ -711,6 +713,28 @@ export default async function Customer360Page({
                   Same person on another record? Merge it in:
                 </div>
                 <MergeIn customerId={customer.id} onMerge={mergeByHandle} />
+              </div>
+            )}
+            {canMerge && merges.some((m) => !m.undoneAt) && (
+              <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+                <div style={{ fontSize: 11, color: "var(--color-neutral-700)" }}>Merged into this customer:</div>
+                {merges
+                  .filter((m) => !m.undoneAt)
+                  .map((m) => {
+                    const was = m.fromRecord as { name?: string; phone?: string | null; email?: string | null };
+                    return (
+                      <MergedRecord
+                        key={m.id}
+                        mergeId={m.id}
+                        name={was.name ?? "A customer"}
+                        details={[was.phone, was.email].filter(Boolean).join(" · ")}
+                        when={m.at.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" })}
+                        by={m.by}
+                        exact={Boolean(m.moved)}
+                        onUndo={undoCustomerMerge}
+                      />
+                    );
+                  })}
               </div>
             )}
           </div>
