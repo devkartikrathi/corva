@@ -3,7 +3,8 @@ import { ScreenRefusal, ScreenTitle } from "@/components/ui";
 import { CatalogEditor } from "@/components/CatalogEditor";
 import { guardScreen, refusalReason } from "@/lib/auth/screen";
 import { can } from "@/lib/auth/permissions";
-import { catalogDocument, catalogOutline, loadCatalog } from "@/lib/catalog";
+import { catalogDocument, catalogIndexing, catalogOutline, loadCatalog } from "@/lib/catalog";
+import { embedLater } from "@/lib/knowledge";
 
 /**
  * Products & services: what the business sells, with prices.
@@ -28,6 +29,10 @@ export default async function CatalogPage() {
   const editable = can(session.actor, "documents.publish", { brandId: brand.id }).allowed;
   const agent = brand.agentName ?? "The AI";
   const outline = catalogOutline(catalog);
+  const indexing = doc ? await catalogIndexing(doc.id) : null;
+  // A large list is embedded a minute at a time after it is saved. Opening
+  // this screen picks the work back up if that run ended before it finished.
+  if (indexing?.pending) embedLater(brand.id);
 
   return (
     <section style={{ padding: "20px 24px", maxWidth: 1080 }}>
@@ -41,6 +46,28 @@ export default async function CatalogPage() {
         figure only if your knowledge base has one. A change here is in the next answer.
         {!editable && " You can see this list; changing it needs a Manager."}
       </p>
+
+      {indexing && indexing.pending > 0 && (
+        <p
+          role="status"
+          style={{
+            marginTop: 14,
+            padding: "9px 12px",
+            border: "1px solid var(--color-neutral-400)",
+            background: "var(--color-surface)",
+            fontSize: 12,
+            lineHeight: 1.5,
+            maxWidth: "72ch",
+          }}
+        >
+          <b>
+            Indexing {indexing.total - indexing.pending} of {indexing.total} lines for search.
+          </b>{" "}
+          A long list is indexed a minute at a time, so this takes about{" "}
+          {Math.max(1, Math.ceil(indexing.pending / 60))} minute{indexing.pending > 60 ? "s" : ""}. {agent} can already
+          find every line by its words in the meantime.
+        </p>
+      )}
 
       <div style={{ marginTop: 20 }}>
         <CatalogEditor groups={catalog.groups} loose={catalog.loose} editable={editable} agentName={agent} />

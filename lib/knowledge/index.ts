@@ -1,4 +1,5 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { after } from "next/server";
 import { embedDocuments } from "@/lib/agent/retrieval";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
@@ -77,17 +78,22 @@ export async function writeChunks(
     for (const c of existing) if (c.embedding) known.set(c.content, c.embedding);
   }
 
-  // Without vectors the chunks are still stored: retrieval falls back to
-  // matching words (see `retrieve`), and `npm run db:embed` fills them in
-  // later. A business whose knowledge silently vanished because the embedding
-  // quota ran out during onboarding would be worse than a slightly dumber one.
+  // What the shared allowance has room for is embedded now; the rest is
+  // stored without vectors and embedded in the background (`embedLater`).
+  // Until then retrieval matches those chunks by their words, so nothing
+  // written here is unreachable — a price list of three hundred lines is
+  // searchable the moment it is saved, and properly indexed minutes later.
   const fresh = [...new Set(pieces.map((p) => p.content).filter((c) => !known.has(c)))];
   if (fresh.length > 0) {
-    try {
-      const vectors = await embedDocuments(fresh);
-      fresh.forEach((content, i) => known.set(content, vectors[i]));
-    } catch (e) {
-      console.error("embedding failed, storing chunks unembedded:", (e as Error).message);
+    const now = fresh.slice(0, await takeEmbedAllowance(fresh.length));
+    if (now.length > 0) {
+      try {
+        const vectors = await embedDocuments(now);
+        now.forEach((content, i) => known.set(content, vectors[i]));
+      } catch (e) {
+        await spendEmbedAllowance();
+        console.error("embedding failed, storing chunks unembedded:", (e as Error).message);
+      }
     }
   }
 
@@ -111,5 +117,131 @@ export async function writeChunks(
       })),
     ),
   ]);
+  if (pieces.some((p) => !known.has(p.content))) embedLater(brandId);
   return pieces.length;
+}
+
+/* ─── Embedding at the pace the provider allows ────────────────────────── */
+
+/**
+ * Embeddings a minute, across every instance of Corva.
+ *
+ * Gemini's free tier allows 100 in any rolling minute per project, and every
+ * customer question spends one on retrieval — so background work takes about
+ * this many and leaves the rest for the people waiting on an answer. Raise it
+ * with EMBEDDINGS_PER_MINUTE on a paid tier.
+ *
+ * Handed out in ten-second slices rather than per clock minute: the provider's
+ * minute rolls, and a full minute's allowance spent at 10:00:59 and another at
+ * 10:01:00 is twice the limit inside one of its minutes. With slices, any
+ * rolling minute holds at most seven of them — 70 at the default.
+ */
+const PER_MINUTE = Math.max(6, Number(process.env.EMBEDDINGS_PER_MINUTE) || 60);
+const SLICE_MS = 10_000;
+const PER_SLICE = Math.ceil(PER_MINUTE / 6);
+const ALLOWANCE_KEY = "embeddings";
+
+const sliceStart = (at = Date.now()) => new Date(Math.floor(at / SLICE_MS) * SLICE_MS);
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Take up to `wanted` embeddings from this slice's allowance; returns how
+ * many were granted. Counted in `rate_limits`, so two instances embedding at
+ * once share one allowance rather than each spending a full one.
+ */
+async function takeEmbedAllowance(wanted: number): Promise<number> {
+  try {
+    const [row] = await db
+      .insert(s.rateLimits)
+      .values({ key: ALLOWANCE_KEY, windowStart: sliceStart(), count: wanted })
+      .onConflictDoUpdate({
+        target: [s.rateLimits.key, s.rateLimits.windowStart],
+        set: { count: sql`${s.rateLimits.count} + ${wanted}` },
+      })
+      .returning({ count: s.rateLimits.count });
+    const before = row.count - wanted;
+    return Math.max(0, Math.min(wanted, PER_SLICE - before));
+  } catch (e) {
+    // Without the counter, a small amount rather than none: a failed edit is
+    // worse than one that lands slightly over the provider's limit.
+    console.error("[embeddings] allowance", (e as Error).message);
+    return Math.min(wanted, PER_SLICE);
+  }
+}
+
+/** The provider refused: nobody else embeds in this slice. */
+async function spendEmbedAllowance() {
+  await takeEmbedAllowance(PER_SLICE).catch(() => undefined);
+}
+
+/** After a refusal, how long a background run waits before asking again. */
+const COOL_DOWN_MS = 30_000;
+
+/**
+ * Embed chunks stored without a vector, a slice's allowance at a time.
+ *
+ * Runs until there is nothing left or `until` would be passed while waiting
+ * for more allowance; whatever is left is picked up by the next run. Safe to
+ * run alongside itself — the allowance is shared, and a chunk replaced while
+ * its vector was being made simply no longer matches the update.
+ */
+export async function embedPending({ brandId, until }: { brandId?: string; until: number }) {
+  let embedded = 0;
+  for (;;) {
+    const pending = await db
+      .select({ id: s.documentChunks.id, content: s.documentChunks.content })
+      .from(s.documentChunks)
+      .where(and(isNull(s.documentChunks.embedding), brandId ? eq(s.documentChunks.brandId, brandId) : undefined))
+      .limit(PER_SLICE);
+    if (pending.length === 0) return { embedded, left: 0 };
+
+    const granted = await takeEmbedAllowance(pending.length);
+    let wait = sliceStart().getTime() + SLICE_MS + 250 - Date.now();
+    if (granted > 0) {
+      const batch = pending.slice(0, granted);
+      try {
+        const vectors = await embedDocuments(batch.map((c) => c.content));
+        const [first, ...rest] = batch.map((c, i) =>
+          db.update(s.documentChunks).set({ embedding: vectors[i] }).where(eq(s.documentChunks.id, c.id)),
+        );
+        await db.batch([first, ...rest]);
+        embedded += batch.length;
+        continue;
+      } catch (e) {
+        console.error("[embeddings] pending", (e as Error).message.slice(0, 200));
+        await spendEmbedAllowance();
+        wait = COOL_DOWN_MS;
+      }
+    }
+
+    // Out of allowance for now: wait for more, if there is time.
+    if (Date.now() + wait > until) {
+      const [left] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(s.documentChunks)
+        .where(and(isNull(s.documentChunks.embedding), brandId ? eq(s.documentChunks.brandId, brandId) : undefined));
+      return { embedded, left: left.n };
+    }
+    await sleep(wait);
+  }
+}
+
+/**
+ * Finish a brand's embeddings after the response has gone.
+ *
+ * A function may run for five minutes, so this is a few minutes' allowance
+ * — about 250 chunks at the default pace. Anything larger is finished by the
+ * scheduled job, or the next time this is called. Outside a request (a
+ * script) there is nothing to run after, and the scheduled job picks it up.
+ */
+export function embedLater(brandId: string) {
+  try {
+    after(() =>
+      embedPending({ brandId, until: Date.now() + 250_000 }).catch((e) =>
+        console.error("[embeddings] later", (e as Error).message),
+      ),
+    );
+  } catch {
+    // Not in a request.
+  }
 }

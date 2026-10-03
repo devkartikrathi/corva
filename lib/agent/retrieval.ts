@@ -1,5 +1,5 @@
 import { embed, embedMany } from "ai";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL, MIN_RETRIEVAL_CONFIDENCE } from "./model";
@@ -94,6 +94,11 @@ export async function retrieve(
   query: string,
   limit = 5,
 ): Promise<RetrievedChunk[]> {
+  // Chunks still waiting for their vector (see `embedPending`) are matched by
+  // their words alongside the vector search, so a price list saved a minute
+  // ago is not invisible until its embeddings catch up. Usually there are
+  // none, and the query is a cheap miss run in parallel.
+  const waiting = retrieveByWords(brandId, query, limit, { unembeddedOnly: true }).catch(() => []);
   try {
     const embedding = await embedQuery(query);
     const vector = sql.raw(`'[${embedding.join(",")}]'::vector`);
@@ -120,7 +125,11 @@ export async function retrieve(
       .orderBy(sql`${s.documentChunks.embedding} <=> ${vector}`)
       .limit(limit);
 
-    if (rows.length > 0) return rows.map((r) => ({ ...r, confidence: Number(r.confidence) }));
+    if (rows.length > 0) {
+      return [...rows.map((r) => ({ ...r, confidence: Number(r.confidence) })), ...(await waiting)]
+        .sort((a, b) => b.confidence - a.confidence)
+        .slice(0, limit);
+    }
   } catch (e) {
     console.error("vector retrieval failed, matching words instead:", (e as Error).message);
   }
@@ -152,7 +161,12 @@ const terms = (text: string) =>
  * new business's knowledge base is a few dozen paragraphs, and a crude answer
  * from the right paragraph beats a confident escalation from none.
  */
-async function retrieveByWords(brandId: string, query: string, limit: number): Promise<RetrievedChunk[]> {
+async function retrieveByWords(
+  brandId: string,
+  query: string,
+  limit: number,
+  { unembeddedOnly = false }: { unembeddedOnly?: boolean } = {},
+): Promise<RetrievedChunk[]> {
   const wanted = [...new Set(terms(query))];
   if (wanted.length === 0) return [];
 
@@ -166,7 +180,13 @@ async function retrieveByWords(brandId: string, query: string, limit: number): P
     })
     .from(s.documentChunks)
     .innerJoin(s.documents, eq(s.documents.id, s.documentChunks.documentId))
-    .where(and(eq(s.documentChunks.brandId, brandId), eq(s.documents.status, "published")))
+    .where(
+      and(
+        eq(s.documentChunks.brandId, brandId),
+        eq(s.documents.status, "published"),
+        unembeddedOnly ? isNull(s.documentChunks.embedding) : undefined,
+      ),
+    )
     .limit(1000);
 
   return rows

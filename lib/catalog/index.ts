@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { writeChunks } from "@/lib/knowledge";
@@ -194,6 +194,18 @@ export async function catalogDocument(brandId: string) {
     .orderBy(asc(s.documents.createdAt))
     .limit(1);
   return doc ?? null;
+}
+
+/** How many of the catalog's search lines are still waiting for their vectors. */
+export async function catalogIndexing(documentId: string) {
+  const [row] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      pending: sql<number>`(count(*) filter (where ${s.documentChunks.embedding} is null))::int`,
+    })
+    .from(s.documentChunks)
+    .where(eq(s.documentChunks.documentId, documentId));
+  return row;
 }
 
 /**

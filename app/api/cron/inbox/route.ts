@@ -5,10 +5,12 @@ import * as s from "@/lib/db/schema";
 import { syncMailbox } from "@/lib/email/mailbox";
 import { reapStaleCalls } from "@/lib/pipelines/rollup";
 import { sweepRateLimits } from "@/lib/rate-limit";
+import { embedPending } from "@/lib/knowledge";
 
 /**
  * GET /api/cron/inbox — the scheduled job: read every connected inbox that
- * is due, close conversations that went quiet, and sweep old counters.
+ * is due, close conversations that went quiet, sweep old counters, and embed
+ * any knowledge still waiting for its vectors.
  *
  * Called on a schedule (vercel.json). Without it an inbox is only read when
  * someone opens a screen, so a customer who writes on a quiet day would wait
@@ -64,5 +66,11 @@ export async function GET(req: Request) {
       console.error("[cron inbox]", box.name, (e as Error).message);
     }
   }
-  return Response.json({ due: due.length, read, kept, failed });
+  // Whatever a save could not finish embedding (see lib/knowledge), with the
+  // time left in this run.
+  const embeddings = await embedPending({ until: started + 280_000 }).catch((e) => {
+    console.error("[cron] embeddings", (e as Error).message);
+    return null;
+  });
+  return Response.json({ due: due.length, read, kept, failed, embeddings });
 }

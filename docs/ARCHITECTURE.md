@@ -69,6 +69,21 @@ The assistant reaches the catalog two ways, and no channel has its own path:
   their embeddings, and the chunk swap is one transaction behind a per-document lock. The
   document is read-only on the Knowledge screen; the rows are the truth.
 
+## Embeddings, at the provider's pace
+
+`lib/knowledge/index.ts`. Gemini's free tier allows 100 embeddings in any rolling minute, and
+every customer question spends one. So saving knowledge (a document, a catalog edit, a website
+import) draws on a shared allowance counted in `rate_limits` — `EMBEDDINGS_PER_MINUTE`, default
+60, handed out in ten-second slices so a rolling minute never holds more than 70. What fits is
+embedded on save; the rest is stored without a vector and `embedPending` finishes it:
+
+- right after the save responds (`after()`), for up to about four minutes;
+- when Products & services is opened while lines are still waiting (it shows the progress);
+- on the scheduled job (`/api/cron/inbox`), and from `npm run db:embed`.
+
+Until a chunk has its vector, retrieval matches it by its words alongside the vector search,
+so a long price list is answerable the moment it is saved.
+
 ### Tools
 
 | Tool | Where | What it does |
