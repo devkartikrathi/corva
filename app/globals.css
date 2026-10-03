@@ -511,6 +511,10 @@ body:has(.operator-root) {
   .m-nowrap-off {
     white-space: normal !important;
   }
+  /* Products & services: a stacked item row reads its price left, under the name. */
+  .cv-catalog-price {
+    text-align: left !important;
+  }
   .m-break {
     overflow-wrap: anywhere !important;
     word-break: break-word !important;

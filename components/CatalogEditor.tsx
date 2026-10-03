@@ -152,6 +152,7 @@ export function CatalogEditor({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Filter by name or description"
             aria-label="Filter products and services"
+            className="m-full"
             style={{ ...input, width: 260 }}
           />
         )}
@@ -248,6 +249,7 @@ function Group({ group: g, depth, first, last, tools }: { group: CatalogGroup; d
         </div>
       ) : (
         <div
+          className="m-col"
           style={{
             padding: depth === 0 ? "12px 14px" : "9px 12px",
             borderBottom: g.items.length || g.children.length || addingItem || addingGroup ? "1px solid var(--color-neutral-300)" : undefined,
@@ -270,7 +272,7 @@ function Group({ group: g, depth, first, last, tools }: { group: CatalogGroup; d
             )}
           </div>
           {editable && (
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <div className="m-wrap" style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
               <Btn onClick={() => setEditing({ kind: "item", categoryId: g.id })}>
                 + Item
               </Btn>
@@ -346,7 +348,7 @@ function Items({ items, tools }: { items: CatalogItem[]; tools: Tools }) {
         return (
           <div
             key={item.id}
-            className="hov-surface"
+            className="hov-surface m-stack"
             style={{
               display: "grid",
               gridTemplateColumns: "minmax(0, 1fr) 150px auto",
@@ -385,11 +387,11 @@ function Items({ items, tools }: { items: CatalogItem[]; tools: Tools }) {
                 </p>
               )}
             </div>
-            <div style={{ fontSize: 13, fontWeight: 700, textAlign: "right", paddingTop: 1, opacity: item.available ? 1 : 0.6 }}>
+            <div className="cv-catalog-price" style={{ fontSize: 13, fontWeight: 700, textAlign: "right", paddingTop: 1, opacity: item.available ? 1 : 0.6 }}>
               {priceLabel(item)}
             </div>
             {editable ? (
-              <div style={{ display: "flex", gap: 4 }}>
+              <div className="m-wrap" style={{ display: "flex", gap: 4 }}>
                 <Btn onClick={() => setEditing({ kind: "item", id: item.id, categoryId: item.categoryId })}>
                   Edit
                 </Btn>
@@ -480,7 +482,7 @@ function GroupForm({ tools, group, parentId }: { tools: Tools; group?: CatalogGr
         )
       }
     >
-      <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div className="m-stack" style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <label style={label}>
           Name
           <input autoFocus required maxLength={120} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Dry cleaning" style={input} />
@@ -544,7 +546,7 @@ function ItemForm({ tools, item, categoryId }: { tools: Tools; item?: CatalogIte
         )
       }
     >
-      <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1.2fr", gap: 10 }}>
+      <div className="m-stack" style={{ marginTop: 10, display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1.2fr", gap: 10 }}>
         <label style={label}>
           Name
           <input autoFocus required maxLength={160} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Shirt" style={input} />
