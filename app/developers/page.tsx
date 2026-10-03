@@ -118,6 +118,7 @@ const GROUPS: { name: Endpoint["group"]; blurb: string }[] = [
   { name: "Chat", blurb: "The assistant in your chat window — or your own assistant's transcripts." },
   { name: "Leads", blurb: "Bookings, callbacks and enquiries from your own forms." },
   { name: "Records", blurb: "Read the business's leads, customers and conversations back; keep a lead in step with your system." },
+  { name: "Payments", blurb: "Tell Corva where a payment to the business stands, so the team and the assistant know it was paid." },
   { name: "Visitors", blurb: "Who is on the site, with their consent." },
   { name: "Voice", blurb: "Talk to the assistant from the browser." },
 ];
@@ -185,6 +186,7 @@ export default function DevelopersPage() {
             ["#reference", "API reference"],
             ["#voice", "Voice in the browser"],
             ["#webhooks", "Webhooks"],
+            ["#payments", "Taking payments"],
             ["#cookies", "Cookies & consent"],
             ["#golive", "Going live"],
           ].map(([href, label]) => (
@@ -438,6 +440,40 @@ export async function POST(req: Request) {
             OpenAPI spec
           </a>{" "}
           under <C>webhooks</C>.
+        </P>
+
+        <H2 id="payments">Taking payments</H2>
+        <P>
+          The team in the console, and the assistant on a chat, WhatsApp or a call, can ask a customer to pay. The money
+          is the business&rsquo;s: <b>your</b> system makes the payment link with <b>your</b> payment account (Razorpay,
+          or any other), so no payment key ever reaches Corva. The business sets your endpoint in Corva →{" "}
+          <b>Settings → Payments</b> and is shown a signing secret (<C>cps_…</C>) once.
+        </P>
+        <P>
+          When a payment is asked for, Corva sends your endpoint one <C>POST</C>, signed exactly like a webhook (
+          <C>Corva-Signature</C>, verified the same way as above, with this secret). Answer within 15 seconds with the
+          payment as you made it — the same fields you would send to <C>POST /api/v1/payments</C>. The assistant only
+          ever sends an <C>orderReference</C>: it never names an amount, so work out what is owed from your own order.
+          A person in the console may send <C>amountRupees</C>. If you cannot make a link, answer <C>4xx</C> with{" "}
+          <C>{`{ "error": "…" }`}</C> in words the customer may be told (&ldquo;There is no bill on this order yet&rdquo;).
+          The same <C>requestId</C> twice must return the same link.
+        </P>
+        <Code>{JSON.stringify(
+          {
+            requestId: "cpr_5c1f9a0b3d2e4f6a7b8c9d0e",
+            orderReference: "TD-7K3QX9",
+            customer: { id: "c1d2…", name: "Riya Sharma", phone: "+91 98765 43210" },
+            conversationId: "3e4f…",
+            requestedBy: "Tumbly (AI)",
+            notify: true,
+          },
+          null,
+          2,
+        )}</Code>
+        <P>
+          Then, whenever it changes — above all when your payment provider says it is paid — send its state to{" "}
+          <C>POST /api/v1/payments</C>. Corva shows it on the customer&rsquo;s record and in the conversation, thanks the
+          customer on WhatsApp, and the assistant can answer &ldquo;has my payment gone through?&rdquo;.
         </P>
 
         <H2 id="cookies">Cookies &amp; consent</H2>

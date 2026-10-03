@@ -27,6 +27,7 @@ import { conversationPayload, emit, leadPayload } from "@/lib/integrations/webho
 import { LOOK_UP_DESCRIPTION, LOOK_UP_INSTRUCTIONS, lookUpForAssistant } from "@/lib/integrations/records";
 import { captureDetails, detailsInstructions, detailsSchema, knownDetails, leadQuestionsFrom } from "@/lib/business/intake";
 import { anyoneFree, arrangeCallback, settleUnanswered } from "@/lib/crm/callback";
+import { paymentsContext, requestPaymentForAssistant } from "@/lib/payments";
 
 /**
  * One turn of the agent.
@@ -171,7 +172,14 @@ ${WEB_CHAT_STYLE}
   }
 ## Where an order has got to
 ${LOOK_UP_INSTRUCTIONS}
-
+${config.canCollect ? `
+## Taking payment
+If the customer wants to pay for an order, or asks for a payment link, call
+request_payment with the order reference. ${config.brandName} works out what
+is owed: never state an amount until the tool returns it, then quote that
+amount and give the link in your reply. If it says it cannot make one, tell
+the customer plainly and offer that the team will follow up.
+` : ""}
 ## Rules
 - Answer only from the sources above. If they do not cover the question, say
   so plainly and offer a callback (${callbackTool}). Do not guess, and
@@ -215,6 +223,10 @@ export async function customerContext(customerId: string | null): Promise<{ text
     c.location && `Location: ${c.location}`,
     row.score && `Priority: ${Math.round(row.score.blended)} of 100`,
   ].filter(Boolean);
+  // What they have been asked to pay, and whether they have — so "has my
+  // payment gone through?" has an answer.
+  const payments = await paymentsContext(c.id);
+  if (payments) lines.push(`Payments:\n${payments}`);
 
   return { text: lines.join("\n"), priority: row.score ? Math.round(row.score.blended) : null };
 }
@@ -472,6 +484,26 @@ export async function* respondStream(opts: {
             return result;
           },
         }),
+        ...((config.canCollect
+          ? {
+              request_payment: tool({
+                description:
+                  "Make a link for the customer to pay for one of their orders, from the business's own payment system. " +
+                  "Give the order reference; the business works out the amount. Returns the amount and the link to share.",
+                inputSchema: z.object({
+                  orderReference: z.string().describe("The order reference, e.g. TD-7K3QX9"),
+                }),
+                execute: async ({ orderReference }) => {
+                  const result = await requestPaymentForAssistant({ brandId: conversation.brandId, conversationId, orderReference, agentName: config.agentName });
+                  actionsTaken.push({
+                    label: result.made ? `Payment link: ${result.response.amount} for ${orderReference}`.slice(0, 200) : `Payment link for ${orderReference.slice(0, 40)}: ${result.response.reason}`.slice(0, 200),
+                    allowed: result.made,
+                  });
+                  return result.response;
+                },
+              }),
+            }
+          : {}) as ToolSet),
         schedule_follow_up: tool({
           description:
             "Create a task for the team whenever you promise a callback, to send something, or to " +

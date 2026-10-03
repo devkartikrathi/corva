@@ -4,6 +4,7 @@ import * as s from "@/lib/db/schema";
 import { intakeFieldsFor, type IntakeField } from "@/lib/business/intake";
 import { lookupsFor, type Lookup } from "@/lib/data/sources";
 import { catalogOutline, loadCatalog } from "@/lib/catalog";
+import { paymentEndpointFor } from "@/lib/payments";
 
 /**
  * The published configuration a brand's agent runs under.
@@ -63,6 +64,8 @@ export type AgentConfig = {
    * current list, so a price changed this morning is the price quoted now.
    */
   catalog: string | null;
+  /** The business has a payment endpoint, so the assistant may send a customer a link to pay for an order. */
+  canCollect: boolean;
 };
 
 /** The live version for a brand, or a specific one for replay. */
@@ -83,7 +86,7 @@ export async function loadAgentConfig(
 
   if (!row) return null;
 
-  const [authority, triggers, never, fields, lookups, catalog] = await Promise.all([
+  const [authority, triggers, never, fields, lookups, catalog, paymentEndpoint] = await Promise.all([
     db.select().from(s.authorityLimits).where(eq(s.authorityLimits.agentVersionId, row.version.id)),
     db
       .select()
@@ -98,6 +101,7 @@ export async function loadAgentConfig(
     intakeFieldsFor(row.brand.id, row.brand.industry),
     lookupsFor(row.brand.id, true),
     loadCatalog(row.brand.id),
+    paymentEndpointFor(row.brand.id),
   ]);
 
   return {
@@ -126,5 +130,6 @@ export async function loadAgentConfig(
     fields,
     lookups,
     catalog: catalogOutline(catalog),
+    canCollect: Boolean(paymentEndpoint),
   };
 }

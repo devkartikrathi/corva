@@ -3,6 +3,9 @@ import { DEMO_MODE } from "@/lib/auth/mode";
 import { ApiKeys } from "@/components/ApiKeys";
 import { accountState } from "@/lib/billing/usage";
 import { Webhooks } from "@/components/Webhooks";
+import { PaymentEndpoint } from "@/components/PaymentEndpoint";
+import { paymentEndpointFor } from "@/lib/payments";
+import { connectPaymentEndpoint, disconnectPaymentEndpoint } from "@/lib/actions/payments";
 import { WEBHOOK_EVENTS } from "@/lib/integrations/webhooks";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -82,6 +85,7 @@ export default async function SetupPage() {
     .where(and(eq(s.apiKeys.brandId, currentBrand.id), isNull(s.apiKeys.revokedAt)))
     .orderBy(desc(s.apiKeys.createdAt));
   const hooks = await db.select().from(s.webhooks).where(eq(s.webhooks.brandId, currentBrand.id)).orderBy(desc(s.webhooks.createdAt));
+  const paymentEndpoint = await paymentEndpointFor(currentBrand.id);
   const { brands, brand, channels, hours, afterHours, privacy, audit: fullAudit, org } = setup;
   // The audit log comes with the Growth plan (and the pilot, which shows everything).
   const account = await accountState(session.orgId);
@@ -322,6 +326,34 @@ export default async function SetupPage() {
               onCreate={createWebhook}
               onDelete={deleteWebhook}
               onTest={testWebhook}
+            />
+          </div>
+
+          <div id="payments" style={{ padding: "18px 24px", borderBottom: "1px solid var(--color-neutral-300)" }}>
+            <div style={{ marginBottom: 6 }}>
+              <SectionTitle size={16}>Payments</SectionTitle>
+            </div>
+            <p style={{ margin: "0 0 12px", fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.5 }}>
+              Let the team and the AI ask customers to pay — on a chat, WhatsApp or a call. Your own system makes
+              the payment link (with your own payment account, so the money never passes through Corva) and tells
+              Corva when it is paid.{" "}
+              <a href="/developers#payments" target="_blank" rel="noreferrer" style={{ fontWeight: 700, color: "var(--color-accent-700)" }}>
+                What your endpoint does →
+              </a>
+            </p>
+            <PaymentEndpoint
+              current={
+                paymentEndpoint
+                  ? {
+                      url: paymentEndpoint.url,
+                      last: paymentEndpoint.lastCalledAt ? paymentEndpoint.lastCalledAt.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : null,
+                      lastStatus: paymentEndpoint.lastStatus,
+                      lastError: paymentEndpoint.lastError,
+                    }
+                  : null
+              }
+              onConnect={connectPaymentEndpoint}
+              onDisconnect={disconnectPaymentEndpoint}
             />
           </div>
 

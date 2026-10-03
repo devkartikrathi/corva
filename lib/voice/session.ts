@@ -5,6 +5,7 @@ import { describeNeverRules } from "@/lib/agent/guardrails";
 import { grounded, retrieve, recordGap } from "@/lib/agent/retrieval";
 import { writeBrief } from "@/lib/agent/brief";
 import { arrangeCallback } from "@/lib/crm/callback";
+import { requestPaymentForAssistant } from "@/lib/payments";
 import { identifyFromTranscript } from "@/lib/crm/identify";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
@@ -243,6 +244,14 @@ export function liveInstruction(
           "",
         ]
       : []),
+    ...(config.canCollect
+      ? [
+          "TAKING PAYMENT",
+          "If the caller wants to pay for an order, call request_payment with the order reference. The business",
+          "works out the amount: never say a figure before the tool returns one. The link goes to their phone by text.",
+          "",
+        ]
+      : []),
     "WHAT YOU MAY SAY",
     `- Only what search_knowledge returned${config.catalog ? `, or the list of what ${brandName} offers above` : ""}.`,
     "  If neither has it, say you do not have it in front of you and offer to get",
@@ -322,6 +331,22 @@ function toolsFor(config: AgentConfig) {
         },
       ]
     : [];
+  // Asking for payment, when the business has somewhere to make the link.
+  const collect = config.canCollect
+    ? [
+        {
+          name: "request_payment",
+          description:
+            "Send the caller a link to pay for one of their orders, from the business's own payment system. " +
+            "Give the order reference; the business works out the amount and texts the link to their phone.",
+          parameters: {
+            type: "OBJECT",
+            properties: { orderReference: { type: "STRING", description: "The order reference, as one string, e.g. TD-7K3QX9" } },
+            required: ["orderReference"],
+          },
+        },
+      ]
+    : [];
   return TOOLS.map((group) => ({
     functionDeclarations: [
       ...group.functionDeclarations.map((d) =>
@@ -330,6 +355,7 @@ function toolsFor(config: AgentConfig) {
           : d,
       ),
       ...lookUp,
+      ...collect,
     ],
   }));
 }
@@ -406,6 +432,27 @@ export async function handleToolCall(
         summary: `Checked the records (${String(lookup ?? "").slice(0, 40)})`,
         allowed: true,
         detail: result.found ? `${result.rows.length} found` : "nothing found",
+      },
+    };
+  }
+
+  if (name === "request_payment") {
+    const orderReference = String(args.orderReference ?? "");
+    const result = await requestPaymentForAssistant({ brandId: ctx.brandId, conversationId: ctx.conversationId, orderReference, agentName: ctx.config.agentName });
+    return {
+      response: result.made
+        ? {
+            ...result.response,
+            instruction:
+              "Tell the caller the amount, and that the payment link has been sent to their phone by text. " +
+              "Do not read the link out.",
+          }
+        : { ...result.response, instruction: "Tell the caller plainly why, and offer that the team will follow up." },
+      outcome: {
+        name,
+        summary: result.made ? `Payment link ${result.response.amount} for ${orderReference}` : `No payment link for ${orderReference}`,
+        allowed: result.made,
+        detail: result.made ? result.response.reference : result.response.reason,
       },
     };
   }
@@ -1047,6 +1094,7 @@ const TOOL_NAMES = [
   "save_caller_details",
   "schedule_follow_up",
   "look_up_record",
+  "request_payment",
 ];
 
 export function narratedATool(said: string): string | null {

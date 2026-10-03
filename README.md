@@ -64,6 +64,7 @@ npm run voice                  # the voice bridge, for calls (ws://localhost:878
 | [docs/TEAM-AND-CHANNELS.md](docs/TEAM-AND-CHANNELS.md) | The overview, attendance, the email inbox and WhatsApp |
 | [docs/DATA-SOURCES.md](docs/DATA-SOURCES.md) | Connecting a business's own database: approved lookups for customers, questions for the team |
 | [docs/PRICING.md](docs/PRICING.md) | The plans, what they cost us to serve, how they are enforced and paid for |
+| [docs/PAYMENTS.md](docs/PAYMENTS.md) | Taking payments from customers: the business's own payment link, asked for by the team or the AI, reported back |
 | [docs/LOCATION.md](docs/LOCATION.md) | Design (not built): customer location by GPS, map pin or WhatsApp; branches; distance discounts |
 | [docs/PLAN.md](docs/PLAN.md) | Where Corva is going: customer profiles, assistant personality, what is built on top of it |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What businesses will need next, in the order we think they will ask |

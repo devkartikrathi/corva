@@ -23,6 +23,9 @@ expect to be asked. "Built" means in the product today.
 - Self-serve signup: an account, one form, a working assistant on a 14-day pilot
 - Plans with usage metered and limits enforced; paying for a month with Razorpay; receipts
 - A back office for Corva (`/admin`): every business, plans, payments, demo requests
+- Asking customers to pay: the business's own payment links (Razorpay at Tumble Days), requested by
+  the team or the assistant on any channel, reported back and shown where they were asked
+  (`docs/PAYMENTS.md`)
 
 ## Next — what stands between a pilot and a paying business
 

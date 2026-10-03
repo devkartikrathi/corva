@@ -1411,6 +1411,78 @@ export const webhooks = pgTable(
   (t) => [index("webhooks_brand_idx").on(t.brandId)],
 );
 
+/* ─── Collecting payments from customers ───────────────────────────────── */
+
+/**
+ * Where a business makes payment links: an endpoint in its own system.
+ *
+ * The money is the business's — its own payment account, its own books — so
+ * Corva never holds the keys. When the team or the assistant asks a customer
+ * to pay, Corva calls this URL (signed like a webhook, with `secret`) and is
+ * handed back a link. See docs/PAYMENTS.md.
+ */
+export const paymentEndpoints = pgTable("payment_endpoints", {
+  brandId: uuid("brand_id")
+    .primaryKey()
+    .references(() => brands.id, { onDelete: "cascade" }),
+  url: text("url").notNull(),
+  /** Signs every request (HMAC-SHA256, the webhook scheme). Shown once. */
+  secret: text("secret").notNull(),
+  createdByName: text("created_by_name"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastCalledAt: timestamp("last_called_at", { withTimezone: true }),
+  /** HTTP status of the last call; 0 when it could not connect. */
+  lastStatus: integer("last_status"),
+  lastError: text("last_error"),
+});
+
+/**
+ * A payment a business asked one of its customers for, as the business last
+ * reported it.
+ *
+ * Mirrored, never decided here: the business's system says what was asked
+ * and whether it was paid (POST /api/v1/payments). Kept so the customer's
+ * record shows it, the conversation it was asked in can say "received", and
+ * the assistant can answer "has my payment gone through?".
+ */
+export const customerPayments = pgTable(
+  "customer_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id").references(() => customers.id, { onDelete: "set null" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    /** Corva's id for the request, when Corva asked; the business echoes it back. */
+    requestId: text("request_id").unique(),
+    /** The business's reference: "PAY-7K3QX9". */
+    reference: text("reference").notNull(),
+    /** pending | partially_paid | paid | expired | cancelled | failed */
+    status: text("status").notNull().default("pending"),
+    amountPaise: integer("amount_paise").notNull(),
+    amountPaidPaise: integer("amount_paid_paise").notNull().default(0),
+    description: text("description"),
+    /** The link the customer opens, and the business's own page and QR for it. */
+    url: text("url"),
+    pageUrl: text("page_url"),
+    qrUrl: text("qr_url"),
+    method: text("method"),
+    orderReference: text("order_reference"),
+    requestedByName: text("requested_by_name"),
+    requestedByAi: boolean("requested_by_ai").notNull().default(false),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("customer_payments_brand_ref_idx").on(t.brandId, t.reference),
+    index("customer_payments_customer_idx").on(t.customerId, t.createdAt),
+    index("customer_payments_conversation_idx").on(t.conversationId),
+  ],
+);
+
 /**
  * Someone who has been on a business's website.
  *

@@ -4,6 +4,11 @@ import { ActiveFilters, Chip, Pager, SearchBox, Tab, TabStrip } from "@/componen
 import { ReviewForm } from "@/components/ReviewForm";
 import { accountState } from "@/lib/billing/usage";
 import { DetailsPanel } from "@/components/DetailsPanel";
+import { RequestPayment } from "@/components/RequestPayment";
+import { paymentEndpointFor, paymentsInConversation } from "@/lib/payments";
+import { requestConversationPayment } from "@/lib/actions/payments";
+import { can } from "@/lib/auth/permissions";
+import { formatRupees } from "@/lib/money";
 import { intakeFieldsFor, knownDetails } from "@/lib/business/intake";
 import { formatCost } from "@/lib/money";
 import { ExportButton } from "@/components/ExportButton";
@@ -127,6 +132,12 @@ export default async function ConversationsPage({
   const focus =
     convos.find((c) => c.id === params.id) ?? convos.find((c) => c.bad) ?? convos[0] ?? null;
   const detail = focus ? await getConversation(brand.id, focus.id) : null;
+  // Payments asked for in this conversation, and whether this business can ask at all.
+  const [paymentEndpoint, conversationPayments] = await Promise.all([
+    paymentEndpointFor(brand.id),
+    focus ? paymentsInConversation(focus.id) : Promise.resolve([]),
+  ]);
+  const canAskToPay = Boolean(paymentEndpoint) && can(session.actor, "calls.handle", { brandId: brand.id }).allowed;
   // The business's Details to collect, as this conversation filled them in.
   const fields = detail ? await intakeFieldsFor(brand.id, brand.industry) : [];
   const details = detail ? await knownDetails(detail.conversation.id, fields) : {};
@@ -460,6 +471,36 @@ export default async function ConversationsPage({
           {Object.keys(details).length > 0 && (
             <div style={{ borderBottom: "2px solid var(--color-divider)", maxWidth: 520 }}>
               <DetailsPanel fields={fields} values={details} />
+            </div>
+          )}
+
+          {(canAskToPay || conversationPayments.length > 0) && (
+            <div style={{ padding: "14px 24px", borderBottom: "2px solid var(--color-divider)", maxWidth: 720 }}>
+              <Kicker size={9.5} style={{ letterSpacing: "0.12em" }}>
+                Payments
+              </Kicker>
+              {conversationPayments.length > 0 && (
+                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5 }}>
+                  {conversationPayments.map((p) => (
+                    <div key={p.id} style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                      <b>{formatRupees(p.amountPaise, { decimals: "auto" })}</b>
+                      <span style={{ color: "var(--color-neutral-700)" }}>
+                        {p.reference}
+                        {p.orderReference ? ` · ${p.orderReference}` : ""} · {p.requestedByAi ? "asked by the AI" : `asked by ${p.requestedByName ?? "the team"}`}
+                      </span>
+                      <span style={{ flex: 1 }} />
+                      <span style={{ fontWeight: 700, color: p.status === "paid" ? "var(--color-text)" : "var(--color-accent-700)" }}>
+                        {p.status === "paid" ? `Paid${p.method ? ` · ${p.method.toUpperCase()}` : ""}` : p.status.replace("_", " ")}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {canAskToPay && (
+                <div style={{ marginTop: 10 }}>
+                  <RequestPayment conversationId={detail!.conversation.id} canSend={detail!.conversation.channel === "whatsapp"} onRequest={requestConversationPayment} />
+                </div>
+              )}
             </div>
           )}
 

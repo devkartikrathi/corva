@@ -15,6 +15,8 @@ import { WEBHOOK_EVENTS } from "./webhooks";
 
 export const API_VERSION = "v1";
 
+const PAYMENT = { id: "9b2d…", reference: "PAY-7K3QX9", status: "paid", amountRupees: 150, amountPaidRupees: 150, description: "Order TD-7K3QX9 — Dry-cleaning", url: "https://rzp.io/rzp/abc123", pageUrl: "https://your-site.com/pay/PAY-7K3QX9", qrUrl: "https://your-site.com/pay/PAY-7K3QX9/qr", method: "upi", orderReference: "TD-7K3QX9", customerId: "c1d2…", conversationId: "3e4f…", requestedBy: "Tumbly (AI)", paidAt: "2026-10-03T09:15:00.000Z", expiresAt: "2026-10-10T09:10:00.000Z", createdAt: "2026-10-03T09:10:00.000Z" };
+
 const customer = { id: "a734…", name: "Riya Sharma", phone: "+91 98765 43210", email: "riya@example.com" };
 
 const leadObject = {
@@ -68,7 +70,7 @@ export type Endpoint = {
   method: "GET" | "POST";
   path: string;
   /** Which part of the docs it belongs under. */
-  group: "Setup" | "Chat" | "Leads" | "Records" | "Visitors" | "Voice";
+  group: "Setup" | "Chat" | "Leads" | "Records" | "Payments" | "Visitors" | "Voice";
   summary: string;
   description: string;
   request?: Record<string, Field>;
@@ -355,6 +357,45 @@ export const ENDPOINTS: Endpoint[] = [
     response: {
       records: [{ id: "5a1e…", kind: "order", reference: "AH-7K3QX9", label: "AC service", status: "The technician is on the way, expected around 5:40 pm.", amountRupees: null, customerId: "c1d2…", occurredAt: "2026-10-03T04:30:00.000Z", meta: {} }],
     },
+  },
+  {
+    method: "POST",
+    path: "/api/v1/payments",
+    group: "Payments",
+    summary: "Tell Corva where a payment stands",
+    description:
+      "Your system collects the money (your own payment account — Corva never holds the keys). Send each payment's state here whenever it changes: when the link is made, when it is paid, when it expires. The same `reference` replaces what was there, and a status never moves backwards, so a late `expired` cannot undo a `paid`. When it becomes `paid`, the conversation it was asked in says so and, on WhatsApp, the customer is thanked. Echo `requestId` and `conversationId` when Corva asked for the link (see Payments below).",
+    request: {
+      reference: { type: "string", required: true, description: "The payment's id in your system." },
+      status: { type: "string", description: "pending (default), partially_paid, paid, expired, cancelled or failed." },
+      amountRupees: { type: "number", description: "What was asked for. Required the first time." },
+      amountPaidRupees: { type: "number", description: "What has been paid so far." },
+      description: { type: "string", description: "What it is for, as the customer sees it." },
+      url: { type: "string", description: "The link the customer pays at." },
+      pageUrl: { type: "string", description: "Your own page for it, if any." },
+      qrUrl: { type: "string", description: "An image of a QR for the link, if any." },
+      method: { type: "string", description: "upi, card, netbanking … once paid." },
+      paidAt: { type: "string", description: "When it was paid; defaults to when Corva hears." },
+      expiresAt: { type: "string", description: "When the link stops working." },
+      orderReference: { type: "string", description: "The order it pays for." },
+      requestId: { type: "string", description: "Corva's id for the request, when Corva asked." },
+      conversationId: { type: "string", description: "The conversation it was asked in, when Corva asked." },
+      customer: { type: "object", description: "{ id } or { phone, name?, email? }, when Corva did not ask." },
+    },
+    example: { reference: "PAY-7K3QX9", status: "paid", amountRupees: 150, amountPaidRupees: 150, method: "upi", orderReference: "TD-7K3QX9", requestId: "cpr_5c1f…" },
+    response: { payment: PAYMENT, created: false },
+  },
+  {
+    method: "GET",
+    path: "/api/v1/payments",
+    group: "Payments",
+    summary: "Payments Corva holds",
+    description: "By your `reference`, or every payment of one customer, newest first.",
+    query: {
+      reference: { type: "string", description: "Your payment's reference." },
+      customerId: { type: "string", description: "A customer's id." },
+    },
+    response: { payments: [PAYMENT] },
   },
   {
     method: "GET",
