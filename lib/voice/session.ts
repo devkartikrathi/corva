@@ -6,6 +6,7 @@ import { grounded, retrieve, recordGap } from "@/lib/agent/retrieval";
 import { writeBrief } from "@/lib/agent/brief";
 import { arrangeCallback } from "@/lib/crm/callback";
 import { requestPaymentForAssistant } from "@/lib/payments";
+import { EMAIL_DETAILS_INSTRUCTIONS, emailOrderDetails } from "@/lib/email/details";
 import { identifyFromTranscript } from "@/lib/crm/identify";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
@@ -170,6 +171,17 @@ export const TOOLS = [
         },
       },
       {
+        name: "email_details",
+        description:
+          "Email an order's full details (amount, items, address, payment, driver) to the email address the business " +
+          "has on file for that order's customer — never to one said on the call. Returns the masked address.",
+        parameters: {
+          type: "OBJECT",
+          properties: { reference: { type: "STRING", description: "The order reference, as one string, e.g. TD-7K3QX9" } },
+          required: ["reference"],
+        },
+      },
+      {
         name: "close_with_agreement",
         description:
           "End the call by agreement. Use ONLY when you could not do what the caller " +
@@ -257,6 +269,7 @@ export function liveInstruction(
     "  If neither has it, say you do not have it in front of you and offer to get",
     "  someone who does.",
     "- Never invent a date, a price, or a policy. Never guess at one.",
+    `- ${EMAIL_DETAILS_INSTRUCTIONS}`,
     `- ${LOOK_UP_INSTRUCTIONS} A caller may spell the reference out letter by`,
     "  letter; pass it on as one string.",
     "",
@@ -433,6 +446,17 @@ export async function handleToolCall(
         allowed: true,
         detail: result.found ? `${result.rows.length} found` : "nothing found",
       },
+    };
+  }
+
+  if (name === "email_details") {
+    const reference = String(args.reference ?? "");
+    const result = await emailOrderDetails({ brandId: ctx.brandId, conversationId: ctx.conversationId, reference, agentName: ctx.config.agentName });
+    return {
+      response: result.sent
+        ? { ...result, instruction: "Tell the caller the details have been emailed to the address on file, saying the masked address. Do not read any details out." }
+        : { ...result, instruction: "Tell the caller plainly why, and offer a callback from the team." },
+      outcome: { name, summary: result.sent ? `Order details for ${reference} emailed` : `Order details for ${reference} not emailed`, allowed: result.sent, detail: result.sent ? result.to : result.reason },
     };
   }
 
@@ -1095,6 +1119,7 @@ const TOOL_NAMES = [
   "schedule_follow_up",
   "look_up_record",
   "request_payment",
+  "email_details",
 ];
 
 export function narratedATool(said: string): string | null {

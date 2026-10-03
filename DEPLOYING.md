@@ -33,7 +33,8 @@ Settings → Environment Variables. `.env.example` has the same list with notes.
 | `EMAIL_FROM` | once a domain is verified | e.g. `Corva <hello@your-domain.com>` |
 | `CORVA_ADMIN_EMAILS` | yes | Comma-separated emails that may open `/admin` and receive demo requests |
 | `DATA_SOURCE_KEY` | to connect databases, inboxes, WhatsApp | Any long random string (`openssl rand -base64 36`). Seals what businesses connect: database connection strings, inbox passwords, WhatsApp tokens. Changing it means every business reconnects |
-| `CRON_SECRET` | to read inboxes on a schedule | Any long random string. Also set it as the GitHub repository secret `CRON_SECRET` for the 15-minute schedule |
+| `CRON_SECRET` | for the daily housekeeping job | Any long random string; Vercel sends it to `/api/cron/daily` |
+| `RESEND_INBOUND_DOMAIN` / `RESEND_INBOUND_SECRET` | to receive customer email by forwarding | Resend → receiving domain, and the signing secret of the `email.received` webhook pointed at `/api/email/inbound` |
 | `RAZORPAY_KEY_ID` | to take payment | From Razorpay → Account & Settings → API Keys (`rzp_test_…` or `rzp_live_…`) |
 | `RAZORPAY_KEY_SECRET` | to take payment | Shown once, when the key is generated |
 | `RAZORPAY_WEBHOOK_SECRET` | to take payment | A string you choose when creating the webhook (step 6) — **not** the key secret |

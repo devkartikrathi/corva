@@ -1,20 +1,18 @@
 import Link from "next/link";
-import { after } from "next/server";
-import { ConnectInbox, InboxControls } from "@/components/Inbox";
+import { CopyAddress, EmailReply } from "@/components/Inbox";
 import { Kicker, ScreenHeader, ScreenRefusal } from "@/components/ui";
-import { checkInbox, connectInbox, disconnectInbox } from "@/lib/actions/email";
+import { replyToEmail } from "@/lib/actions/email";
 import { can } from "@/lib/auth/permissions";
 import { guardScreen, refusalReason } from "@/lib/auth/screen";
-import { sealingReady } from "@/lib/data/crypto";
-import { PROVIDERS, emailThreads, mailboxFor, syncIfStale } from "@/lib/email/mailbox";
+import { emailThreads, inboundDomain, inboxAddress, inboxFor } from "@/lib/email/inbound";
 
 /**
  * Email: the customers who write in rather than call or chat.
  *
- * The business connects the inbox its customers write to. Corva reads new
- * mail, keeps what customers wrote and the business's replies, and puts each
- * thread on that customer's record. Replying still happens in the business's
- * own mail client; this screen is where it is seen, counted and followed up.
+ * The business forwards customer mail to its Corva address; each message
+ * arrives the moment it is forwarded, lands on the customer's record, and is
+ * answered from here. Replies go out in the business's name and come back to
+ * the same thread. See lib/email/inbound.ts.
  */
 export default async function EmailPage() {
   const { session, brand, denied } = await guardScreen("customers.read");
@@ -22,84 +20,125 @@ export default async function EmailPage() {
     return <ScreenRefusal title="Email" reason={refusalReason(denied)} next="Ask an owner or admin if you need to see customer email." />;
   }
   const canManage = can(session.actor, "people.manage", { brandId: brand.id }).allowed;
-  const box = await mailboxFor(brand.id);
-
-  if (!box) {
-    return (
-      <section>
-        <ScreenHeader kicker={brand.name} title="Email" lede="See the customers who write to you, next to the ones who call and chat." />
-        <div style={{ padding: "20px 24px" }}>
-          <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--color-neutral-800)", maxWidth: "72ch", lineHeight: 1.5 }}>
-            Connect the inbox your customers write to. Corva reads new mail as it arrives, works out which messages are
-            from customers, and adds each one to that customer&rsquo;s record — creating the customer if they are new.
-            Your replies, sent from your own mail app as usual, are added to the thread. Newsletters, receipts and mail
-            from colleagues are not kept. Corva only reads: it never sends, moves or deletes mail.
-          </p>
-          {canManage ? (
-            <ConnectInbox ready={sealingReady()} providers={PROVIDERS.map((p) => ({ ...p }))} onConnect={connectInbox} />
-          ) : (
-            <p style={{ fontSize: 12.5, color: "var(--color-neutral-700)" }}>An owner or admin can connect the inbox.</p>
-          )}
-        </div>
-      </section>
-    );
-  }
-
-  // Read what has arrived since the last look, after this page has been sent.
-  after(() => syncIfStale(brand));
-
-  const threads = await emailThreads(brand.id);
+  const canReply = can(session.actor, "calls.handle", { brandId: brand.id }).allowed;
+  const [inbox, threads] = await Promise.all([inboxFor(brand.id, brand.slug), emailThreads(brand.id)]);
+  const address = inboxAddress(inbox);
   const waiting = threads.filter((t) => !t.outcome).length;
   const when = (d: Date) => d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  const step = { margin: "0 0 8px", fontSize: 12.5, lineHeight: 1.55, color: "var(--color-neutral-800)" } as const;
 
   return (
     <section>
-      <ScreenHeader kicker={`${brand.name} · ${box.address}`} title="Email" lede={`${waiting} awaiting a reply · ${box.kept} from customers out of ${box.seen} read`}>
-        <InboxControls canManage={canManage} onCheck={checkInbox} onDisconnect={disconnectInbox} />
-      </ScreenHeader>
+      <ScreenHeader
+        kicker={brand.name}
+        title="Email"
+        lede={inbox.received ? `${waiting} awaiting a reply · ${inbox.kept} from customers out of ${inbox.received} received` : "Customers who write in, next to the ones who call and chat."}
+      />
 
-      <div style={{ padding: "10px 24px", fontSize: 11.5, color: "var(--color-neutral-700)", borderBottom: "1px solid var(--color-neutral-300)" }}>
-        {box.lastError ? (
-          <b role="alert" style={{ color: "var(--color-accent-700)" }}>
-            The last read failed: {box.lastError}
-          </b>
-        ) : box.lastSyncedAt ? (
-          `Last read ${when(box.lastSyncedAt)}. New mail is read whenever this screen or the overview is opened.`
-        ) : (
-          "Not read yet."
-        )}
-      </div>
+      {canManage && (
+        <div style={{ padding: "16px 24px", borderBottom: "2px solid var(--color-divider)", maxWidth: 900 }}>
+          {!inboundDomain() ? (
+            <p style={{ ...step, color: "var(--color-accent-700)", fontWeight: 700 }}>
+              Receiving email is not switched on for Corva yet (RESEND_INBOUND_DOMAIN). Once it is, your address appears here.
+            </p>
+          ) : (
+            <>
+              <Kicker>Your Corva email address</Kicker>
+              <div style={{ margin: "8px 0 12px" }}>
+                <CopyAddress address={address!} />
+              </div>
+              <p style={step}>
+                Forward your customers&rsquo; email to it and each message lands here the moment it is forwarded, on that
+                customer&rsquo;s record. Reply from Corva: the customer gets your reply in your business&rsquo;s name, and
+                their answer comes straight back to this screen.
+              </p>
+              <details open={!inbox.received}>
+                <summary style={{ cursor: "pointer", fontSize: 12.5, fontWeight: 700, margin: "4px 0 8px" }}>How to set it up (two minutes)</summary>
+                <p style={step}>
+                  <b>Gmail or Google Workspace.</b> Settings → See all settings → <i>Forwarding and POP/IMAP</i> → <i>Add a
+                  forwarding address</i> → paste the address above. Gmail sends a confirmation code to it; the code appears
+                  just below this, and you type it back into Gmail.
+                </p>
+                <p style={step}>
+                  <b>Send only your customers&rsquo; mail (recommended).</b> Rather than forwarding everything, in Gmail make a
+                  filter: Settings → <i>Filters and blocked addresses</i> → <i>Create a new filter</i>. For example{" "}
+                  <i>To: your business address</i>, and under <i>Doesn&rsquo;t have</i> words your suppliers and newsletters
+                  use — then <i>Forward it to</i> the address above. Corva also drops anything that is not from a customer the
+                  moment it arrives, but what you never send, nobody ever sees.
+                </p>
+                <p style={step}>
+                  <b>Outlook or Microsoft 365.</b> Settings → Mail → <i>Rules</i> → add a rule → <i>Forward to</i> the address
+                  above. <b>Any other provider</b>: its forwarding setting works the same way.
+                </p>
+                <p style={step}>
+                  <b>One email at a time</b> also works: press <i>Forward</i> on a customer&rsquo;s message and send it to the
+                  address above. Corva reads the customer from inside the forwarded message.
+                </p>
+              </details>
+              {inbox.confirmation && (
+                <div style={{ marginTop: 8, padding: "10px 12px", border: "2px solid var(--color-accent)", background: "var(--color-surface)", fontSize: 12.5 }}>
+                  <b>Forwarding confirmation received</b> from {inbox.confirmation.from}, {when(new Date(inbox.confirmation.at))}.{" "}
+                  {inbox.confirmation.code ? (
+                    <>
+                      Code: <code style={{ fontSize: 15, fontWeight: 800 }}>{inbox.confirmation.code}</code> — type it into your mail&rsquo;s forwarding settings.
+                    </>
+                  ) : (
+                    "Open your mail's forwarding settings to finish."
+                  )}
+                  {inbox.confirmation.link && (
+                    <>
+                      {" "}
+                      Or{" "}
+                      <a href={inbox.confirmation.link} target="_blank" rel="noreferrer" style={{ fontWeight: 700, color: "var(--color-accent-700)" }}>
+                        confirm with the link
+                      </a>
+                      .
+                    </>
+                  )}
+                </div>
+              )}
+              {inbox.lastReceivedAt && <p style={{ ...step, marginTop: 8, fontSize: 11.5, color: "var(--color-neutral-700)" }}>Last email received {when(inbox.lastReceivedAt)}.</p>}
+            </>
+          )}
+        </div>
+      )}
 
       <div style={{ padding: "0 24px 24px" }}>
         {threads.length === 0 && (
           <p style={{ fontSize: 12.5, color: "var(--color-neutral-700)", marginTop: 18 }}>
-            No customer email yet. When a customer writes to {box.address}, the thread appears here and on their record.
+            No customer email yet. When a customer&rsquo;s message is forwarded{address ? ` to ${address}` : ""}, the thread appears here and on their record.
           </p>
         )}
         {threads.map((t) => (
-          <Link
-            key={t.id}
-            href={`/app/conversations/${t.id}`}
-            className="hov-row m-stack m-gap-s"
-            style={{ display: "grid", gridTemplateColumns: "220px 1fr 150px 120px", gap: 16, padding: "13px 0", borderBottom: "1px solid var(--color-neutral-300)", alignItems: "baseline", fontSize: 12.5 }}
-          >
-            <span>
-              <b>{t.customerName ?? "Unknown"}</b>
-              <span style={{ display: "block", fontSize: 11, color: "var(--color-neutral-700)", overflow: "hidden", textOverflow: "ellipsis" }}>{t.customerEmail}</span>
-            </span>
-            <span>
-              <b>{t.subject || "(no subject)"}</b>
-              <span style={{ display: "block", color: "var(--color-neutral-800)", marginTop: 2 }}>{t.summary}</span>
-            </span>
-            <span>
-              {t.outcome ? (
-                <span style={{ color: "var(--color-neutral-700)" }}>Replied{t.handledBy ? ` by ${t.handledBy}` : ""}</span>
-              ) : (
-                <Kicker color="var(--color-accent-700)">Awaiting a reply</Kicker>
-              )}
-            </span>
-            <span style={{ textAlign: "right", color: "var(--color-neutral-700)" }}>{when(t.startedAt)}</span>
-          </Link>
+          <div key={t.id} style={{ padding: "13px 0", borderBottom: "1px solid var(--color-neutral-300)" }}>
+            <Link
+              href={`/app/conversations/${t.id}`}
+              className="hov-row m-stack m-gap-s"
+              style={{ display: "grid", gridTemplateColumns: "220px 1fr 150px 120px", gap: 16, alignItems: "baseline", fontSize: 12.5, color: "var(--color-text)" }}
+            >
+              <span>
+                <b>{t.customerName ?? "Unknown"}</b>
+                <span style={{ display: "block", fontSize: 11, color: "var(--color-neutral-700)", overflow: "hidden", textOverflow: "ellipsis" }}>{t.customerEmail}</span>
+              </span>
+              <span>
+                <b>{t.subject || "(no subject)"}</b>
+                <span style={{ display: "block", color: "var(--color-neutral-800)", marginTop: 2 }}>{t.summary}</span>
+              </span>
+              <span>
+                {t.outcome ? (
+                  <span style={{ color: "var(--color-neutral-700)" }}>Replied{t.handledBy ? ` by ${t.handledBy}` : ""}</span>
+                ) : (
+                  <Kicker color="var(--color-accent-700)">Awaiting a reply</Kicker>
+                )}
+              </span>
+              <span style={{ textAlign: "right", color: "var(--color-neutral-700)" }}>{when(t.startedAt)}</span>
+            </Link>
+            {canReply && t.customerEmail && (
+              <div style={{ marginTop: 6 }}>
+                <EmailReply conversationId={t.id} to={t.customerEmail} onReply={replyToEmail} />
+              </div>
+            )}
+          </div>
         ))}
       </div>
     </section>

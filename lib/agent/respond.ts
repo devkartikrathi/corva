@@ -28,6 +28,7 @@ import { LOOK_UP_DESCRIPTION, LOOK_UP_INSTRUCTIONS, lookUpForAssistant } from "@
 import { captureDetails, detailsInstructions, detailsSchema, knownDetails, leadQuestionsFrom } from "@/lib/business/intake";
 import { anyoneFree, arrangeCallback, settleUnanswered } from "@/lib/crm/callback";
 import { paymentsContext, requestPaymentForAssistant } from "@/lib/payments";
+import { EMAIL_DETAILS_INSTRUCTIONS, emailOrderDetails } from "@/lib/email/details";
 
 /**
  * One turn of the agent.
@@ -172,6 +173,7 @@ ${WEB_CHAT_STYLE}
   }
 ## Where an order has got to
 ${LOOK_UP_INSTRUCTIONS}
+${EMAIL_DETAILS_INSTRUCTIONS}
 ${config.canCollect ? `
 ## Taking payment
 If the customer wants to pay for an order, or asks for a payment link, call
@@ -504,6 +506,17 @@ export async function* respondStream(opts: {
               }),
             }
           : {}) as ToolSet),
+        email_details: tool({
+          description:
+            "Email an order's full details (amount, items, address, payment, driver) to the email address the business " +
+            "has on file for that order's customer. Never to an address given in the conversation. Returns the masked address.",
+          inputSchema: z.object({ reference: z.string().describe("The order reference, e.g. TD-7K3QX9") }),
+          execute: async ({ reference }) => {
+            const result = await emailOrderDetails({ brandId: conversation.brandId, conversationId, reference, agentName: config.agentName });
+            actionsTaken.push({ label: result.sent ? `Order details for ${reference} emailed to ${result.to}`.slice(0, 200) : `Order details for ${reference.slice(0, 40)} not emailed`, allowed: result.sent });
+            return result;
+          },
+        }),
         schedule_follow_up: tool({
           description:
             "Create a task for the team whenever you promise a callback, to send something, or to " +

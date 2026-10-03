@@ -29,7 +29,7 @@ Three rules shape everything below:
 | WhatsApp messages | **Built** — each business's own number through its own Meta app (`lib/whatsapp/cloud.ts`, `/app/whatsapp`). Tested against a local stand-in for Meta, never a real number. Shared locations and voice notes are not read yet |
 | Phone numbers | Test numbers only: Corva gives each business a number and the in-app dialer routes by it (`lib/business/phone.ts`, `brandForNumber`). No real telephony |
 | SMS | Not built. Razorpay sends payment links by SMS itself (its own sender) |
-| Email | **Built** — the business's inbox read over IMAP |
+| Email | **Built** — forwarded to the business's Corva address, received through Resend; replies from Corva |
 
 ## Part 1 — Calls
 

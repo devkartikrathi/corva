@@ -79,7 +79,7 @@ embedded on save; the rest is stored without a vector and `embedPending` finishe
 
 - right after the save responds (`after()`), for up to about four minutes;
 - when Products & services is opened while lines are still waiting (it shows the progress);
-- on the scheduled job (`/api/cron/inbox`), and from `npm run db:embed`.
+- on the daily job (`/api/cron/daily`), and from `npm run db:embed`.
 
 Until a chunk has its vector, retrieval matches it by its words alongside the vector search,
 so a long price list is answerable the moment it is saved.
@@ -212,7 +212,7 @@ Every channel ends in the same place: a row in `conversations` with a `channel`,
 | Website chat | The business's server calls `POST /chat` | The assistant; a person on takeover | `lib/integrations/intake.ts` |
 | Website voice | The browser opens a WebSocket with a signed token | The assistant; a person on takeover | `lib/voice/*` |
 | WhatsApp | Meta's webhook, verified by the business's app secret | The assistant, through the same `agentChat`; a person's reply is pushed to WhatsApp | `lib/whatsapp/cloud.ts` |
-| Email | Read from the business's inbox over IMAP, on a schedule | Nobody in Corva: the business replies from its mail app and the reply is read back | `lib/email/mailbox.ts` |
+| Email | Forwarded to the business's Corva address, received through Resend's webhook the moment it arrives | The team, from Corva; replies return to the same thread | `lib/email/inbound.ts` |
 
 A business's own database is not a channel but a source: lookups it approves become one tool
 for the assistant (`lib/data/sources.ts`), run read-only.
@@ -226,8 +226,7 @@ What a business connects (database, inbox, WhatsApp token) is sealed with `DATA_
   server instances. It fails open: if the database cannot be reached the call is allowed.
 - `lib/net.ts` resolves a host and refuses private addresses before Corva connects to anything
   a business typed in; `fetchPublic` re-checks on each redirect.
-- `/api/cron/inbox` is the one scheduled job: it reads inboxes that are due and sweeps old
-  rate-limit windows and WhatsApp receipts.
+- `/api/cron/daily` is the one scheduled job (once a day, `vercel.json`): it closes conversations nobody is in any more, sweeps old counters and receipts, and finishes knowledge still waiting for vectors. Nothing customer-facing waits on it.
 
 Schema changes go through `npm run db:generate` (a migration in `drizzle/`) and
 `npm run db:migrate`. Additive migrations are applied before the code that needs them ships.

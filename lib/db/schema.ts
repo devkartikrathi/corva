@@ -1411,6 +1411,55 @@ export const webhooks = pgTable(
   (t) => [index("webhooks_brand_idx").on(t.brandId)],
 );
 
+/* ─── Email by forwarding ──────────────────────────────────────────────── */
+
+/**
+ * A business's Corva email address: where it forwards customer mail, and
+ * where customers' replies to Corva's emails come back to.
+ *
+ * Mail arrives through Resend's inbound webhook the moment it is forwarded —
+ * no inbox password, no polling. See lib/email/inbound.ts.
+ */
+export const emailInboxes = pgTable("email_inboxes", {
+  brandId: uuid("brand_id")
+    .primaryKey()
+    .references(() => brands.id, { onDelete: "cascade" }),
+  /** The part before the @: "tumbledays-7k3q". */
+  localPart: text("local_part").notNull().unique(),
+  /**
+   * Gmail's (or another provider's) "confirm you may forward here" message,
+   * caught on arrival so the business can read the code in Corva.
+   */
+  confirmation: jsonb("confirmation").$type<{ code: string | null; link: string | null; from: string; at: string }>(),
+  received: integer("received").notNull().default(0),
+  kept: integer("kept").notNull().default(0),
+  lastReceivedAt: timestamp("last_received_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Each email in or out of a thread: for threading replies and for taking a delivery once. */
+export const emailMessages = pgTable(
+  "email_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    brandId: uuid("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    /** "in" (from a customer) or "out" (sent from Corva). */
+    direction: text("direction").notNull(),
+    /** Resend's id for the email; a webhook delivered twice is taken once. */
+    providerId: text("provider_id").unique(),
+    /** The Message-ID header, without angle brackets. */
+    messageId: text("message_id"),
+    /** The customer's address on the thread. */
+    address: text("address"),
+    subject: text("subject"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("email_messages_conversation_idx").on(t.conversationId), index("email_messages_message_idx").on(t.brandId, t.messageId)],
+);
+
 /* ─── SMS ──────────────────────────────────────────────────────────────── */
 
 /**

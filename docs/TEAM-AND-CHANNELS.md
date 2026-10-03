@@ -64,54 +64,42 @@ more and what the caller said about themselves is recorded (`lib/crm/identify.ts
 
 ## Email (`/app/email`)
 
-The business connects the inbox its customers write to. Corva reads new mail and:
+Customer email arrives by **forwarding** (since 2026-10-03; IMAP inbox reading was removed). See
+`lib/email/inbound.ts`.
 
-1. drops anything automated (mailing lists, no-reply senders) and mail from the business's own
-   domain;
-2. asks the AI, once per new thread, whether it is from a customer;
-3. for a customer's message, finds or creates the customer by email address and records the
-   thread as a conversation on the `email` channel, with a one-line summary;
-4. adds the business's replies, read from its Sent folder, to the thread, and marks it replied.
-
-A thread with no reply shows as **Awaiting a reply**. If the customer writes again it goes back
-to awaiting.
-
-What is not from a customer is not stored: not the text, not the sender. Corva only reads. It
-never sends, moves, flags or deletes mail; replying still happens in the business's mail app.
-
-### Connecting
-
-IMAP over TLS on port 993, with the mailbox password or an app password (sealed with
-`DATA_SOURCE_KEY`).
-
-| Provider | Server | Note |
-|---|---|---|
-| Gmail / Google Workspace | `imap.gmail.com` | Needs 2-Step Verification and an app password |
-| Zoho Mail | `imap.zoho.in` or `imap.zoho.com` | Turn on IMAP; use an app-specific password |
-| Titan | `imap.titan.email` | The mailbox's own password |
-| Hostinger | `imap.hostinger.com` | The mailbox's own password |
-| Yahoo | `imap.mail.yahoo.com` | App password |
-| Other | the provider's IMAP server | Must accept TLS on 993 |
-
-Microsoft 365 and Outlook.com no longer accept passwords over IMAP; they need sign-in with
-Microsoft, which is not built yet.
-
-### When mail is read
-
-- On connecting: the last 14 days, 40 messages at most.
-- On a schedule: `GET /api/cron/inbox` reads every inbox not read in the last ten minutes. It
-  needs `Authorization: Bearer $CRON_SECRET`.
-  - Vercel's cron (`vercel.json`) calls it once a day, which is all the Hobby plan allows.
-  - `.github/workflows/read-inboxes.yml` calls it every 15 minutes, using the repository secret
-    `CRON_SECRET`. GitHub may run a schedule late, and pauses it after 60 days without a commit.
-  - On a paid Vercel plan, set the schedule in `vercel.json` to `*/15 * * * *` and drop the workflow.
-- Whenever the Email or Overview screen is opened and the last read is over five minutes old.
-- On **Check now**.
+- **Each business has a Corva address** (`<name>-<code>@RESEND_INBOUND_DOMAIN`), shown with a copy
+  button on the Email screen. The business forwards customer mail to it — every message, a filter
+  (recommended: only customers' mail, so nothing else ever leaves their inbox), or one message at a
+  time with *Forward*. Gmail, Workspace, Outlook and every other provider can forward.
+- **Gmail's confirmation**: Gmail sends a code to the new address before it allows forwarding. Corva
+  catches that email and shows the code (and link) on the Email screen; it never confirms on its own.
+- **Instant**: Resend receives the mail and calls `POST /api/email/inbound` (event `email.received`,
+  signed — `RESEND_INBOUND_SECRET`). Corva fetches the message, finds the business by the address it
+  was delivered to (`received_for`), and sorts it as before: a customer's email becomes a thread on
+  their record (the customer is made if new); newsletters, receipts and colleagues are dropped.
+  A message forwarded by hand is unwrapped so the customer, not the business, is the sender. A
+  delivery made twice is taken once (`email_messages`).
+- **Replying from Corva**: *Reply* on a thread sends the answer through Resend in the business's
+  name. The email says it is the business's reply to the customer's message ("…'s reply to your
+  message 'Pickup timing'") because it comes from Corva's sending address, and its Reply-To is the
+  business's Corva address — so the customer's answer comes straight back onto the same thread.
+- **Setup on Corva's side**: in Resend, turn on receiving (its `<id>.resend.app` domain, or a custom
+  domain with an MX record), set `RESEND_INBOUND_DOMAIN` to that domain, add a webhook for
+  `email.received` pointed at `https://<corva>/api/email/inbound`, and set its signing secret as
+  `RESEND_INBOUND_SECRET`. Replies from the business's own domain need that domain verified in
+  Resend (`EMAIL_FROM`).
+- **Some things only go by email** (`lib/email/details.ts`). Anyone can say an order reference on a
+  call or in a chat, so the assistant tells anyone where an order has got to — and nothing more.
+  Asked for the bill, the items, the address, the payment or the driver, it offers to email them and
+  calls `email_details`: they go only to the email address the business has on file for that order's
+  customer (never one given in the conversation), and the caller hears only a masked address
+  ("r•••@gmail.com"). Recorded on the conversation's actions.
+- The old `mailboxes` table is unused and can be dropped once this version is live everywhere.
 
 ### Not yet
 
-Replying from Corva, an AI-drafted reply, sign-in with Google or Microsoft instead of an app
-password, and attachments.
+- Attachments (photos of a stain, a receipt) are not kept — the text is.
+- The assistant does not answer email itself; the team does, from Corva.
 
 ## WhatsApp (`/app/whatsapp`)
 

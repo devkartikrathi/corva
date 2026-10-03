@@ -1,6 +1,4 @@
 import Link from "next/link";
-import { after } from "next/server";
-import { syncIfStale } from "@/lib/email/mailbox";
 import { Kicker, ScreenHeader, SectionTitle } from "@/components/ui";
 import { getConsoleContext } from "@/lib/auth/context";
 import { can } from "@/lib/auth/permissions";
@@ -87,8 +85,6 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
   const seesTeam = can(session.actor, "team.performance").grant !== "none";
   const account = await accountState(session.orgId);
   const team = seesTeam && account.plan.management;
-  // Customers who wrote in since the last look are counted on the next one.
-  after(() => syncIfStale(brand));
   const data = await businessOverview(session.orgId, brand.id, days, team ? undefined : session.membershipId);
 
   const { conversations: c } = data;

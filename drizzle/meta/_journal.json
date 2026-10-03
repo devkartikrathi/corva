@@ -183,6 +183,13 @@
       "when": 1791022258273,
       "tag": "0025_sms",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791024215037,
+      "tag": "0026_email_forwarding",
+      "breakpoints": true
     }
   ]
 }

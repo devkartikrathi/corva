@@ -38,7 +38,7 @@ import {
 } from "@/lib/actions/setup";
 import { getSetup } from "@/lib/queries/workspace";
 import Link from "next/link";
-import { mailboxFor } from "@/lib/email/mailbox";
+import { emailInboxFor, inboxAddress } from "@/lib/email/inbound";
 import { whatsappFor } from "@/lib/whatsapp/cloud";
 
 /** Every channel Corva can answer, so a disconnected one is still listed. */
@@ -106,7 +106,7 @@ export default async function SetupPage() {
   const manages = can(session.actor, "billing.manage").allowed;
   const phoneNumber = channels.find((c) => c.kind === "phone" && c.connected)?.detail ?? "";
   const agentName = brand?.agentName ?? "the assistant";
-  const [whatsapp, mailbox] = brand ? await Promise.all([whatsappFor(brand.id), mailboxFor(brand.id)]) : [null, null];
+  const [whatsapp, mailbox] = brand ? await Promise.all([whatsappFor(brand.id), emailInboxFor(brand.id)]) : [null, null];
   // One line per way in: what it is, whether it is on, and where to set it up.
   const reach = [
     {
@@ -132,10 +132,12 @@ export default async function SetupPage() {
     },
     {
       name: "Email",
-      what: mailbox ? `Customer emails to ${mailbox.address} appear on their records. You reply from your own mail app.` : "Connect your inbox and customers who write in appear beside the ones who call and chat.",
-      on: Boolean(mailbox),
-      status: mailbox ? "Connected" : "Not connected",
-      link: { label: mailbox ? "Manage" : "Connect", href: "/app/email" },
+      what: mailbox?.received
+        ? `Customer email forwarded to ${inboxAddress(mailbox) ?? "your Corva address"} lands on their records, and you reply from Corva.`
+        : "Forward customer email to your Corva address and it appears beside the calls and chats; reply from Corva.",
+      on: Boolean(mailbox?.received),
+      status: mailbox?.received ? "Receiving" : "Not set up",
+      link: { label: mailbox?.received ? "Manage" : "Set up", href: "/app/email" },
     },
   ];
 

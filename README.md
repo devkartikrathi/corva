@@ -233,7 +233,8 @@ app/
   admin/                        Corva's back office
   api/razorpay/*                order, verify, webhook
   api/whatsapp/webhook          Meta's WhatsApp webhook
-  api/cron/inbox                the scheduled read of connected inboxes
+  api/cron/daily                once-a-day housekeeping
+  api/email/inbound             forwarded customer email, from Resend
   api/v1/*                      the public API
   api/voice                     the voice bridge on Vercel (WebSocket)
   api/status                    deployment self-check

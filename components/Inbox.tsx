@@ -2,167 +2,86 @@
 
 import { useState, useTransition } from "react";
 
-/**
- * Connecting the business's inbox, and asking for it to be read now.
- */
+const small = { fontSize: 11, fontWeight: 700, border: "1px solid var(--color-neutral-400)", padding: "5px 9px", cursor: "pointer", background: "var(--color-bg)" } as const;
 
-type Result<T> = { ok: true; value: T } | { ok: false; error: string };
-type Provider = { key: string; label: string; host: string; help: string };
-
-const input = {
-  border: "1px solid var(--color-neutral-400)",
-  background: "var(--color-surface)",
-  padding: "7px 9px",
-  fontSize: 12.5,
-  fontFamily: "inherit",
-  color: "var(--color-text)",
-  borderRadius: 0,
-  width: "100%",
-} as const;
-const label = { fontSize: 11, fontWeight: 700, color: "var(--color-neutral-700)", display: "block", marginBottom: 4 } as const;
-const small = { fontSize: 11.5, fontWeight: 700, padding: "7px 11px", border: "1px solid var(--color-neutral-400)", cursor: "pointer" } as const;
-const primary = { fontSize: 11.5, fontWeight: 700, background: "var(--color-accent)", color: "var(--color-bg)", padding: "8px 13px", cursor: "pointer" } as const;
-
-export function ConnectInbox({
-  ready,
-  providers,
-  onConnect,
-}: {
-  ready: boolean;
-  providers: Provider[];
-  onConnect: (input: { address: string; password: string; host: string }) => Promise<Result<{ address: string; kept: number; looked: number }>>;
-}) {
-  const [provider, setProvider] = useState(providers[0].key);
-  const [address, setAddress] = useState("");
-  const [password, setPassword] = useState("");
-  const [host, setHost] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, start] = useTransition();
-  const chosen = providers.find((p) => p.key === provider) ?? providers[0];
-
+/** The business's Corva address, with a copy button. */
+export function CopyAddress({ address }: { address: string }) {
+  const [copied, setCopied] = useState(false);
   return (
-    <div style={{ border: "1px solid var(--color-neutral-400)", padding: "16px 18px", maxWidth: 760 }}>
-      <div style={{ display: "grid", gap: 12 }}>
-        <div>
-          <label style={label} htmlFor="mb-provider">
-            Where the mailbox is
-          </label>
-          <select id="mb-provider" style={input} value={provider} onChange={(e) => setProvider(e.target.value)}>
-            {providers.map((p) => (
-              <option key={p.key} value={p.key}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        {!chosen.host && (
-          <div>
-            <label style={label} htmlFor="mb-host">
-              Mail server (IMAP)
-            </label>
-            <input id="mb-host" style={input} value={host} onChange={(e) => setHost(e.target.value)} placeholder="imap.yourprovider.com" />
-          </div>
-        )}
-        <div className="m-stack" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div>
-            <label style={label} htmlFor="mb-address">
-              Email address customers write to
-            </label>
-            <input id="mb-address" type="email" autoComplete="off" style={input} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="hello@yourbusiness.com" />
-          </div>
-          <div>
-            <label style={label} htmlFor="mb-password">
-              Password or app password
-            </label>
-            <input id="mb-password" type="password" autoComplete="new-password" style={input} value={password} onChange={(e) => setPassword(e.target.value)} />
-          </div>
-        </div>
-        <div style={{ fontSize: 11.5, color: "var(--color-neutral-700)", lineHeight: 1.5 }}>{chosen.help}</div>
-        <div>
-          <button
-            type="button"
-            className="hov-accent"
-            style={{ ...primary, opacity: pending || !ready ? 0.6 : 1 }}
-            disabled={pending || !ready || !address.trim() || !password}
-            onClick={() =>
-              start(async () => {
-                setError(null);
-                try {
-                  const result = await onConnect({ address, password, host: chosen.host || host });
-                  if (!result.ok) setError(result.error);
-                  else setPassword("");
-                } catch {
-                  setError("That did not work. Try again in a moment.");
-                }
-              })
-            }
-          >
-            {pending ? "Connecting and reading the last two weeks…" : "Connect inbox"}
-          </button>
-        </div>
-        {!ready && (
-          <div role="alert" style={{ fontSize: 11.5, color: "var(--color-accent-700)" }}>
-            Connecting an inbox is not switched on for this deployment yet (DATA_SOURCE_KEY is not set).
-          </div>
-        )}
-        {error && (
-          <div role="alert" style={{ fontSize: 11.5, color: "var(--color-accent-700)" }}>
-            {error}
-          </div>
-        )}
-      </div>
-    </div>
+    <span style={{ display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <code style={{ fontSize: 13, fontWeight: 700, padding: "5px 8px", border: "2px solid var(--color-text)", background: "var(--color-surface)", wordBreak: "break-all" }}>{address}</code>
+      <button
+        type="button"
+        style={small}
+        onClick={() => {
+          void navigator.clipboard.writeText(address);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1800);
+        }}
+      >
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </span>
   );
 }
 
-export function InboxControls({
-  canManage,
-  onCheck,
-  onDisconnect,
-}: {
-  canManage: boolean;
-  onCheck: () => Promise<Result<{ looked: number; kept: number }>>;
-  onDisconnect: () => Promise<Result<void>>;
-}) {
-  const [note, setNote] = useState<string | null>(null);
+/**
+ * Answer a customer's email from Corva. It goes out in the business's name,
+ * says which message it answers, and the customer's reply comes back here.
+ */
+export function EmailReply({ conversationId, to, onReply }: { conversationId: string; to: string; onReply: (conversationId: string, body: string) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [body, setBody] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
   const [pending, start] = useTransition();
-  const run = <T,>(work: () => Promise<Result<T>>, done: (value: T) => string | null) =>
-    start(async () => {
-      setNote(null);
-      try {
-        const result = await work();
-        setNote(result.ok ? done(result.value) : result.error);
-      } catch {
-        setNote("That did not work. Try again in a moment.");
-      }
-    });
-
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-      {note && <span style={{ fontSize: 11.5, color: "var(--color-neutral-800)" }}>{note}</span>}
-      <button
-        type="button"
-        className="hov-invert"
-        style={{ ...small, opacity: pending ? 0.6 : 1 }}
-        disabled={pending}
-        onClick={() => run(onCheck, (v) => (v.looked ? `Read ${v.looked} new ${v.looked === 1 ? "message" : "messages"}; ${v.kept} from customers.` : "Nothing new."))}
-      >
-        {pending ? "Reading…" : "Check now"}
+  if (sent) return <span style={{ fontSize: 11.5, color: "var(--color-neutral-700)" }}>Reply sent to {to}.</span>;
+  if (!open)
+    return (
+      <button type="button" style={small} onClick={() => setOpen(true)}>
+        Reply
       </button>
-      {canManage && (
+    );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+      <textarea
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        rows={4}
+        autoFocus
+        placeholder={`Your reply to ${to}`}
+        aria-label="Reply"
+        style={{ border: "1px solid var(--color-neutral-400)", background: "var(--color-surface)", padding: "7px 9px", fontSize: 12.5, fontFamily: "inherit", borderRadius: 0, resize: "vertical" }}
+      />
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <button
           type="button"
-          className="hov-invert"
-          style={small}
-          disabled={pending}
-          onClick={() => {
-            if (!window.confirm("Stop reading this inbox? Conversations already recorded stay on their customers.")) return;
-            run(onDisconnect, () => null);
-          }}
+          disabled={pending || !body.trim()}
+          className="hov-accent"
+          style={{ fontSize: 11.5, fontWeight: 700, background: "var(--color-accent)", color: "var(--color-bg)", padding: "7px 12px", cursor: "pointer" }}
+          onClick={() =>
+            start(async () => {
+              setError(null);
+              try {
+                await onReply(conversationId, body);
+                setSent(true);
+              } catch (e) {
+                setError(e instanceof Error && !e.message.startsWith("Minified React error") ? e.message.replace(/^Error:\s*/, "") : "It could not be sent.");
+              }
+            })
+          }
         >
-          Disconnect
+          {pending ? "Sending…" : "Send reply"}
         </button>
-      )}
-    </span>
+        <button type="button" style={small} onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+        {error && (
+          <span role="alert" style={{ fontSize: 12, color: "var(--color-accent-700)" }}>
+            {error}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }

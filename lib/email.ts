@@ -32,6 +32,8 @@ export async function sendEmail(input: {
   /** Shown as the sender's name, e.g. the business the email is from. */
   fromName?: string;
   replyTo?: string;
+  /** Extra headers: Message-ID, In-Reply-To and References, for threading. */
+  headers?: Record<string, string>;
 }): Promise<EmailResult> {
   const key = process.env.RESEND_API_KEY;
   if (!key) {
@@ -50,6 +52,7 @@ export async function sendEmail(input: {
         html: input.html,
         text: input.text,
         ...(input.replyTo ? { reply_to: input.replyTo } : {}),
+        ...(input.headers ? { headers: input.headers } : {}),
       }),
       signal: AbortSignal.timeout(10_000),
     });
