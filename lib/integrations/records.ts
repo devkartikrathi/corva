@@ -167,12 +167,16 @@ export async function listRecords(brand: Brand, params: URLSearchParams) {
  * The record's own words and nothing about whose it is: a reference is all
  * the caller has shown, so no name, phone number or address goes back.
  */
-export async function lookUpForAssistant(brandId: string, reference: string) {
+export async function lookUpForAssistant(brandId: string, reference: string, opts: { canCheckDatabase?: boolean } = {}) {
   const [record] = await recordsByReference(brandId, reference);
   if (!record) {
     return {
       found: false as const,
-      say: "Nothing is recorded under that reference. Read it back to check it, and if it is right, offer a callback from the team. Do not guess a status.",
+      // Not every order is sent to Corva. When the business's own records can be
+      // read (look_up_data), they are the next place to look, not "not found".
+      say: opts.canCheckDatabase
+        ? "This reference is not among the records the business has sent to Corva. Check the business's own records now with look_up_data, using a lookup that takes the reference, before telling the customer anything."
+        : "Nothing is recorded under that reference. Read it back to check it, and if it is right, offer a callback from the team. Do not guess a status.",
     };
   }
   const meta = { ...((record.meta ?? {}) as Record<string, unknown>) };

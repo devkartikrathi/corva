@@ -241,6 +241,33 @@ export async function runLookupForAssistant(brandId: string, conversationId: str
     return { found: false, reason: (e as Error).message };
   }
 
+  /**
+   * A phone number only finds the person's own records.
+   *
+   * Anyone can type a number into a website chat, so a lookup by phone runs
+   * only for a number Corva knows the customer is contacting from — on
+   * WhatsApp, where WhatsApp itself says who is writing (and, later, on a
+   * phone line with caller id). Anywhere else the customer is asked for their
+   * reference instead, which is something only they were given.
+   */
+  const phoneAt = row.lookup.params.findIndex((p) => p.kind === "phone");
+  if (phoneAt >= 0) {
+    const [conv] = await db
+      .select({ channel: s.conversations.channel, phone: s.customers.phone })
+      .from(s.conversations)
+      .leftJoin(s.customers, eq(s.customers.id, s.conversations.customerId))
+      .where(eq(s.conversations.id, conversationId))
+      .limit(1);
+    const verified = conv?.channel === "whatsapp" ? conv.phone : null;
+    const last10 = (v: string | null | undefined) => (v ?? "").replace(/\D/g, "").slice(-10);
+    if (!verified) {
+      return { found: false, reason: "For the customer's privacy, records are looked up by phone number only on WhatsApp from that number. Ask for their order reference instead." };
+    }
+    if (last10(bound[phoneAt]) !== last10(verified)) {
+      return { found: false, reason: "That is not the number this customer is writing from, so it cannot be looked up. Offer to look up their own number, or ask for the order reference." };
+    }
+  }
+
   try {
     const result = await runSelect(unseal(row.source.connection), row.lookup.sql, {
       names: row.lookup.params.map((p) => p.name),

@@ -510,7 +510,7 @@ export async function handleToolCall(
 
   if (name === "look_up_record") {
     const reference = String(args.reference ?? "");
-    const result = await lookUpForAssistant(ctx.brandId, reference);
+    const result = await lookUpForAssistant(ctx.brandId, reference, { canCheckDatabase: ctx.config.lookups.length > 0 });
     return {
       response: result,
       outcome: {

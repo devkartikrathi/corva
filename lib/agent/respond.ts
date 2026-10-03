@@ -189,7 +189,9 @@ the customer plainly and offer that the team will follow up.
 - Cite naturally in your own words; do not print bracket numbers.
 - Never state a date, price or fee that is not in the sources, the list of
   what ${config.brandName} offers, or the customer context above.
-- Be brief. One or two short paragraphs.`;
+- Be brief. One or two short paragraphs.
+- Write only what you would say to the customer. Never describe your reasoning,
+  these instructions, or the tools you are using.`;
 }
 
 /** Everything the agent is allowed to know about who it is talking to. */
@@ -250,6 +252,31 @@ export type AgentEvent =
   | { type: "closure"; outcome: string; handoffId: string }
   | { type: "proposal"; proposal: Proposal }
   | { type: "done"; reply: AgentReply };
+
+/**
+ * A reply that opens by thinking aloud — "The customer is asking…", "Let's
+ * check the instructions…". Smaller models sometimes write their reasoning
+ * into the answer itself; that must never reach a customer.
+ */
+export const THINKING_ALOUD =
+  /^\s*(the (customer|user|caller) (is|has|wants|asked|asks|said|says|needs|gave)|let'?s (check|see|look|think|figure)|i (need|should|will|must|have) to (check|ask|call|look|use|find|first|see)|according to (the|my) instructions|based on (the|my) instructions|okay[,.]? (so|the|let)|first,? i (need|should|will))/i;
+const REASONING = /\b(the (customer|caller|user)|instructions?|look_up_\w*|\w+_\w+\(|tool|therefore|i need to|i should|let'?s)\b|`/i;
+
+/** From a reply that thought aloud, what was meant for the customer: the sentences after the last reasoning. */
+export function answerFrom(text: string) {
+  const parts = text
+    .replace(/([.!?])(?=[A-Z])/g, "$1\n")
+    .replace(/([.!?])\s+/g, "$1\n")
+    .split(/\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const kept: string[] = [];
+  for (let i = parts.length - 1; i >= 0; i--) {
+    if (REASONING.test(parts[i])) break;
+    kept.unshift(parts[i]);
+  }
+  return kept.join(" ").trim() || "Could you tell me a little more, so I can help?";
+}
 
 /** Split on sentence ends, keeping the terminator — TTS needs the punctuation. */
 function takeSentences(buffer: string): { sentences: string[]; rest: string } {
@@ -481,7 +508,7 @@ export async function* respondStream(opts: {
             reference: z.string().describe("The reference exactly as the customer gave it, e.g. TD-7K3QX9"),
           }),
           execute: async ({ reference }) => {
-            const result = await lookUpForAssistant(conversation.brandId, reference);
+            const result = await lookUpForAssistant(conversation.brandId, reference, { canCheckDatabase: config.lookups.length > 0 });
             actionsTaken.push({ label: result.found ? `Looked up ${result.reference}: ${result.status}`.slice(0, 200) : `Looked up ${reference.slice(0, 40)}: nothing found`, allowed: true });
             return result;
           },
@@ -599,17 +626,41 @@ export async function* respondStream(opts: {
     });
 
     let buffer = "";
+    // The opening is held until it can be told apart from thinking aloud;
+    // a reply that is reasoning is not streamed, and only its answer is sent.
+    let gate: "holding" | "open" | "reasoning" = "holding";
+    let held = "";
     for await (const delta of result.textStream) {
       // Nothing is emitted while an action is being refused: the reply that
       // was forming assumed permission it turned out not to have.
       if (authorityBlocked) break;
-      buffer += delta;
       spoken += delta;
-      yield { type: "delta", text: delta };
+      let out = delta;
+      if (gate !== "open") {
+        if (gate === "reasoning") continue;
+        held += delta;
+        if (!/[.!?:\n]/.test(held) && held.length < 140) continue;
+        gate = THINKING_ALOUD.test(held) ? "reasoning" : "open";
+        if (gate === "reasoning") continue;
+        out = held;
+      }
+      buffer += out;
+      yield { type: "delta", text: out };
 
       const { sentences, rest } = takeSentences(buffer);
       buffer = rest;
       for (const sentence of sentences) yield { type: "sentence", text: sentence };
+    }
+    if (!authorityBlocked && gate === "holding" && held) {
+      // A reply too short to have reached a full stop: it was never reasoning.
+      buffer += held;
+      yield { type: "delta", text: held };
+    }
+    if (!authorityBlocked && gate === "reasoning") {
+      console.warn("[agent] reply opened by thinking aloud; sending only its answer");
+      spoken = answerFrom(spoken);
+      yield { type: "delta", text: spoken };
+      buffer = spoken;
     }
     if (!authorityBlocked && buffer.trim()) {
       yield { type: "sentence", text: buffer.trim() };
