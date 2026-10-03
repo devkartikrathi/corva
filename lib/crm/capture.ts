@@ -138,18 +138,23 @@ export async function pickOwner(brandId: string, customerId: string | null) {
  * that one updated too, so ringing back twice about the same flat does not
  * make two opportunities.
  */
-export async function saveCallerDetails(opts: {
+/**
+ * Attach the conversation to the customer it is with, from what they said.
+ *
+ * A phone number decides who someone is: an existing customer with that
+ * number is them, whatever name they gave. A name fills in a customer known
+ * only by their number, and a name with no customer at all makes one. Every
+ * path that learns who it is talking to — the chat's details, a call's saved
+ * details, the transcript read after a call — comes through here, so a
+ * customer who gave their name is never left "Unidentified".
+ */
+export async function identifyCustomer(opts: {
   conversationId: string;
   brandId: string;
-  customerId: string | null;
+  customerId?: string | null;
   name?: string;
-  /** A number the person gave in the conversation — it decides who they are. */
   phone?: string;
   email?: string;
-  interest?: string;
-  notes?: string;
-  valueRupees?: number;
-  source: string;
 }) {
   const name = opts.name?.trim();
   const email = opts.email?.trim().toLowerCase();
@@ -211,6 +216,26 @@ export async function saveCallerDetails(opts: {
       .returning();
     await repoint(customer.id);
   }
+
+  return customer ?? null;
+}
+
+export async function saveCallerDetails(opts: {
+  conversationId: string;
+  brandId: string;
+  customerId: string | null;
+  name?: string;
+  /** A number the person gave in the conversation — it decides who they are. */
+  phone?: string;
+  email?: string;
+  interest?: string;
+  notes?: string;
+  valueRupees?: number;
+  source: string;
+}) {
+  const name = opts.name?.trim();
+  const email = opts.email?.trim().toLowerCase();
+  const customer = await identifyCustomer(opts);
 
   const [existing] = await db
     .select()

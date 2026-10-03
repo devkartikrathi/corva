@@ -26,6 +26,7 @@ import { proposalInstructions, proposalTools, todayIST, type Proposal } from "./
 import { conversationPayload, emit, leadPayload } from "@/lib/integrations/webhooks";
 import { LOOK_UP_DESCRIPTION, LOOK_UP_INSTRUCTIONS, lookUpForAssistant } from "@/lib/integrations/records";
 import { captureDetails, detailsInstructions, detailsSchema, knownDetails, leadQuestionsFrom } from "@/lib/business/intake";
+import { anyoneFree, arrangeCallback, settleUnanswered } from "@/lib/crm/callback";
 
 /**
  * One turn of the agent.
@@ -715,9 +716,19 @@ export async function* respondStream(opts: {
 
   // 5. Escalate: hold the customer, write the brief, queue the handoff.
   const reason = fired.map((f) => f.detail).join(" ");
+  // Nobody to bring in means no colleague to promise: the customer is told
+  // the team will get back to them, and a callback is written with an owner.
+  const free = await anyoneFree(conversation.brandId);
+  const reachThem = known.phone
+    ? `Is ${known.phone} the best number to reach you on? You're welcome to leave an email too.`
+    : "What's the best number to reach you on — and an email, if you'd like the details in writing?";
   const holdingLine = authorityBlocked
-    ? `That's not my decision to make, and I'd rather not guess at it. I'm getting someone now — nothing you've been offered so far changes.`
-    : `I want to get this right rather than guess, so I'm bringing in a colleague now. Please stay with me.`;
+    ? free
+      ? `That's not my decision to make, and I'd rather not guess at it. I'm getting someone now — nothing you've been offered so far changes.`
+      : `That's not my decision to make, and I'd rather not guess at it. Nobody from the team is free to join this minute, so I've passed it on and someone will get back to you as soon as possible — nothing you've been offered so far changes. ${reachThem}`
+    : free
+      ? `I want to get this right rather than guess, so I'm bringing in a colleague now. Please stay with me.`
+      : `I want to get this right rather than guess. Nobody from the team is free to join this minute, so I've passed this on and someone will get back to you as soon as possible. ${reachThem}`;
 
   yield { type: "sentence", text: holdingLine };
 
@@ -742,8 +753,15 @@ export async function* respondStream(opts: {
 
   await db
     .update(s.conversations)
-    .set({ status: "waiting_human", outcome: "escalated", contained: false })
+    // Nobody coming means the assistant keeps the conversation, to take the
+    // number or email the callback needs.
+    .set({ status: free ? "waiting_human" : "live", outcome: "escalated", contained: false })
     .where(eq(s.conversations.id, conversationId));
+
+  if (!free) {
+    await arrangeCallback({ conversationId, brandId: conversation.brandId, handoffId: handoff.id, reason, agentName: config.agentName });
+    await settleUnanswered(handoff.id);
+  }
 
   await billConversation(
     conversationId,

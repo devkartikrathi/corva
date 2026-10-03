@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { and, sql, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { checkAuthority } from "@/lib/agent/authority";
 import { assignHandoff } from "@/lib/agent/routing";
@@ -232,9 +232,16 @@ export async function approveHandoffDecision(handoffId: string, approve: boolean
   await db
     .update(s.conversations)
     .set(
+      // A resolved conversation has ended. Without the time, a call a person
+      // took over and then signed off here looked like it was still going.
       isClosure && approve
-        ? { status: "resolved" as const }
-        : { status: "resolved" as const, outcome: "human_resolved" as const, handledBy: session.name },
+        ? { status: "resolved" as const, endedAt: sql`coalesce(${s.conversations.endedAt}, now())` }
+        : {
+            status: "resolved" as const,
+            outcome: "human_resolved" as const,
+            handledBy: session.name,
+            endedAt: sql`coalesce(${s.conversations.endedAt}, now())`,
+          },
     )
     .where(eq(s.conversations.id, handoff.conversationId));
 

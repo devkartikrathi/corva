@@ -36,6 +36,32 @@ whole team side by side follows the plan's team-management feature, like Perform
   counts no hours.
 - Days are India calendar days.
 
+## When a customer asks for a person
+
+`lib/crm/callback.ts`, used by calls (`lib/voice/session.ts`, `lib/voice/bridge.ts`) and by chat,
+WhatsApp and email (`lib/agent/respond.ts`).
+
+- The assistant first checks whether anyone who may take customers is marked **Available**.
+- **Someone is:** they are rung (the alert in the console), and on a call the assistant says it is
+  connecting the caller and it may take a minute, using the wait to collect anything the team still
+  needs. If nobody takes the line within `VOICE_PICKUP_WAIT_SECONDS` (default 60), it tells the
+  caller the team will call them back as soon as possible, confirms the number, and asks for an
+  email.
+- **Nobody is:** no transfer is promised. The assistant says the team will get back to them and
+  asks for the best number and an email. On chat it keeps the conversation to take them.
+- Either way a callback follow-up is written — "Call back <name>: asked for a person, nobody was
+  free" — due in 15 minutes, for whoever was being rung or otherwise the usual owner. The alert
+  stays open while a caller is still on the line, so a colleague who frees up can still join; once
+  they have gone it is closed as "Nobody was free — callback arranged".
+
+## Who the customer is
+
+Whenever the assistant records a name, number or email — chat's details, a call's saved details —
+the conversation is attached to a customer: found by phone number, or created
+(`identifyCustomer` in `lib/crm/capture.ts`). On a call the model sometimes forgets to save them,
+so when a person is being brought in and again when the call ends, the transcript is read once
+more and what the caller said about themselves is recorded (`lib/crm/identify.ts`).
+
 ## Email (`/app/email`)
 
 The business connects the inbox its customers write to. Corva reads new mail and:

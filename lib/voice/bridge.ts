@@ -10,10 +10,12 @@ import {
   LIVE_URL,
   MAX_CONCURRENT_SESSIONS,
   OUTPUT_RATE_BYTES_PER_SEC,
+  PICKUP_WAIT_SECONDS,
   resolveLiveModel,
   SESSION_CAP_SECONDS,
 } from "./config";
 import {
+  callbackInstruction,
   closeVoiceConversation,
   flagNarration,
   handBackNote,
@@ -27,6 +29,8 @@ import {
 import { classifyAndStore } from "@/lib/pipelines/classify";
 import { billConversation, customerContext } from "@/lib/agent/respond";
 import { followUpIfLost } from "@/lib/crm/capture";
+import { arrangeCallback, isUnanswered, settleUnanswered } from "@/lib/crm/callback";
+import { identifyFromTranscript } from "@/lib/crm/identify";
 import { knownDetails } from "@/lib/business/intake";
 import { verifyVoiceToken } from "@/lib/integrations/keys";
 import { db } from "@/lib/db";
@@ -189,6 +193,20 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
     if (live?.readyState === WebSocket.OPEN) live.send(JSON.stringify({ realtimeInput: { activityEnd: {} } }));
   };
 
+  /**
+   * A caller who asked for a person, waiting for one to pick up.
+   *
+   * Set when a colleague is being rung; cleared when someone takes the line.
+   * If the wait runs out first, the AI promises a callback instead of leaving
+   * them on hold for nobody (see lib/crm/callback.ts).
+   */
+  let waitingFor: { handoffId: string; reason: string } | null = null;
+  let pickupTimer: NodeJS.Timeout | null = null;
+  /** The handoff a callback was promised for — closed when the call ends. */
+  let callbackFor: string | null = null;
+  /** Something the AI must say once it, and the caller, have finished speaking. */
+  let pendingNote: string | null = null;
+
   let capTimer: NodeJS.Timeout | null = null;
   let idleTimer: NodeJS.Timeout | null = null;
   let holdTimer: NodeJS.Timeout | null = null;
@@ -212,6 +230,52 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
     if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(msg));
   };
 
+  /** A turn the caller did not speak, which the model answers out loud. */
+  const sendNote = (note: string) => {
+    if (live?.readyState !== WebSocket.OPEN) return;
+    live.send(JSON.stringify({ clientContent: { turns: [{ role: "user", parts: [{ text: note }] }], turnComplete: true } }));
+  };
+  /** Said now if the line is quiet, or as soon as the current turn ends. */
+  const deliverNote = (note: string) => {
+    if (generating || callerSpeaking) pendingNote = note;
+    else sendNote(note);
+  };
+  const flushNote = () => {
+    if (!pendingNote || heldBy) return;
+    const note = pendingNote;
+    pendingNote = null;
+    sendNote(note);
+  };
+
+  /** The wait for a person ran out. */
+  const nobodyCame = async () => {
+    pickupTimer = null;
+    const waited = waitingFor;
+    waitingFor = null;
+    if (!waited || closed || heldBy || !conversationId) return;
+    if (!(await isUnanswered(waited.handoffId))) return;
+    const callback = await arrangeCallback({
+      conversationId,
+      brandId,
+      handoffId: waited.handoffId,
+      reason: waited.reason,
+      agentName: config?.agentName ?? "The assistant",
+    });
+    callbackFor = waited.handoffId;
+    send({
+      type: "tool",
+      name: "escalate_to_human",
+      summary: `Nobody picked up within ${PICKUP_WAIT_SECONDS}s`,
+      allowed: true,
+      detail: `callback for ${callback.assigneeName ?? "the team"} at ${callback.when}`,
+    });
+    console.log(`  nobody picked up in ${PICKUP_WAIT_SECONDS}s — callback for ${callback.assigneeName ?? "the team"}`);
+    deliverNote(
+      `[Not from the caller.] Nobody from the team has been able to pick up yet. ${callbackInstruction(callback.assigneeName)} ` +
+        "If a colleague frees up while you are still talking, they may join the call.",
+    );
+  };
+
   const shutdown = async (reason: string) => {
     if (closed) return;
     closed = true;
@@ -220,6 +284,7 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
     if (holdTimer) clearInterval(holdTimer);
     if (announceTimer) clearTimeout(announceTimer);
     if (speechGap) clearTimeout(speechGap);
+    if (pickupTimer) clearTimeout(pickupTimer);
     closeLine({ t: "closed", reason });
 
     const seconds = Math.round((Date.now() - startedAt.getTime()) / 1000);
@@ -228,6 +293,23 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
         if (heard.trim()) await persistTurn(conversationId, "customer", heard, startedAt);
         if (said.trim()) await persistTurn(conversationId, "ai", said, startedAt);
         await persistTurn(conversationId, "system", `Call ended: ${reason}.`, startedAt);
+        // Who they were, if the model never wrote it down — before anything
+        // below decides whether this was an unknown caller.
+        await identifyFromTranscript(conversationId).catch((e) =>
+          console.error("  identify at hang-up failed:", (e as Error).message),
+        );
+        // They asked for a person and hung up before anyone came: that is
+        // still somebody to call back.
+        if (waitingFor && !heldBy && (await isUnanswered(waitingFor.handoffId))) {
+          await arrangeCallback({
+            conversationId,
+            brandId,
+            handoffId: waitingFor.handoffId,
+            reason: waitingFor.reason,
+            agentName: config?.agentName ?? "The assistant",
+          });
+          callbackFor = waitingFor.handoffId;
+        }
         await billConversation(
           conversationId,
           {
@@ -237,6 +319,7 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
           liveModel,
         );
         await closeVoiceConversation(conversationId, seconds);
+        if (callbackFor) await settleUnanswered(callbackFor);
         const lost = await followUpIfLost(conversationId, seconds);
         if (lost) console.log(`  new caller left no details — follow-up for ${lost.assigneeName ?? "the team"}`);
 
@@ -268,7 +351,9 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
   // the expensive failure here, so it is timed out rather than trusted.
   const touch = () => {
     if (idleTimer) clearTimeout(idleTimer);
-    const seconds = heldBy ? HELD_IDLE_TIMEOUT_SECONDS : IDLE_TIMEOUT_SECONDS;
+    // A caller waiting for a person sits in silence, as they would on hold;
+    // the wait for pickup has its own limit, so the idle one must not cut in.
+    const seconds = heldBy || waitingFor ? HELD_IDLE_TIMEOUT_SECONDS : IDLE_TIMEOUT_SECONDS;
     idleTimer = setTimeout(() => void shutdown("idle"), seconds * 1000);
   };
 
@@ -380,6 +465,11 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
         const taking = !heldBy;
         heldBy = line.heldBy;
         if (taking) {
+          // Somebody came: no callback needed, and nothing more to say for the AI.
+          if (pickupTimer) clearTimeout(pickupTimer);
+          pickupTimer = null;
+          waitingFor = null;
+          pendingNote = null;
           // Whatever the AI was halfway through saying was heard, so it is
           // written down; nothing after this point is.
           const cut = said;
@@ -596,11 +686,18 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
                 console.log(`  refused ${call.name} — ${heldBy} has the line`);
                 continue;
               }
-              const { response, outcome } = await handleToolCall(
+              const { response, outcome, waitForPickup, callbackFor: promised } = await handleToolCall(
                 call.name,
                 call.args ?? {},
                 { conversationId: conversationId!, brandId, config: config!, isTest, customerId },
               );
+              if (waitForPickup) {
+                waitingFor = waitForPickup;
+                touch();
+                if (pickupTimer) clearTimeout(pickupTimer);
+                pickupTimer = setTimeout(() => void nobodyCame(), PICKUP_WAIT_SECONDS * 1000);
+              }
+              if (promised) callbackFor = promised;
               send({ type: "tool", ...outcome });
               live!.send(
                 JSON.stringify({
@@ -692,12 +789,16 @@ export function handleVoiceClient(client: WebSocket, opts: VoiceClientOptions) {
               send({ type: "tool", name: "narration", summary: `said "${narrated}" aloud instead of calling it`, allowed: false });
             }
             send({ type: "turn_complete", heard: heard.trim(), said: said.trim() });
+            // The caller has just been spoken to: their silence is measured
+            // from here, not from the last thing they said.
+            touch();
             heard = "";
             said = "";
             generating = false;
             // The hand-over line has been said; or the model has stopped the
             // answer it was giving, so the line can be said now.
             if (announce === "pending") sayHandOver();
+            else flushNote();
           }
 
           if (sc.interrupted) {

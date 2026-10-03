@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { industryFor } from "./industries";
 import { formatPhone, isPlausiblePhone } from "./phone";
+import { identifyCustomer } from "@/lib/crm/capture";
 
 /**
  * The details a business wants from every customer, and what was found out.
@@ -196,11 +197,26 @@ export async function captureDetails(
   if (Object.keys(clean).length === 0) return { saved: [] as string[], rejected, captured: null };
 
   const json = JSON.stringify(clean);
-  const [conversation] = await db
+  const [updated] = await db
     .update(s.conversations)
     .set({ captured: sql`${s.conversations.captured} || ${json}::jsonb` })
     .where(eq(s.conversations.id, conversationId))
-    .returning({ customerId: s.conversations.customerId, captured: s.conversations.captured });
+    .returning({ brandId: s.conversations.brandId, customerId: s.conversations.customerId, captured: s.conversations.captured });
+
+  // A name or a number is who they are: the conversation gets a customer now,
+  // rather than staying "Unidentified" until they confirm a booking.
+  let conversation = updated;
+  if (updated && (clean.name || clean.phone || clean.email)) {
+    const customer = await identifyCustomer({
+      conversationId,
+      brandId: updated.brandId,
+      customerId: updated.customerId,
+      name: clean.name,
+      phone: clean.phone,
+      email: clean.email,
+    });
+    conversation = { ...updated, customerId: customer?.id ?? updated.customerId };
+  }
 
   await db
     .update(s.leads)

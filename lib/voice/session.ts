@@ -1,9 +1,11 @@
-import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { checkAuthority } from "@/lib/agent/authority";
 import { loadAgentConfig, type AgentConfig } from "@/lib/agent/config";
 import { describeNeverRules } from "@/lib/agent/guardrails";
 import { grounded, retrieve, recordGap } from "@/lib/agent/retrieval";
 import { writeBrief } from "@/lib/agent/brief";
+import { arrangeCallback } from "@/lib/crm/callback";
+import { identifyFromTranscript } from "@/lib/crm/identify";
 import { db } from "@/lib/db";
 import * as s from "@/lib/db/schema";
 import { runningSentiment, scoreUtterance } from "@/lib/pipelines/sentiment";
@@ -46,6 +48,23 @@ import {
  * rather than the prompt. Measured: with the table in the prompt, zero actions
  * were recorded across two runs.
  */
+
+/**
+ * What the AI tells a caller when nobody can come to the phone.
+ *
+ * Exported for the bridge, which says the same thing when nobody has picked
+ * up within the wait.
+ */
+export function callbackInstruction(assigneeName: string | null) {
+  const who = assigneeName ? `${assigneeName.split(" ")[0]} from the team` : "someone from the team";
+  return (
+    `Nobody from the team is free to come to the phone right now. Tell the caller kindly, in a sentence or two, ` +
+    `that you have let the team know and ${who} will call them back as soon as possible — do not blame anyone ` +
+    `or explain why. Confirm the number they should be called back on: read back the one you have, or ask for ` +
+    `one. Then ask whether they would like to give an email address so the details can be sent in writing. ` +
+    `Record anything new with save_caller_details. Then ask if there is anything else you can help with meanwhile.`
+  );
+}
 
 export type ToolOutcome = {
   name: string;
@@ -369,7 +388,14 @@ export async function handleToolCall(
     isTest: boolean;
     customerId: string | null;
   },
-): Promise<{ response: Record<string, unknown>; outcome: ToolOutcome }> {
+): Promise<{
+  response: Record<string, unknown>;
+  outcome: ToolOutcome;
+  /** A colleague is being rung: the bridge waits for them, then falls back to a callback. */
+  waitForPickup?: { handoffId: string; reason: string };
+  /** Nobody could come and a callback was promised; settled when the call ends. */
+  callbackFor?: string;
+}> {
   if (name === DATA_TOOL) {
     const { lookup, ...values } = args;
     const result = await runLookupForAssistant(ctx.brandId, ctx.conversationId, String(lookup ?? ""), values);
@@ -529,6 +555,30 @@ export async function handleToolCall(
 
   if (name === "escalate_to_human") {
     const reason = String(args.reason ?? "The agent reached a limit.");
+
+    // Asked twice — the caller repeating themselves while they wait. One alert
+    // is ringing already; a second would only split who answers it.
+    const [open] = await db
+      .select({ id: s.handoffs.id })
+      .from(s.handoffs)
+      .where(and(eq(s.handoffs.conversationId, ctx.conversationId), inArray(s.handoffs.status, ["waiting", "reassigned"])))
+      .limit(1);
+    if (open) {
+      return {
+        response: {
+          alreadyAsked: true,
+          instruction: "The team has already been alerted. Reassure the caller and keep them company; do not call this again.",
+        },
+        outcome: { name, summary: reason, allowed: true, detail: "already queued" },
+      };
+    }
+
+    // Who the caller is, before anyone is rung: the alert and the brief should
+    // carry their name even when the model never saved it.
+    await identifyFromTranscript(ctx.conversationId).catch((e) =>
+      console.error("  identify before handoff failed:", (e as Error).message),
+    );
+
     const turns = await db
       .select()
       .from(s.turns)
@@ -550,21 +600,42 @@ export async function handleToolCall(
       .set({ status: "waiting_human", outcome: "escalated", contained: false })
       .where(eq(s.conversations.id, ctx.conversationId));
 
+    // Somebody is marked available and is being rung. Promise a connection,
+    // not a person: the bridge gives them a minute (see PICKUP_WAIT_SECONDS).
+    if (handoff.routedTo) {
+      return {
+        response: {
+          connecting: true,
+          instruction:
+            "A colleague has been alerted. Tell the caller warmly that you are connecting them to someone from " +
+            "the team, that it may take a minute, and to please stay on the line. While they wait, if the team " +
+            "would still need something — their name, a number to call them back on, what exactly it is about — " +
+            "ask for it, one thing at a time, and record it with save_caller_details. Never say that someone has " +
+            "joined until they actually join.",
+        },
+        outcome: { name, summary: reason, allowed: true, detail: `ringing ${handoff.routedTo.name}` },
+        waitForPickup: { handoffId: handoff.id, reason },
+      };
+    }
+
+    // Nobody is available: no transfer to promise. A callback instead, with an
+    // owner and a time, and the handoff left open in case someone frees up
+    // while the caller is still on the line.
+    const callback = await arrangeCallback({
+      conversationId: ctx.conversationId,
+      brandId: ctx.brandId,
+      handoffId: handoff.id,
+      reason,
+      agentName: ctx.config.agentName,
+    });
     return {
       response: {
-        queued: true,
-        instruction:
-          "A colleague is now queued. Tell the caller you are bringing someone in, that " +
-          "they will not have to repeat themselves, and hold the line warmly.",
+        connecting: false,
+        callbackArranged: true,
+        instruction: callbackInstruction(callback.assigneeName),
       },
-      outcome: {
-        name,
-        summary: reason,
-        allowed: true,
-        // Who it actually rang at, not just that a queue exists — the tester
-        // needs to be able to check that the alert went to the right person.
-        detail: handoff.routedTo ? `ringing ${handoff.routedTo.name}` : "queued · nobody free",
-      },
+      outcome: { name, summary: reason, allowed: true, detail: `nobody free · callback for ${callback.assigneeName ?? "the team"}` },
+      callbackFor: handoff.id,
     };
   }
 

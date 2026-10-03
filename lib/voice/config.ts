@@ -48,6 +48,15 @@ export const MAX_CONCURRENT_SESSIONS = Number(process.env.VOICE_MAX_SESSIONS ?? 
  */
 export const HOLD_POLL_MS = Number(process.env.VOICE_HOLD_POLL_MS ?? 1000);
 
+/**
+ * How long a caller who asked for a person waits for one to pick up.
+ *
+ * Long enough for someone at their desk to see the alert and take the line;
+ * short enough that a caller is not left on hold for nobody. After it the AI
+ * promises a callback instead (lib/crm/callback.ts).
+ */
+export const PICKUP_WAIT_SECONDS = Number(process.env.VOICE_PICKUP_WAIT_SECONDS ?? 60);
+
 /** Where the browser finds the bridge. */
 export const BRIDGE_PORT = Number(process.env.VOICE_BRIDGE_PORT ?? 8787);
 
