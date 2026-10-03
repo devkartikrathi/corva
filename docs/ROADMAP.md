@@ -57,6 +57,10 @@ expect to be asked. "Built" means in the product today.
    console and by email. (The webhook can already drive this from the business's side.)
 10. **More of the API.** Follow-ups over the API (list, complete) and idempotency keys on every
     write.
+9a. **Customer location, branches and distance.** A "Location" detail captured by GPS, a map
+    pin, WhatsApp's "Send location" or a spoken address; the business's branches with exact
+    coordinates; distance rules (discount, fee or not served) quoted by the assistant. Designed
+    in `docs/LOCATION.md`, not built; Tumble Days' distance discount is the first use.
 10a. **More databases.** MySQL, MongoDB and Google Sheets beside Postgres.
 11. **Editing the industry template.** Stage names, what can be booked and for how far ahead,
     per business, in the console — today they come from the template.
