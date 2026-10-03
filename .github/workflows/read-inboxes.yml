@@ -9,7 +9,11 @@ name: Read inboxes
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    # Every 15 minutes, off the hour: GitHub drops scheduled runs most at :00
+    # when it is busiest. Written as a new expression on 2026-10-03 because the
+    # earlier "*/15" was never scheduled at all — changing the cron line is
+    # what makes GitHub register a schedule again.
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
 
 concurrency:
