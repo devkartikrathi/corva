@@ -8,14 +8,14 @@ import { WEBHOOK_EVENTS } from "./webhooks";
  * spec their tooling reads cannot drift apart.
  *
  * The examples are one made-up business — "Acme Home Services", whose
- * assistant is "Ava" — because every business's own fields, booking word and
- * stage names differ. Nothing here is specific to one customer: what a real
+ * assistant is "Ava" — because every business's own fields and booking word
+ * differ. Nothing here is specific to one customer: what a real
  * business collects and books comes from GET /api/v1/config.
  */
 
 export const API_VERSION = "v1";
 
-const PAYMENT = { id: "9b2d…", reference: "PAY-7K3QX9", status: "paid", amountRupees: 150, amountPaidRupees: 150, description: "Order TD-7K3QX9 — Dry-cleaning", url: "https://rzp.io/rzp/abc123", pageUrl: "https://your-site.com/pay/PAY-7K3QX9", qrUrl: "https://your-site.com/pay/PAY-7K3QX9/qr", method: "upi", orderReference: "TD-7K3QX9", customerId: "c1d2…", conversationId: "3e4f…", requestedBy: "Tumbly (AI)", paidAt: "2026-10-03T09:15:00.000Z", expiresAt: "2026-10-10T09:10:00.000Z", createdAt: "2026-10-03T09:10:00.000Z" };
+const PAYMENT = { id: "9b2d…", reference: "PAY-7K3QX9", status: "paid", amountRupees: 150, amountPaidRupees: 150, description: "Order AH-7K3QX9 — AC service", url: "https://rzp.io/rzp/abc123", pageUrl: "https://your-site.com/pay/PAY-7K3QX9", qrUrl: "https://your-site.com/pay/PAY-7K3QX9/qr", method: "upi", orderReference: "AH-7K3QX9", customerId: "c1d2…", conversationId: "3e4f…", requestedBy: "Ava (AI)", paidAt: "2026-10-03T09:15:00.000Z", expiresAt: "2026-10-10T09:10:00.000Z", createdAt: "2026-10-03T09:10:00.000Z" };
 
 const customer = { id: "a734…", name: "Riya Sharma", phone: "+91 98765 43210", email: "riya@example.com" };
 
@@ -26,8 +26,8 @@ const leadObject = {
   email: "riya@example.com",
   interest: "AC service · visit 2026-10-04, 8–10 AM · B-402, Palm Grove, Sector 70",
   notes: "Ref AH-7K3QX9",
-  stage: "qualified",
-  stageLabel: "Visit booked",
+  stage: "contacted",
+  stageLabel: "Contacted",
   valueRupees: null,
   source: "web_chat",
   createdByAi: true,
@@ -132,7 +132,7 @@ export const ENDPOINTS: Endpoint[] = [
       sessionId: { type: "string", required: true, description: "Your id for this chat: 6–80 of [A-Za-z0-9_-]. Reuse it for every message in the chat; start a new one for a new chat." },
       message: { type: "string", required: true, description: "What the customer typed. Up to 2,000 characters." },
       visitorId: { type: "string", description: "Your first-party visitor id, to join the chat to their visits and later calls." },
-      customer: { type: "object", description: "{ name?, phone?, email? } — what you already know about them (a signed-in user, say). The assistant will not ask again." },
+      customer: { type: "object", description: "{ name?, phone?, email? } — what you already know about them (a signed-in user, say). The assistant will not ask again. Corva treats these as *stated*, not proven: the chat joins that customer's record, but the assistant reads out what is on file (an address, payments) and asks for a payment only after the customer enters a code sent to the number or email on file." },
       stream: { type: "boolean", description: "Answer as server-sent events, to show the reply as it is written." },
     },
     example: { sessionId: "chat_8c1f2a", message: "My AC is leaking. Can someone come tomorrow morning? I'm Riya, 98765 43210, B-402 Palm Grove, Sector 70", visitorId: "v_3f9c0a1b2c3d4e5f6a7b8c9d" },
@@ -198,6 +198,19 @@ export const ENDPOINTS: Endpoint[] = [
   },
   {
     method: "POST",
+    path: "/api/v1/chat/end",
+    group: "Chat",
+    summary: "The customer has left the chat",
+    description:
+      "A website chat has no hang-up, so tell Corva when it is over: the chat window was closed, the page was reloaded, or the customer started a new chat. The conversation is closed at once — resolved if the customer said anything, abandoned if not — and summarised, and `conversation.ended` goes to your webhooks. Use `navigator.sendBeacon` to your own server route on `pagehide`, which then calls this with the key.\n\nIf you never call it, nothing breaks: a chat is also ended when the same `visitorId` starts a new `sessionId`, or after 30 quiet minutes. Ending a chat that is already over, or a `sessionId` Corva has not seen, does nothing (`ended: false`). After it, that `sessionId` answers `409`: start a new one.",
+    request: {
+      sessionId: { type: "string", required: true, description: "The chat's sessionId." },
+    },
+    example: { sessionId: "chat_8c1f2a" },
+    response: { ended: true },
+  },
+  {
+    method: "POST",
     path: "/api/v1/chats",
     group: "Chat",
     summary: "Mirror your own assistant's transcript",
@@ -224,7 +237,7 @@ export const ENDPOINTS: Endpoint[] = [
     group: "Leads",
     summary: "Send a booking, callback request or enquiry",
     description:
-      "For your own forms — a booking form, a \"call me back\" button, a contact page. Corva finds or creates the customer by phone, opens (or updates) their lead with an owner on the team, puts a follow-up on that person's list, emails the customer a confirmation and tells the owner. `kind: \"booking\"` is whatever the business books (see `booking.noun` in /config); the lead starts further along its pipeline than a callback or an enquiry.\n\nSend the business's own fields as `details`, keyed by the `key`s from /config — unknown keys are ignored, choices are matched to the business's options. Safe to retry: the same `reference` again returns the first result with `duplicate: true`.",
+      "For your own forms — a booking form, a \"call me back\" button, a contact page. Corva finds or creates the customer by phone, opens (or updates) their lead with an owner on the team, puts a follow-up on that person's list, emails the customer a confirmation and tells the owner. `kind: \"booking\"` is whatever the business books (see `booking.noun` in /config) and makes the lead **Contacted**; a callback or an enquiry makes it **New**.\n\nSend the business's own fields as `details`, keyed by the `key`s from /config — unknown keys are ignored, choices are matched to the business's options. Safe to retry: the same `reference` again returns the first result with `duplicate: true`.",
     request: {
       kind: { type: '"booking" | "callback" | "enquiry"', required: true, description: "What they asked for. (\"pickup\" is accepted as another word for \"booking\".)" },
       name: { type: "string", required: true, description: "Their name." },
@@ -274,7 +287,7 @@ export const ENDPOINTS: Endpoint[] = [
     description:
       "The business's leads, newest-changed first — whichever way they arrived: chat, a call, your forms, or added by hand. Each carries `details` (the business's own Details to collect, by field key) and `request` (the latest booking, callback or enquiry as fields: date, time slot, services, address, reference).\n\nFilter on any collected detail with `details.<key>=<value>` — keys from `/config`, matched case-insensitively; `details.<key>=` with no value means \"has an answer\". Because details are stored by key, a field the business adds tomorrow is filterable tomorrow with no change here.\n\nPage with `cursor`: pass back `nextCursor` until it is null. For a sync, poll `updatedSince` with the time of your last run.",
     query: {
-      stage: { type: "string", description: "One or more of new, contacted, qualified, proposal, won, lost — comma-separated. `stageLabel` in the result is the business's own word for it." },
+      stage: { type: "string", description: "One or more of new, contacted, proposal, won, lost — comma-separated (New, Contacted, Processing, Converted, Lost on the board). `qualified`, an older key, is accepted and counts as `proposal`; older leads may still come back with `stage: \"qualified\"` — treat it as Processing. `stageLabel` is the board's word for the stage." },
       since: { type: "string", description: "Created at or after this time (ISO 8601)." },
       updatedSince: { type: "string", description: "Changed at or after this time — what a sync asks for." },
       "details.<key>": { type: "string", description: "A collected detail equals this, e.g. details.service_type=AC service. Repeat for several." },
@@ -306,16 +319,16 @@ export const ENDPOINTS: Endpoint[] = [
     group: "Records",
     summary: "Update a lead from your system",
     description:
-      "Keep Corva in step with your own system: when your job is done, move the lead to `won`; add what your team learnt. Send only what changes. Returns the lead as `GET` does, and tells webhooks (`lead.updated`) like a change made in the console.",
+      "Keep Corva in step with your own system: when work starts, move the lead to `proposal` (Processing); when it is done, to `won` (Converted); add what your team learnt. Send only what changes. Returns the lead as `GET` does, and tells webhooks (`lead.updated`) like a change made in the console.\n\nThe board is the same five stages for every business. Corva moves a lead itself in three places: a customer telling the assistant who they are makes it New, a confirmed booking makes it Contacted, and a payment reported `paid` makes it Converted. Lost is only ever a person's (or your system's) decision.",
     request: {
-      stage: { type: "string", description: "new, contacted, qualified, proposal, won or lost." },
+      stage: { type: "string", description: "new, contacted, proposal (Processing), won (Converted) or lost. `qualified` is accepted as `proposal`." },
       lostReason: { type: "string", description: "Why, when the stage is lost." },
       notes: { type: "string", description: "Replaces the lead's notes." },
       valueRupees: { type: "number", description: "What the lead is worth, in rupees; null to clear." },
       details: { type: "object", description: "{ key: value } — merged into the lead's details; keys from GET /config." },
     },
     example: { stage: "won", valueRupees: 1800, details: { units: "2 split ACs" } },
-    response: { lead: { ...leadObject, stage: "won", stageLabel: "Job done", valueRupees: 1800 }, customer: { ...customer, address: "B-402, Palm Grove, Sector 70" }, followUps: [] },
+    response: { lead: { ...leadObject, stage: "won", stageLabel: "Converted", valueRupees: 1800 }, customer: { ...customer, address: "B-402, Palm Grove, Sector 70" }, followUps: [] },
   },
   {
     method: "POST",
@@ -364,7 +377,7 @@ export const ENDPOINTS: Endpoint[] = [
     group: "Payments",
     summary: "Tell Corva where a payment stands",
     description:
-      "Your system collects the money (your own payment account — Corva never holds the keys). Send each payment's state here whenever it changes: when the link is made, when it is paid, when it expires. The same `reference` replaces what was there, and a status never moves backwards, so a late `expired` cannot undo a `paid`. When it becomes `paid`, the conversation it was asked in says so and, on WhatsApp, the customer is thanked. Echo `requestId` and `conversationId` when Corva asked for the link (see Payments below).",
+      "Your system collects the money (your own payment account — Corva never holds the keys). Send each payment's state here whenever it changes: when the link is made, when it is paid, when it expires. The same `reference` replaces what was there, and a status never moves backwards, so a late `expired` cannot undo a `paid`. When it becomes `paid`, the conversation it was asked in says so, on WhatsApp the customer is thanked, and the lead it was for (that conversation's, else the customer's open one) moves to Converted. Echo `requestId` and `conversationId` when Corva asked for the link (see Payments below).",
     request: {
       reference: { type: "string", required: true, description: "The payment's id in your system." },
       status: { type: "string", description: "pending (default), partially_paid, paid, expired, cancelled or failed." },
@@ -382,7 +395,7 @@ export const ENDPOINTS: Endpoint[] = [
       conversationId: { type: "string", description: "The conversation it was asked in, when Corva asked." },
       customer: { type: "object", description: "{ id } or { phone, name?, email? }, when Corva did not ask." },
     },
-    example: { reference: "PAY-7K3QX9", status: "paid", amountRupees: 150, amountPaidRupees: 150, method: "upi", orderReference: "TD-7K3QX9", requestId: "cpr_5c1f…" },
+    example: { reference: "PAY-7K3QX9", status: "paid", amountRupees: 150, amountPaidRupees: 150, method: "upi", orderReference: "AH-7K3QX9", requestId: "cpr_5c1f…" },
     response: { payment: PAYMENT, created: false },
   },
   {
@@ -402,7 +415,7 @@ export const ENDPOINTS: Endpoint[] = [
     path: "/api/v1/customers",
     group: "Records",
     summary: "List and find customers",
-    description: "Everyone the business has a record for, newest first. Look one up by `phone` or `email` to recognise a returning customer in your own app.",
+    description: "Everyone the business has a record for, newest first. Look one up by `phone` or `email` to recognise a returning customer in your own app — these match the number and email on file. Corva keeps one customer across every channel (chat, calls, WhatsApp, email, your records): a number or email someone only typed in a chat is kept on their record as *stated* but never becomes the one on file, and two customers are never merged on a claim alone.",
     query: {
       phone: { type: "string", description: "Their phone number, any format." },
       email: { type: "string", description: "Their email address." },
@@ -503,7 +516,7 @@ export const WEBHOOK_EXAMPLES: Record<string, unknown> = {
   // now. `lead.request` is on every lead event: the latest request, whatever
   // caused the event.
   "lead.created": { lead: leadObject, customer, request: leadObject.request },
-  "lead.updated": { lead: { ...leadObject, stage: "won", stageLabel: "Job done" }, customer },
+  "lead.updated": { lead: { ...leadObject, stage: "won", stageLabel: "Converted" }, customer },
   "follow_up.created": {
     followUp: {
       id: "0472…",
@@ -582,7 +595,7 @@ export function openApiDocument(baseUrl: string) {
         "402": { description: "The business's plan has no room for a new conversation. /health reports the feature as off." },
         "409": { description: "The chat has ended, or the card was already answered or replaced." },
         "422": { description: "A card can no longer be confirmed as it is — its date has passed, say." },
-        "429": { description: "Too many requests — 120 a minute per key." },
+        "429": { description: "Too many requests — 300 a minute per business, or one chat sending more than 12 messages a minute." },
       },
     };
   }
@@ -593,7 +606,7 @@ export function openApiDocument(baseUrl: string) {
       title: "Corva API",
       version: API_VERSION,
       description:
-        "Connect a business's website and systems to its Corva AI assistant: chat, bookings and leads, visitors, voice, and webhooks back. Every call is made from your server with the business's API key.",
+        "Connect a business's website and systems to its Corva AI assistant: chat, bookings and leads, customers and conversations, order records, payments, visitors, voice, and webhooks back. Every call is made from your server with the business's API key.",
     },
     servers: [{ url: baseUrl }],
     components: { securitySchemes: { apiKey: { type: "http", scheme: "bearer", description: "ck_… from Corva → Settings → Website & API keys" } } },

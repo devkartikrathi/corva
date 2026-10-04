@@ -30,9 +30,9 @@ record and in the conversation it was asked in.
 | Payments as the business reports them | `customer_payments` (brand, customer, conversation, reference, status, amounts, link, page, QR, method, order) |
 | Asking the business for a link | `askForPayment` in `lib/payments/index.ts` — a signed `POST` to the endpoint (the webhook scheme, `Corva-Signature`), 15 s timeout, with a `requestId` so a retry is the same request |
 | Hearing back | `POST /api/v1/payments` → `recordPayment`; `GET /api/v1/payments?reference=` / `?customerId=` |
-| When it is paid | A system line in the conversation it was asked in; on WhatsApp the customer is thanked |
+| When it is paid | A system line in the conversation it was asked in; on WhatsApp the customer is thanked; the lead it was for moves to Converted |
 | The team asking | **Request payment** on a conversation (`components/RequestPayment.tsx`, `lib/actions/payments.ts`): an amount, or an order reference; optionally posted to the customer |
-| The assistant asking | Tool `request_payment({ orderReference })` on chat, WhatsApp, email and calls, only when the business has an endpoint (`config.canCollect`). On a call the link goes to the caller's phone by SMS (the business's provider sends it) |
+| The assistant asking | Tool `request_payment({ orderReference, offerCode? })` on chat, WhatsApp, email and calls, only when the business can collect (`config.canCollect`). On a call the link goes to the caller's phone by SMS (the business's provider sends it). By default the customer proves who they are with a code first, and a person approves the request on Handoffs (`lib/payments/approvals.ts`); an offer is only attached after `check_offer` — see [PAYMENTS-AND-VERIFICATION.md](PAYMENTS-AND-VERIFICATION.md) |
 | The assistant knowing | The customer's last five payments are in what it knows about them (`paymentsContext`), so "has my payment gone through?" has an answer |
 | Developer docs | `/developers#payments` and the OpenAPI spec (`lib/integrations/openapi.ts`) |
 

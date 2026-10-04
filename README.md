@@ -5,19 +5,20 @@ India. It is for any kind of business: it manages customers and the people servi
 orders or jobs, which stay in the business's own system.
 
 Each business gets an AI assistant that answers its **website chat**, **voice calls from its
-website** and its own **WhatsApp number** — from the business's own knowledge, inside limits
-the business sets. (A real telephone number is next; see the roadmap.) Customers who write
-to its **email** are read from its inbox onto the same records. Every conversation becomes work the team can act
-on: a **customer** record, a **lead** with an owner, a **follow-up** with a name and a time. The team works those from one
-console, can **take any chat or call over live**, and the owner can see who is winning leads
-and keeping promises.
+website**, its own **WhatsApp number** and its **customer email** (forwarded to Corva) — from the
+business's own knowledge, its products and prices, and its order records, inside limits the
+business sets. (A real telephone number is next; see the roadmap.) Every conversation becomes
+work the team can act on: **one customer** record however they got in touch, a **lead** with an
+owner, a **follow-up** with a name and a time. The team works those from one console, can **take
+any chat or call over live**, approves the payment links the assistant asks for, and the owner can
+see who is winning leads and keeping promises.
 
 Three things in one product, on purpose:
 
 | | What it is | Who uses it |
 | --- | --- | --- |
-| **AI assistant** | Chat and voice, grounded in the business's documents, with bookings the customer confirms | The business's customers |
-| **Customer management** | Customers on every channel, leads in the business's own pipeline words, follow-ups, the details the business chose to collect | The business's team |
+| **AI assistant** | Chat, voice, WhatsApp and email, grounded in the business's documents and catalog; bookings the customer confirms; order status; payment links, offers and verification codes checked in code | The business's customers |
+| **Customer management** | One customer across every channel (verified and stated numbers and emails, merge and undo), a profile per kind of business, leads on a five-stage board, follow-ups, the details the business chose to collect | The business's team |
 | **Team management** | People and roles, attendance, who answered what, performance per person, an audit log | The business's owner and managers |
 
 A business signs itself up (`/sign-up` → `/welcome`), gets a working assistant from its website
@@ -27,12 +28,13 @@ in a couple of minutes on a free 14-day pilot, and then connects its site:
 2. **Voice on its website** — a call button; the team can take the call over and talk.
 3. **Its own assistant or forms** — it keeps what it has and sends Corva the results.
 
-With no developer at all it can also connect its **WhatsApp number**, its **email inbox** and
-its own **database** from the console.
+With no developer at all it can also connect its **WhatsApp number**, its **customer email**, its
+**SMS** provider and its own **database**, list its **products & services**, and publish **offers**
+from the console.
 
 Tumble Days (a laundry in Gurugram, `../tumbledays`) is the first business live on it and the
 reference integration. Nothing in Corva is specific to it: every business has its own
-knowledge, assistant name, pipeline words, details to collect and booking word.
+knowledge, catalog, assistant name, details to collect, booking word and offers.
 
 Built for India: every figure is rupees, stored as paise and printed with Indian grouping
 (₹12,49,500). `lib/money.ts` is the only place that decides how money reads.
@@ -59,9 +61,11 @@ npm run voice                  # the voice bridge, for calls (ws://localhost:878
 | --- | --- |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the pieces fit: the turn pipeline, voice, handover, tenancy, where things live |
 | [docs/ONBOARDING.md](docs/ONBOARDING.md) | Bringing a new business on, step by step — ours and theirs |
-| [docs/INTEGRATION.md](docs/INTEGRATION.md) | What a business's developer builds; the checklist we hold an integration to |
+| [docs/INTEGRATION.md](docs/INTEGRATION.md) | **Start here if you are a business's developer:** what to build, the rules behind the API (chat endings, identity, stages, payments, offers), the go-live checklist, what changed |
 | `/developers` (live) | The API reference, generated from `lib/integrations/openapi.ts`; also `/api/v1/openapi.json` |
-| [docs/TEAM-AND-CHANNELS.md](docs/TEAM-AND-CHANNELS.md) | The overview, attendance, the email inbox and WhatsApp |
+| [docs/TEAM-AND-CHANNELS.md](docs/TEAM-AND-CHANNELS.md) | The overview, attendance, customer email (and the assistant answering it) and WhatsApp |
+| [docs/CUSTOMER-PROFILES.md](docs/CUSTOMER-PROFILES.md) | One customer across every channel: verified and stated handles, matches, merging and undoing; profiles and segments by kind of business |
+| [docs/PAYMENTS-AND-VERIFICATION.md](docs/PAYMENTS-AND-VERIFICATION.md) | The five-stage leads board, starting conversations from the console, payment approvals, offers, verification codes, SMS for notices only |
 | [docs/DATA-SOURCES.md](docs/DATA-SOURCES.md) | Connecting a business's own database: approved lookups for customers, questions for the team |
 | [docs/PRICING.md](docs/PRICING.md) | The plans, what they cost us to serve, how they are enforced and paid for |
 | [docs/TELEPHONY.md](docs/TELEPHONY.md) | Phone numbers, calls and SMS for every business: the plan, and the SMS layer that is built |
@@ -79,13 +83,13 @@ npm run voice                  # the voice bridge, for calls (ws://localhost:878
 | --- | --- | --- |
 | Operate | `/app` | Home — follow-ups due, newest leads, live conversations, who needs a person |
 | | `/app/live` | Live — transcript, details collected, **take the line** (chat or voice), hand back |
-| | `/app/handoffs` | Handoffs the AI raised, each with the brief it wrote |
+| | `/app/handoffs` | Handoffs the AI raised, each with the brief it wrote; **payment links waiting for approval** |
 | | `/app/conversations` | Every conversation, with what each answer was based on |
-| | `/app/email` | **Email** — connect the inbox; customer threads, and which still await a reply |
+| | `/app/email` | **Email** — the business's Corva address to forward to; customer threads; the assistant's replies (a switch) |
 | | `/app/whatsapp` | **WhatsApp** — connect the business's own number; its conversations |
-| Sales | `/app/leads` | The pipeline, in the business's own stage names, with collected details on each card |
+| Sales | `/app/leads` | The board — New, Contacted, Processing, Converted, Lost — with collected details on each card |
 | | `/app/follow-ups` | Callbacks and promises — overdue, today, upcoming, done |
-| | `/app/customers` | Customers and each one's record: leads, follow-ups, conversations, website visits |
+| | `/app/customers` | Customers and each one's record: every number and email (verified or stated, removable), profile and segment, possible matches (Merge / Not the same / Undo merge), leads, follow-ups, conversations, visits; **Open a conversation** by phone, WhatsApp or email |
 | AI assistant | `/app/try` | **Try it** — chat to or ring your own assistant as a customer; free, and kept out of the numbers |
 | | `/app/catalog` | **Products & services** — groups (nested to any depth) and items with price, unit and description; the AI quotes from it |
 | | `/app/knowledge` | What the AI may answer from; gaps it found |
@@ -97,7 +101,7 @@ npm run voice                  # the voice bridge, for calls (ws://localhost:878
 | | `/app/attendance` | **Attendance** — start and end your day; the week as a grid; a manager records leave |
 | | `/app/performance` | Per person: leads owned and won, follow-ups on time, handoffs |
 | | `/app/team` | People, roles and invitations |
-| | `/app/setup` | Settings — channels, hours, **API keys**, **webhooks**, privacy, audit log |
+| | `/app/setup` | Settings — channels, hours, **API keys**, **webhooks**, **payments** (endpoint, approval, verify first), **offers**, **SMS**, privacy, audit log |
 | | `/app/billing` | **Billing** — the plan, usage against what it includes, overage, pay or renew, receipts |
 
 Roles are Owner, Admin, Manager, Agent and Analyst (`lib/auth/permissions.ts`). An Agent sees
@@ -153,15 +157,17 @@ Per-business keys (`ck_…`, Settings → Website & API keys), used from the bus
 | `GET /config` | How the business is set up: assistant name, what can be booked, the details it collects |
 | `POST /chat` | One customer message → the assistant's reply (streamed with `stream: true`), the details collected so far, and a `proposal` card when a booking or callback is ready |
 | `POST /chat/confirm` | The customer's Confirm or Edit on a card — Confirm makes the lead, owner, follow-up and emails |
+| `POST /chat/end` | The customer left (closed the window, reloaded): the conversation ends now, not after 30 quiet minutes |
 | `GET /chat` | Replies from a person on the team who took the chat over |
 | `POST /chats` | For sites with their own assistant: mirror its transcript |
 | `POST /leads` | A booking, callback or enquiry from the site's own forms, with the business's `details` |
-| `GET /leads`, `/leads/{id}` · `POST /leads/{id}` | Read leads back — filter by stage, date or any collected detail (`?details.<key>=`) — and update a lead's stage from the business's own system |
+| `GET /leads`, `/leads/{id}` · `POST /leads/{id}` | Read leads back — filter by stage, date or any collected detail (`?details.<key>=`) — and move a lead (`proposal` = Processing, `won` = Converted) from the business's own system |
 | `GET /customers`, `/customers/{id}` | Customers, with everything collected about each |
 | `GET /conversations`, `/conversations/{id}` | Chats and calls with the details each collected; one with its transcript |
 | `POST /visits` | A visitor, with their cookie consent |
 | `POST /voice-sessions` | A five-minute token for a voice call from the visitor's browser |
 | `POST /records`, `GET /records` | The state of an order in the business's own system, by the customer's reference — what the assistant answers "where is my order?" from (`look_up_record`) |
+| `POST /payments`, `GET /payments` | Where a payment to the business stands; Corva in turn calls the business's payment endpoint (signed) to make a link, with any `offer` it checked |
 | Webhooks | `lead.created`, `lead.updated`, `follow_up.created`, `handoff.requested`, `conversation.ended` — signed POSTs to the business's URL |
 
 The reference a developer reads (`/developers`) and the OpenAPI spec are generated from one
@@ -187,9 +193,27 @@ file, `lib/integrations/openapi.ts`.
   go to the customer's screen; on a voice call the assistant says it is transferring the caller
   and the person speaks to them from the console (`components/CallRoom.tsx`,
   `lib/voice/relay.ts`).
+- **One customer, every channel** (`lib/crm/identity.ts`). Every number and email a customer has
+  used is kept, **verified** (they wrote or called from it, the business's system sent it, they
+  entered a code) or **stated** (typed in a chat). A stated handle never becomes the one on file
+  and never merges two customers; a likely match goes to the team, and a merge can be undone.
+  The assistant reads out record details and takes payment only for a verified conversation.
+- **Profiles** (`lib/crm/profile.ts`). Channels, orders and their usual gap, value, trend and a
+  segment per kind of business (Regular, Lapsing, Short stay, Due for recall…), feeding priority
+  and one line of what the assistant knows.
+- **Verification codes** (`lib/verify/codes.ts`). Six digits by SMS or email, only to the handle
+  on file; hashed, 10 minutes, 5 tries, rate-limited; the model never sees them.
+- **Payments and offers** (`lib/payments/`). The assistant asks for an order's payment by its
+  reference and never names an amount; a person approves the link and the customer proves who
+  they are first (both on by default). The only discounts are published offers, checked by
+  `check_offer` in code. A paid payment converts the lead.
+- **Conversations end** (`lib/conversations/ending.ts`) when the site says the chat closed, when
+  the same browser starts a new one, or after 30 quiet minutes (a call 15, WhatsApp 24 hours);
+  each is then summarised and classified.
 - **Industry templates** (`lib/business/industries.ts`). Persona, what the assistant may do
-  without asking, never-rules, pipeline stage names, default details to collect, what can be
-  booked. A new business is answerable the moment it is created.
+  without asking, never-rules, default details to collect, what can be booked and the booking
+  word. The leads board is the same five stages for every business. A new business is
+  answerable the moment it is created.
 - **Models.** Website chat answers on Gemini 3.5 Flash Lite; a business's other text work on
   its chosen model; voice on Gemini Live. A stream that is slow to start is hedged with a second
   model (`lib/agent/model.ts`).
@@ -210,15 +234,19 @@ up by a business signing up at `/welcome`.
 ## Security
 
 - **Sign-in** is Clerk; every screen and every server action re-checks the role on the server.
-- **API keys** are stored hashed. **Connections** a business gives Corva (database, inbox,
-  WhatsApp) are sealed with AES-256-GCM under `DATA_SOURCE_KEY`.
+- **Customer identity**: record details and payments only for a verified conversation; a phone
+  lookup in a business's database only for the verified sender's own number. Verification codes
+  are HMAC-hashed and never shown to the model.
+- **API keys** are stored hashed. **Connections** a business gives Corva (database,
+  WhatsApp, SMS provider) are sealed with AES-256-GCM under `DATA_SOURCE_KEY`.
 - **Rate limits** are counted in the database (`lib/rate-limit.ts`), so they hold across
   server instances: the API per business, chat turns per conversation, WhatsApp per sender,
   the demo form per address, payments per business, and the AI data questions per person.
 - **Outbound calls** to addresses a business typed in (webhooks, a website to read, a database
   or mail host) are refused if they resolve to a private address, and redirects are re-checked
   (`lib/net.ts`).
-- **Inbound webhooks** (Razorpay, WhatsApp) are verified by signature before anything is read.
+- **Inbound webhooks** (Razorpay, WhatsApp, Resend's forwarded email) are verified by signature
+  before anything is read.
 - **Headers:** no framing, no content sniffing, HSTS, microphone only (`next.config.ts`).
 - **Demo mode** (no sign-in) cannot be switched on in any Vercel deployment.
 
@@ -242,10 +270,15 @@ lib/
   agent/          the turn pipeline, retrieval, guardrails, authority, proposals, model choice
   voice/          Gemini Live session, the bridge, the person-on-a-call relay
   business/       industries, onboarding, details to collect, phone numbers, reading a website
-  crm/            what the assistant writes into the CRM while it talks
+  crm/            what the assistant writes into the CRM while it talks; identity, merges, profiles
+  conversations/  ending conversations that are over
+  catalog/        products & services
+  payments/       customer payments: the business's endpoint, Collected by Corva, approvals, offers
+  verify/         verification codes
+  sms/            SMS providers, DLT templates, the SMS log
   integrations/   API keys, request handling, intake, webhooks, the OpenAPI description
   billing/        plans, usage and limits, Razorpay, the payments ledger
-  email/          reading a connected inbox for its customers
+  email/          forwarded customer email: sorting, threading, the assistant's replies
   whatsapp/       the WhatsApp Cloud API: connecting, receiving, replying
   data/           a business's own database: sealed connections, read-only queries, lookups
   people/         attendance

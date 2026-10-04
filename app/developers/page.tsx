@@ -6,7 +6,7 @@ import { WEBHOOK_EVENTS } from "@/lib/integrations/webhooks";
 
 export const metadata = {
   title: "Corva for developers",
-  description: "Connect a business's website and systems to its Corva AI assistant: chat, bookings and leads, visitors, voice, and webhooks.",
+  description: "Connect a business's website and systems to its Corva AI assistant: chat, bookings and leads, customers, order records, payments, visitors, voice, and webhooks.",
 };
 
 /**
@@ -117,7 +117,7 @@ const GROUPS: { name: Endpoint["group"]; blurb: string }[] = [
   { name: "Setup", blurb: "Check the key, and read how the business is set up." },
   { name: "Chat", blurb: "The assistant in your chat window — or your own assistant's transcripts." },
   { name: "Leads", blurb: "Bookings, callbacks and enquiries from your own forms." },
-  { name: "Records", blurb: "Read the business's leads, customers and conversations back; keep a lead in step with your system." },
+  { name: "Records", blurb: "Read the business's leads, customers and conversations back; keep a lead in step with your system; tell the assistant where an order has got to." },
   { name: "Payments", blurb: "Tell Corva where a payment to the business stands, so the team and the assistant know it was paid." },
   { name: "Visitors", blurb: "Who is on the site, with their consent." },
   { name: "Voice", blurb: "Talk to the assistant from the browser." },
@@ -213,11 +213,13 @@ export default function DevelopersPage() {
           <li>
             Add a route on your server that forwards the visitor&rsquo;s message to <C>POST /api/v1/chat</C> and returns the
             reply. When the reply carries a <C>proposal</C>, show it as a card; send Confirm or Edit to{" "}
-            <C>POST /api/v1/chat/confirm</C>.
+            <C>POST /api/v1/chat/confirm</C>. When the customer closes the chat or reloads the page, send{" "}
+            <C>POST /api/v1/chat/end</C>.
           </li>
           <li>
-            Optional: voice calls (<C>/voice-sessions</C>), visitor tracking with consent (<C>/visits</C>), and a webhook
-            so your own systems hear about new leads.
+            Optional: voice calls (<C>/voice-sessions</C>), visitor tracking with consent (<C>/visits</C>), order status
+            for the assistant to answer from (<C>/records</C>), payments (<C>/payments</C>), and a webhook so your own
+            systems hear about new leads.
           </li>
         </ol>
         <Code>{`// A tiny server-side client — Node / Next.js route handler.
@@ -240,7 +242,10 @@ const { assistant, fields, booking } = await corva("config");
 const turn = await corva("chat", { sessionId, message, visitorId });
 // turn.reply     → show it
 // turn.proposal  → show a card; on Confirm:
-await corva("chat/confirm", { sessionId, proposalId: turn.proposal.id, approved: true });`}</Code>
+await corva("chat/confirm", { sessionId, proposalId: turn.proposal.id, approved: true });
+
+// The window closed, or the page is unloading (sendBeacon to your own route):
+await corva("chat/end", { sessionId });`}</Code>
 
         <H2 id="concepts">How it fits together</H2>
         <H3>Sessions and visitors</H3>
@@ -249,6 +254,36 @@ await corva("chat/confirm", { sessionId, proposalId: turn.proposal.id, approved:
           chat. A <C>visitorId</C> is one browser, kept in a first-party cookie you set. Send it on everything and Corva
           joins a visitor&rsquo;s page views, chats, bookings and voice calls into one customer record once they say who
           they are.
+        </P>
+        <H3>When a chat ends</H3>
+        <P>
+          A call hangs up; a chat window just closes. Send <C>POST /api/v1/chat/end</C> when it does — from a{" "}
+          <C>pagehide</C> handler, with <C>navigator.sendBeacon</C> to your own server route — and the conversation is
+          closed, summarised and sent to your <C>conversation.ended</C> webhook at once. If you do not, Corva ends it when
+          the same <C>visitorId</C> starts a new <C>sessionId</C>, or after 30 quiet minutes. Either way that{" "}
+          <C>sessionId</C> is finished: the next message answers <C>409</C>, so start a new one.
+        </P>
+        <H3>One customer, every channel — and who is proven</H3>
+        <P>
+          Corva keeps one customer record across website chat, voice, phone, WhatsApp, email and what your system sends.
+          Every number and email they have used is on it, each marked <b>verified</b> (they wrote from it on WhatsApp or
+          email, they called from it, your system sent it, or they entered a code sent to it) or <b>stated</b> (typed into
+          a chat). A browser that was identified before starts its next chat as that customer.
+        </P>
+        <P>
+          What you pass as <C>customer</C> on <C>/chat</C> is <b>stated</b>: the chat joins that record, but the
+          assistant reads out what is on file (an address, past payments) and asks for a payment only once the customer
+          proves who they are — it sends a six-digit code by SMS or email to the number or email <i>already on file</i>,
+          never to one typed in the chat, and the model never sees the code. Records you send to <C>/records</C> and{" "}
+          <C>/payments</C> count as verified. Two customers are never merged on a claim; a likely match goes to the team.
+        </P>
+        <H3>The leads board</H3>
+        <P>
+          Five stages, the same for every business: <C>new</C> (New), <C>contacted</C> (Contacted), <C>proposal</C>{" "}
+          (Processing), <C>won</C> (Converted), <C>lost</C> (Lost). A customer saying who they are makes a New lead; a
+          confirmed booking makes it Contacted; a payment reported <C>paid</C> makes it Converted. Move it to Processing
+          and Converted from your own system with <C>POST /api/v1/leads/{"{id}"}</C>; Lost is only ever a person&rsquo;s
+          call. Older leads may say <C>qualified</C> — read it as Processing.
         </P>
         <H3>Details to collect</H3>
         <P>
@@ -458,14 +493,27 @@ export async function POST(req: Request) {
           <C>{`{ "error": "…" }`}</C> in words the customer may be told (&ldquo;There is no bill on this order yet&rdquo;).
           The same <C>requestId</C> twice must return the same link.
         </P>
+        <P>
+          Discounts never come from the model. A business publishes its <b>offers</b> in Corva (a code, a percentage with
+          a cap or a flat amount, a minimum order, dates, first order only, once per customer); when a customer names one,
+          Corva checks it in code and, only if it applies, sends it as <C>offer</C>. Take it off the amount you work out —
+          <C>value</C> is a percentage when <C>kind</C> is <C>&quot;percent&quot;</C>, rupees when it is{" "}
+          <C>&quot;flat&quot;</C> — or answer <C>4xx</C> if your order does not qualify. No <C>offer</C>, no discount.
+        </P>
+        <P>
+          Before your endpoint is called for the assistant, two checks happen in Corva, both on by default (Settings →
+          Payments): the customer proves who they are with a code, and a person on the team approves the request. So a
+          request may reach you some minutes after the customer asked, with <C>requestedBy</C> naming who approved it.
+        </P>
         <Code>{JSON.stringify(
           {
             requestId: "cpr_5c1f9a0b3d2e4f6a7b8c9d0e",
-            orderReference: "TD-7K3QX9",
+            orderReference: "AH-7K3QX9",
             customer: { id: "c1d2…", name: "Riya Sharma", phone: "+91 98765 43210" },
             conversationId: "3e4f…",
-            requestedBy: "Tumbly (AI)",
+            requestedBy: "Ava (AI), approved by Kavya Rao",
             notify: true,
+            offer: { code: "FIRST20", title: "20% off your first order", kind: "percent", value: 20, maxDiscountRupees: 200, minOrderRupees: 500 },
           },
           null,
           2,
@@ -492,6 +540,7 @@ export async function POST(req: Request) {
           <li>The site reads <C>/config</C> rather than hard-coding the assistant&rsquo;s name, fields or booking word.</li>
           <li>A chat keeps one <C>sessionId</C>; a new chat gets a new one; <C>visitorId</C> goes on every call.</li>
           <li>Cards lock the input until Confirm or Edit, and a <C>409</C> or <C>422</C> from confirm is shown, not swallowed.</li>
+          <li>Closing the chat or reloading the page sends <C>/chat/end</C>, and a <C>409</C> on the next message starts a new <C>sessionId</C>.</li>
           <li>The chat polls <C>GET /chat</C> so a person taking over is seen, and shows their name.</li>
           <li>The voice button is hidden unless <C>features.voice</C> (and <C>voiceSecure</C> on https) is true.</li>
           <li>Your own rate limit sits in front of your chat route — the business&rsquo;s 300 requests a minute are shared by all your visitors, and one chat may send 12 messages a minute.</li>

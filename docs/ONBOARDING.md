@@ -43,27 +43,38 @@ or do it for them:
 
 | | Why |
 | --- | --- |
-| Business name, and what kind of business it is | Picks the industry template: pipeline words, what the assistant may do, what it collects, what can be booked |
+| Business name, and what kind of business it is | Picks the industry template: what the assistant may do, what it collects, what can be booked and its word for it, how customers are segmented. (The leads board is the same five stages for everyone.) |
 | Website address | Corva reads it into the assistant's knowledge |
-| Anything the site does not say — prices, hours, policies, service area | Typed in as a second document |
+| Their price list | Products & services (`/app/catalog`), so the assistant quotes real prices |
+| Anything the site does not say — hours, policies, service area | Typed in as a second document |
+| Any discounts they give | Offers (Settings → Offers) — the only discounts the assistant may mention |
+| How they take payment today | Their own endpoint (developer), Collected by Corva (switched on in `/admin`), or none yet |
 | The owner's **email** | The Owner seat; it is how they sign in |
 | The team: name, email, role for each | Invitations, and who leads and follow-ups can be given to |
 | What to call the assistant | Its name in chat and on calls |
 
 ## Their developer's part
 
-Everything is at `/developers` on the live site; [INTEGRATION.md](INTEGRATION.md) is the short
-version and the checklist. Two environment variables on their server — `CORVA_API_URL` and
-`CORVA_API_KEY` — and their chat window talks to the assistant.
+Everything is at `/developers` on the live site; [INTEGRATION.md](INTEGRATION.md) is the
+guide: what to build, the rules behind the API, the checklist and what changed. Two environment
+variables on their server — `CORVA_API_URL` and `CORVA_API_KEY` — and their chat window talks to
+the assistant. Order status (`/records`), a payment endpoint and a webhook receiver are optional
+additions.
 
 ## Before we call it live
 
 - [ ] `/api/v1/health` with their key returns `ok` from their production site
 - [ ] A chat on their site books (or requests a callback) and it appears under Leads with an owner and a follow-up
+- [ ] Closing the chat ends the conversation (it leaves Live within seconds, not after 30 minutes)
 - [ ] Someone on their team takes a chat over and the customer sees their reply
 - [ ] A voice call from the site connects, and a person can take it over (if they use voice)
 - [ ] The confirmation email arrives — needs a verified sending domain (`EMAIL_FROM`)
 - [ ] Their Details to collect are the ones they actually need, and show on the lead
+- [ ] If they take payments: in *Try it*, ask the assistant to pay for a test order — it asks for
+      a code, the request waits on Handoffs, *Approve & send* delivers the link, and paying it
+      marks the payment paid and the lead Converted
+- [ ] A verification code reaches a customer (email works at once; SMS needs their provider and
+      DLT `otp` template)
 - [ ] Each team member has signed in once
 - [ ] They are on a plan, or know the day the pilot ends
 

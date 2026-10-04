@@ -64,10 +64,10 @@ export const loopSteps = [
 ] as const;
 
 
-/** The industries section: each template's own words for its pipeline. */
+/** The industries section: what each template brings. */
 export const industryNotes = [
   "Pick an industry when a business is added. The AI already knows what to ask, what can be booked and what it may do on its own.",
-  "Your pipeline uses your words — an appointment booked, a site visit fixed, a pickup booked.",
+  "It books in your words — an appointment, a site visit, a pickup — and knows a regular from a lapsing customer the way your kind of business does.",
   "Then make it yours: the details it collects, what it may promise, when it hands over.",
 ] as const;
 

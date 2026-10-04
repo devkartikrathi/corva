@@ -5,20 +5,35 @@ expect to be asked. "Built" means in the product today.
 
 ## Built
 
-- An assistant per business on website chat, website voice and the business's own WhatsApp
-  number, answering only from the business's knowledge and inside its limits
-- The business's email inbox read for its customers: threads on the customer's record, with
-  which still await a reply
+- An assistant per business on website chat, website voice, the business's own WhatsApp
+  number and its customer email, answering only from the business's knowledge, its products &
+  services and its order records, inside its limits
+- Customer email by forwarding to a Corva address: threads on the customer's record, the
+  assistant's replies (a switch), replies from Corva on the same thread
 - The business's own database connected read-only: lookups the assistant may run for a
   customer, and questions in plain words for the team
+- One customer across every channel: verified and stated numbers and emails, possible matches
+  for the team, merge and undo merge, removing a number or email; profiles and segments by kind
+  of business (`docs/CUSTOMER-PROFILES.md`)
 - Attendance, and an overview of customers by channel, who answered, and each person's work
 - Bookings and callbacks the customer confirms on a card; leads with owners; follow-ups with due times
 - Details to collect, defined by the business, shown on live conversations and leads
-- Taking over a chat or a voice call live, and handing it back
-- Customers, pipeline in the business's own stage words, team performance, roles, audit log
-- A public API (chat, config, leads, visits, voice), signed webhooks, an OpenAPI spec and developer docs
+- Taking over a chat or a voice call live, and handing it back; opening a conversation from the
+  console by phone, WhatsApp (in its 24-hour window, or with an approved template) or email
+- Customers, a five-stage leads board (New, Contacted, Processing, Converted, Lost), team
+  performance, roles, audit log
+- A public API (chat, chat end, config, leads, records, payments, visits, voice), signed
+  webhooks, an OpenAPI spec and developer docs
 - Reading records back over the API — leads, customers, conversations with transcripts — filtered by
-  any detail the business collects; updating a lead's stage from the business's own system
+  any detail the business collects; moving a lead from the business's own system
+- Conversations that end when the customer leaves: the site's signal, a new chat from the same
+  browser, or 30 quiet minutes
+- Verification codes by SMS or email to the number or email on file (`docs/PAYMENTS-AND-VERIFICATION.md`)
+- SMS for notices only, from the business's own DLT-registered provider (`docs/TELEPHONY.md`)
+- Offers the business publishes, checked in code; payment links a person approves and that wait
+  for the customer to be verified (both switches, on by default)
+- Collected by Corva: payment links on Corva's own Razorpay account for businesses with no
+  payment system
 - Industry templates: clinic, real estate, retail, education, home services, laundry, restaurant, general
 - Self-serve signup: an account, one form, a working assistant on a 14-day pilot
 - Plans with usage metered and limits enforced; paying for a month with Razorpay; receipts
@@ -51,9 +66,9 @@ expect to be asked. "Built" means in the product today.
    photos and voice notes, messages Corva starts (reminders, status updates, which need Meta
    templates), and a one-click sign-up in place of the six setup steps, which needs Corva to be
    approved by Meta as a Tech Provider.
-7a. **Email, the rest of it.** Replying from Corva with an AI-drafted answer, sign-in with
-   Google or Microsoft in place of an app password (Microsoft 365 cannot be connected today),
-   and attachments.
+7a. **Email, the rest of it.** Forwarding, the assistant's replies and replying from Corva are
+   built. Next: attachments, and sending from the business's own domain without each business
+   verifying it in Resend.
 8. **Availability and slots.** Opening hours, capacity per slot and blackout dates, so a booking
    card only offers times the business can keep. Today the assistant takes the customer's
    preferred time and the team confirms.
@@ -66,10 +81,15 @@ expect to be asked. "Built" means in the product today.
     coordinates; distance rules (discount, fee or not served) quoted by the assistant. Designed
     in `docs/LOCATION.md`, not built; Tumble Days' distance discount is the first use.
 10a. **More databases.** MySQL, MongoDB and Google Sheets beside Postgres.
-11. **Editing the industry template.** Stage names, what can be booked and for how far ahead,
-    per business, in the console — today they come from the template.
-12. **Payments.** A payment link in chat (Razorpay) for a deposit or a prepaid order, recorded
-    on the lead.
+11. **Editing the industry template.** What can be booked and for how far ahead, per business,
+    in the console — today it comes from the template. (The leads board is the same five stages
+    for everyone on purpose.)
+12. **Payments, the rest of it.** Asking for payment, approvals, offers and Collected by Corva
+    are built. Next: the payment link as a card in the website chat, native UPI QR codes,
+    refunds, Razorpay Route for collected payments, and Tumble Days' endpoint applying `offer`
+    (`docs/PAYMENTS.md`).
+13. **More behind a verification code.** Changing an address or cancelling an order only after
+    a code, as payments are today.
 
 ## Later
 
@@ -84,15 +104,18 @@ expect to be asked. "Built" means in the product today.
 
 - A voice call is bounded by the platform's function duration — five minutes on Vercel's Hobby
   plan (`VOICE_CALL_LIMIT_SECONDS`), longer on Pro.
-- WhatsApp and the email inbox have been tested against stand-ins for Meta and for a mail
-  server, not yet against a real number or a real inbox.
-- Inboxes are read daily by Vercel's cron on the Hobby plan; the 15-minute read depends on the
-  GitHub Actions schedule (or a paid Vercel plan).
+- WhatsApp has been tested against a stand-in for Meta, not yet a real number. Customer email
+  needs Resend receiving set up on the live site (`RESEND_INBOUND_DOMAIN`,
+  `RESEND_INBOUND_SECRET`) before any business can forward to it.
+- SMS (and so SMS verification codes) needs each business's own provider and DLT `otp`
+  template; until then a code can only go to an email on file, and test mode logs the SMS
+  without the code.
 - Webhook signing secrets are stored as given, not sealed like the other credentials.
 - A connected database's certificate is not checked against a CA list (the connection is
   encrypted).
-- A chat left idle for an hour, or a call for fifteen minutes, is closed by the scheduled job;
-  the visitor's next message starts a new conversation.
+- A website chat whose site never calls `/chat/end` stays open until the same browser starts a
+  new chat or 30 quiet minutes pass, and the quiet check runs when someone opens the console (or
+  on the daily job) — so on a day nobody signs in, the live count can lag.
 - Webhook delivery is best-effort with one retry; there is no delivery log beyond the last result.
 - The model provider's speed varies minute to minute; streams hedge across models, but a first
   reply after a quiet period can still take several seconds.

@@ -72,7 +72,25 @@ payments, SMS, notes, consents, visitors, handles — onto `into`, fills `into`'
 email, location, first seen), keeps the earlier "customer since", writes an audit row with a copy
 of the record that went (`customer_merges`), and removes `from`. One statement batch, so it either
 all happens or none of it does. Handles that moved because of a claim stay **stated** on the new
-customer.
+customer. The merge row records exactly what moved (`customer_merges.moved`).
+
+### Undoing a merge
+
+*Undo merge* on the record a customer was merged into (`undoMerge`, built 2026-10-03). The
+folded-in record comes back with its own id and everything that was its — conversations, leads,
+follow-ups, orders, payments, texts, notes, browsers, consents, numbers and emails, as verified as
+they were — and whatever the surviving record took from it (a phone, an email, a name filling a
+gap) is put back, where nobody has changed it since. The two are then marked as **different
+people** (the match is dismissed), so the same match is not
+suggested again. A merge made before `moved` was recorded is undone by tracing the folded-in
+record's number and email. The merge row keeps `undone_at` and `undone_by`.
+
+### Removing a number or email
+
+*Remove* beside each handle on the customer page (`removeHandle`). It comes off the record — and
+off file, with another verified handle of theirs taking its place if there is one. The next time
+someone uses it, they are a new customer; the conversations it brought stay where they are. For
+a number typed by mistake, or one that now belongs to someone else.
 
 ### Matches worth suggesting
 
@@ -84,8 +102,11 @@ customer.
 
 ### Later
 
-- **Proving a stated handle**: "We've sent a code to r•••@gmail.com" / a WhatsApp "is this you?"
-  — a stated identity becomes verified without the team.
+- **Proving a stated handle** — *built for the handle on file*: the assistant sends a code to the
+  number or email already on the record ("We've sent a code to r•••@gmail.com") and a right code
+  verifies the conversation (`identified_by = 'otp'`) and that handle; see
+  [PAYMENTS-AND-VERIFICATION.md](PAYMENTS-AND-VERIFICATION.md). Still to do: proving a *new*
+  handle typed in a chat, and a WhatsApp "is this you?".
 - Real phone lines (Part 1 of `docs/TELEPHONY.md`): caller id is verified on the network.
 
 ## Part 2 — Profiles
@@ -142,5 +163,6 @@ first time the assistant reads a stale profile (over an hour old), and nightly f
 - Browser → customer: a chat or web voice call from a browser that was identified before starts as
   that customer.
 - Email replies go to the address the customer wrote from, not whatever is on file.
-- Customer page: every handle with verified / stated, the profile, possible matches with Merge /
-  Not the same, and merging another record in by its number or email.
+- Customer page: every handle with verified / stated and *Remove*, the profile, possible matches
+  with Merge / Not the same, merging another record in by its number or email, and *Undo merge*.
+- Verification codes make a conversation verified (`lib/verify/codes.ts`).

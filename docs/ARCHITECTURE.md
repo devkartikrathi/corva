@@ -46,9 +46,11 @@ Nothing a client sends chooses the brand.
 5. **Persist** the reply with its citations, bill the conversation, update the one-line summary.
 
 The system prompt is assembled per turn from the brand's persona, the authority and never
-rules, what is known about the customer, the retrieved sources, an outline of the business's
-**Products & services**, the **Details to collect** (with what is still missing), and — in a
-web chat — the booking instructions.
+rules, what is known about the customer (one line of their profile, their last payments, and
+whether the conversation is **verified**), the retrieved sources, an outline of the business's
+**Products & services**, the **Details to collect** (with what is still missing), the published
+**offers**, the payment rules, and — in a web chat — the booking instructions. A reply that opens
+by thinking aloud ("The customer is asking…") is not streamed; only its answer is sent.
 
 ## Products & services
 
@@ -86,6 +88,10 @@ so a long price list is answerable the moment it is saved.
 
 ### Tools
 
+Text turns (website chat, WhatsApp, email, the console's tester) and voice offer the same
+tools; a tool is only offered when the business has what it needs (a payment route, a database,
+published offers).
+
 | Tool | Where | What it does |
 | --- | --- | --- |
 | `record_details` | web chat | Stores answers to the business's Details to collect |
@@ -94,6 +100,12 @@ so a long price list is answerable the moment it is saved.
 | `schedule_follow_up` | all | A task for a named person with a due time |
 | `take_action` | all | An account action, allowed or refused by the authority table |
 | `close_with_agreement` | all | The customer accepted a no; leaves a row for a person to confirm |
+| `look_up_record` | all | An order by its reference, from what the business pushed (`POST /records`); "not found" sends the assistant on to `look_up_data` |
+| `look_up_data` | all, with a connected database | One of the business's approved read-only lookups (`lib/data/sources.ts`); a phone-number parameter only runs for the verified sender's own number |
+| `email_details` | all | Emails an order's full details to the address **on file** for its customer, never one given in the conversation |
+| `check_offer` | all, with published offers | Whether a code applies to this customer — dates, segment, first order, once each — decided in code (`lib/payments/offers.ts`) |
+| `request_payment` | all, when the business can collect | An order's payment link, by reference only; may wait for a person's approval, or ask for verification first |
+| `send_verification_code`, `verify_code` | all | A code to the number or email on file; checking what the customer typed (`lib/verify/codes.ts`) |
 | `search_knowledge`, `escalate_to_human` | voice | Retrieval and handoff, as tools, because Live has no pre-turn hook |
 
 ### Why bookings are proposals
@@ -120,6 +132,70 @@ schema change and is immediately filterable: `GET /api/v1/leads?details.<key>=<v
 (`lib/integrations/read.ts`). A booking's own fields — date, time slot, services, address,
 reference — are kept the same way in `leads.request`, so nothing has to be parsed out of the
 human-readable `interest` line.
+
+## Who the customer is
+
+`lib/crm/identity.ts`. A customer is found by a **handle** — a phone number or email — in
+`customer_identities`. Each handle is **verified** (a WhatsApp sender, a real caller id, the
+address an email came from, the business's system via `/records` or `/payments`, a person on the
+team, a code) or **stated** (typed into a chat or a form). Every way in — callers, WhatsApp,
+inbound email, the records API, saved details, the transcript read after a call — goes through
+`customerForHandle` / `keepHandle`.
+
+- A conversation carries `identified_by`; `isVerified()` decides whether the assistant may read
+  out record details (an address, payments) and take payment.
+- A stated handle never becomes the number or email on file. A record a conversation made a
+  moment ago (a name-only stand-in) folds into the customer it turned out to be; two real
+  customers are never merged on a claim — `recordMatch` leaves a `customer_matches` row for the team.
+- `mergeCustomers` moves everything in one statement batch and records exactly what moved
+  (`customer_merges.moved`); `undoMerge` recreates the folded-in record with its own id, puts back
+  what was its, and marks the two as different people. `removeHandle` takes a number or email off
+  a record; the next person to use it is a new customer.
+- A browser that was identified before (`visitors.customer_id`) starts its next chat or web call
+  as that customer (`identified_by = 'browser'`, not verified).
+
+`lib/crm/profile.ts` computes `customers.profile` — contacts by channel, orders and their usual
+gap, value, trend, issues, short stays, a segment per kind of business — on identification,
+merges, records, payments, when the assistant reads a stale one, and nightly. It feeds the
+priority engine as weighted signals. See [CUSTOMER-PROFILES.md](CUSTOMER-PROFILES.md).
+
+## When a conversation ends
+
+`lib/conversations/ending.ts`. A call hangs up; the other channels do not, so a conversation ends:
+
+- when the site says so (`POST /api/v1/chat/end`);
+- when the same browser starts a new chat (`endEarlierChats`);
+- after it has been quiet for 30 minutes (web chat), 15 (a call) or 24 hours (WhatsApp — its
+  reply window). `endQuietConversations` runs on any console page load, at most once a minute,
+  and on the daily job.
+
+`endConversation` gives each one a call's close: resolved if the customer said anything, else
+abandoned; its end time and length; uncontained if a person stepped in; then the classifier's
+summary, intent and outcome, and `conversation.ended` to webhooks. Email threads are never left
+live.
+
+## Payments, offers and verification
+
+`lib/payments/`. The money is the business's: Corva asks the business's endpoint for a link (a
+signed POST, `askForPayment`) and hears back on `POST /api/v1/payments` (`recordPayment`); a
+business with no system can have Corva collect on its own Razorpay account (`hosted.ts`).
+Statuses only climb, and `paid` moves the lead to Converted.
+
+- **The assistant never names an amount**: `askForPayment` refuses one from it.
+- **Approval** (`approvals.ts`, `payment_policies`): on by default. The assistant's request
+  becomes a `payment_approvals` row on the Handoffs screen; *Approve & send* makes the link and
+  posts it where the conversation is.
+- **Verify first**: on by default. `request_payment` on an unverified conversation returns
+  `needsVerification`, and the assistant sends a code.
+- **Offers** (`offers.ts`; `offers`, `offer_uses`): the only discounts. `checkOffer` decides in
+  code; an applied offer travels on the approval and the request and is applied by the business's
+  system (or by `hosted.ts`). One use per customer is recorded.
+- **Codes** (`lib/verify/codes.ts`, `verification_codes`): six digits by SMS (the `otp`
+  template; never written to the SMS log) or email, only to a handle on file; HMAC-hashed under
+  `DATA_SOURCE_KEY`, 10 minutes, 5 tries, 3 per conversation an hour and 6 per handle a day. A
+  right code sets `identified_by = 'otp'` and verifies the handle.
+
+See [PAYMENTS.md](PAYMENTS.md) and [PAYMENTS-AND-VERIFICATION.md](PAYMENTS-AND-VERIFICATION.md).
 
 ## Voice
 
@@ -198,10 +274,13 @@ everyone else. It reads plans, usage and payments — never a business's convers
 | --- | --- |
 | Tenancy and people | `organizations`, `brands`, `memberships`, `audit_log` |
 | Billing | `organizations.tier` / `period_*`, `payments`, `demo_requests` |
-| Assistant | `agent_versions` (+ `authority_limits`, `escalation_triggers`, `never_rules`), `intake_fields`, `documents`, `document_chunks` |
-| Conversations | `conversations`, `turns`, `turn_citations`, `conversation_actions`, `handoffs`, `chat_proposals` |
-| CRM | `customers`, `leads`, `follow_ups`, `customer_notes`, `customer_scores` |
-| Integrations | `api_keys`, `webhooks`, `visitors`, `visitor_events`, `channels` |
+| Assistant | `agent_versions` (+ `authority_limits`, `escalation_triggers`, `never_rules`), `intake_fields`, `documents`, `document_chunks`, `catalog_categories`, `catalog_items` |
+| Conversations | `conversations` (+ `identified_by`, `visitor_id`), `turns`, `turn_citations`, `conversation_actions`, `handoffs`, `chat_proposals` |
+| CRM | `customers` (+ `profile`), `customer_identities`, `customer_matches`, `customer_merges`, `leads`, `follow_ups`, `customer_notes`, `customer_scores`, `customer_records` |
+| Customer payments | `payment_endpoints`, `customer_payments`, `payment_policies`, `payment_approvals`, `offers`, `offer_uses`, `collection_settings` |
+| Verification and SMS | `verification_codes`, `sms_settings`, `sms_templates`, `sms_messages` |
+| Channels | `email_inboxes`, `email_messages`, `whatsapp_numbers`, `whatsapp_seen` |
+| Integrations | `api_keys`, `webhooks`, `visitors`, `visitor_events`, `channels`, `data_sources`, `data_lookups` |
 
 ## Channels beyond the website
 
@@ -212,7 +291,7 @@ Every channel ends in the same place: a row in `conversations` with a `channel`,
 | Website chat | The business's server calls `POST /chat` | The assistant; a person on takeover | `lib/integrations/intake.ts` |
 | Website voice | The browser opens a WebSocket with a signed token | The assistant; a person on takeover | `lib/voice/*` |
 | WhatsApp | Meta's webhook, verified by the business's app secret | The assistant, through the same `agentChat`; a person's reply is pushed to WhatsApp | `lib/whatsapp/cloud.ts` |
-| Email | Forwarded to the business's Corva address, received through Resend's webhook the moment it arrives | The team, from Corva; replies return to the same thread | `lib/email/inbound.ts` |
+| Email | Forwarded to the business's Corva address, received through Resend's webhook the moment it arrives | The assistant (a switch on the Email screen), except on threads a person has replied on or that need the team; the team from Corva. Replies return to the same thread | `lib/email/inbound.ts` |
 
 A business's own database is not a channel but a source: lookups it approves become one tool
 for the assistant (`lib/data/sources.ts`), run read-only.
@@ -226,7 +305,10 @@ What a business connects (database, inbox, WhatsApp token) is sealed with `DATA_
   server instances. It fails open: if the database cannot be reached the call is allowed.
 - `lib/net.ts` resolves a host and refuses private addresses before Corva connects to anything
   a business typed in; `fetchPublic` re-checks on each redirect.
-- `/api/cron/daily` is the one scheduled job (once a day, `vercel.json`): it closes conversations nobody is in any more, sweeps old counters and receipts, and finishes knowledge still waiting for vectors. Nothing customer-facing waits on it.
+- `/api/cron/daily` is the one scheduled job (once a day, `vercel.json`): it closes any quiet
+  conversation the console has not closed already, refreshes customer profiles, sweeps old
+  counters and receipts, and finishes knowledge still waiting for vectors. Nothing
+  customer-facing waits on it.
 
 Schema changes go through `npm run db:generate` (a migration in `drizzle/`) and
 `npm run db:migrate`. Additive migrations are applied before the code that needs them ships.
